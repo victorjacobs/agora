@@ -73,6 +73,8 @@ WebSocket subprotocol, never in a URL or browser storage.
 `chat.ts` owns selection, reconnect backoff, pending interactions, and action
 state. `transcript.ts` normalizes REST display projections and merges pages by
 durable row IDs. Vue components handle presentation and explicit user choices.
+Session create and resume RPCs sent over `/api/ws` set `source: "desktop"` to
+identify Agora as a graphical client to Hermes, including during recovery.
 The presentation groups assistant text and tool results into one turn, skipping
 empty stored assistant rows. Consecutive tool results share an expandable group
 with tool names and safely rendered plain-text output. Grouping preserves order
@@ -236,12 +238,16 @@ do not create unread-response markers.
 
 ### Inline generated images
 
-Assistant Markdown images and image `MEDIA:` markers render inline. Successful
+Assistant Markdown images and image `MEDIA:` markers render inline, including
+whitespace or a line break between the marker and its path. Code examples stay
+as text. Successful
 `image_generate` tool results (`success` and `image`) also show previews outside
 the collapsed tool details. History requests preserve structured `image_url`
 content rather than replacing it with `[image]`.
 
-Server-local paths are resolved by Hermes’s authenticated `GET /api/media?path=…`;
+Server-local paths are resolved by Hermes’s authenticated
+`GET /api/fs/read-data-url?path=…&profile=…`, matching Conduit’s gateway file
+resolver and supporting workspace images in the selected profile;
 remote URLs use `GET /api/media/proxy?url=…`, subject to Hermes’s CDN allowlist.
 The loopback bridge forwards these read-only routes with its server-held grants.
 Images are rendered from validated image data URLs, kept only in component memory.

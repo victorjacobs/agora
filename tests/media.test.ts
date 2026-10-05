@@ -18,16 +18,34 @@ describe('inline agent images', () => {
     expect(rendered).not.toContain('src="https://')
   })
 
+  it('renders spaced and multiline MEDIA references while preserving code and line breaks', () => {
+    const text = 'Before\nMEDIA: /workspace/chart.png\nMEDIA:\n"/workspace/another chart.png"\nAfter\n\n`MEDIA: /tmp/code.png`\n\n```\nMEDIA:\n/tmp/fenced.png\n```'
+    expect(markdownImages(text)).toEqual(['/workspace/chart.png', '/workspace/another chart.png'])
+    const rendered = renderMarkdown(text, { '/workspace/chart.png': data, '/workspace/another chart.png': data })
+    expect(rendered.match(/<img/g)).toHaveLength(2)
+    expect(rendered).toContain('Before<br>')
+    expect(rendered).toContain('After')
+    expect(rendered).toContain('<code>MEDIA: /tmp/code.png</code>')
+    expect(renderMarkdown('Escaped \\*literal\\*')).toContain('*literal*')
+  })
+
+  it('reads workspace images using the selected profile', async () => {
+    const api = new HermesApi()
+    const request = vi.spyOn(api, 'request').mockResolvedValue({ dataUrl: data })
+    expect(await loadImage('/workspace/chart.png', api, 'work')).toBe(data)
+    expect(request).toHaveBeenCalledWith('/api/fs/read-data-url?path=%2Fworkspace%2Fchart.png&profile=work')
+  })
+
   it('loads local and remote images through the authenticated Hermes API', async () => {
     const api = new HermesApi()
-    const request = vi.spyOn(api, 'request').mockResolvedValue({ data_url: data })
+    const request = vi.spyOn(api, 'request').mockResolvedValue({ dataUrl: data, data_url: data })
     expect(await loadImage('/home/hermes/images/a cat.png', api)).toBe(data)
-    expect(request).toHaveBeenLastCalledWith('/api/media?path=%2Fhome%2Fhermes%2Fimages%2Fa+cat.png')
+    expect(request).toHaveBeenLastCalledWith('/api/fs/read-data-url?path=%2Fhome%2Fhermes%2Fimages%2Fa+cat.png')
     expect(await loadImage('https://fal.media/cat.png', api)).toBe(data)
     expect(request).toHaveBeenLastCalledWith('/api/media/proxy?url=https%3A%2F%2Ffal.media%2Fcat.png')
     expect(await loadImage(data, api)).toBe(data)
     expect(request).toHaveBeenCalledTimes(2)
-    request.mockResolvedValue({ data_url: 'data:text/html;base64,aGVsbG8=' })
+    request.mockResolvedValue({ dataUrl: 'data:text/html;base64,aGVsbG8=' })
     await expect(loadImage('/home/hermes/images/cat.png', api)).rejects.toThrow('invalid image')
   })
 

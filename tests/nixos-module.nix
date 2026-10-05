@@ -1,10 +1,10 @@
-{ pkgs }:
+{ pkgs, module ? ../nix/module.nix }:
 
 let
   evaluate = settings: import (pkgs.path + "/nixos/lib/eval-config.nix") {
     system = "x86_64-linux";
     modules = [
-      ../nix/module.nix
+      module
       {
         system.stateVersion = "26.05";
         services.agora = settings;

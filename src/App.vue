@@ -246,7 +246,7 @@ onBeforeUnmount(() => { clearInterval(dateTimer); window.removeEventListener('re
             <p>Send a message to start.</p>
           </div>
           <template v-for="item in displayedItems" :key="item.key">
-            <ConversationTurn v-if="item.kind === 'turn'" :turn="item.turn" :thinking="state.running && !state.activity" @image-load="scrollToLatest(false)" />
+            <ConversationTurn v-if="item.kind === 'turn'" :turn="item.turn" :profile="state.profile" :thinking="state.running && !state.activity" @image-load="scrollToLatest(false)" />
             <BackgroundTasks v-else :tasks="item.tasks" error="" :connected="true" />
           </template>
           <div v-if="state.activity" class="activity" role="status"><span v-if="state.running" class="pulse" aria-hidden="true"></span>{{ state.activity }}</div>

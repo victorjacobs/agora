@@ -12,16 +12,17 @@ export function imageSource(value: string): string | undefined {
   return undefined
 }
 
-export async function loadImage(source: string, api = new HermesApi()): Promise<string> {
+export async function loadImage(source: string, api = new HermesApi(), profile?: string): Promise<string> {
   const normalized = imageSource(source)
   if (!normalized) throw new Error('Unsupported image source.')
   if (normalized.startsWith('data:')) return normalized
   const remote = /^https?:/.test(normalized)
-  const result = await api.request<{ data_url: string }>(remote
+  const result = await api.request<{ data_url?: string; dataUrl?: string }>(remote
     ? `/api/media/proxy?${api.query({ url: normalized })}`
-    : `/api/media?${api.query({ path: normalized })}`)
-  if (typeof result.data_url !== 'string' || !result.data_url.startsWith('data:image/') || !imageSource(result.data_url)) throw new Error('Hermes returned an invalid image.')
-  return result.data_url
+    : `/api/fs/read-data-url?${api.query({ path: normalized, profile })}`)
+  const data = remote ? result.data_url : result.dataUrl
+  if (typeof data !== 'string' || !data.startsWith('data:image/') || !imageSource(data)) throw new Error('Hermes returned an invalid image.')
+  return data
 }
 
 export function generatedImage(text: string, name?: string): string | undefined {

@@ -147,12 +147,54 @@ your server or include your conversation history.
 Keep Hermes protocol and authentication logic outside Vue components. Verify
 upstream contracts before changing request parameters or event handling.
 
-## Host alongside Hermes
+## Nix package and NixOS
 
-Standalone Nix expressions are available in [nix/package.nix](nix/package.nix)
-and [nix/module.nix](nix/module.nix); they are not exposed through the flake.
-See [Nix packaging and NixOS](docs/nix.md) for package builds, service configuration,
-and using the packaged static files alongside Hermes.
+Build or run the packaged application directly from the flake:
+
+```sh
+nix build github:victorjacobs/agora
+HERMES_ENDPOINT=https://hermes.example.com nix run github:victorjacobs/agora
+```
+
+For a local checkout, use `nix build .` or `nix run .`. The package includes
+Node.js and production dependencies. Open `http://127.0.0.1:5173/agora/`.
+
+To use Agora in a NixOS configuration flake:
+
+```nix
+{
+  inputs.agora.url = "github:victorjacobs/agora";
+  inputs.agora.inputs.nixpkgs.follows = "nixpkgs";
+
+  outputs = { nixpkgs, agora, ... }: {
+    nixosConfigurations.my-machine = nixpkgs.lib.nixosSystem {
+      system = "x86_64-linux";
+      modules = [
+        ./configuration.nix
+        agora.nixosModules.default
+        {
+          services.agora = {
+            enable = true;
+            hermesEndpoint = "https://hermes.example.com";
+          };
+        }
+      ];
+    };
+  };
+}
+```
+
+Add these entries to your existing configuration flake, which must already
+declare `inputs.nixpkgs`. The module builds Agora with your system's Nixpkgs.
+Its service listens on loopback for a browser on that machine.
+
+Exports are `packages.<system>.default` (also named `agora`) and
+`nixosModules.default` (also named `agora`). The implementations remain in
+[nix/package.nix](nix/package.nix) and [nix/module.nix](nix/module.nix), which can
+also be imported directly. See [Nix packaging and NixOS](docs/nix.md) for profile
+overrides, service options, and serving the packaged static files.
+
+## Host alongside Hermes
 
 For a static deployment, omit `HERMES_ENDPOINT` when building:
 

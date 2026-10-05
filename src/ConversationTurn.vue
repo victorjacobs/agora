@@ -4,7 +4,7 @@ import type { ConversationTurn } from './hermes/transcript'
 import MarkdownMessage from './MarkdownMessage.vue'
 import { generatedImage } from './hermes/media'
 
-const props = defineProps<{ turn: ConversationTurn; thinking: boolean }>()
+const props = defineProps<{ turn: ConversationTurn; thinking: boolean; profile?: string }>()
 const completionNotice = computed(() => props.turn.blocks.every(block => block.kind === 'text' && ['async_delegation_complete', 'process_complete'].includes(block.message.kind || '')))
 defineEmits<{ imageLoad: [] }>()
 </script>
@@ -15,7 +15,7 @@ defineEmits<{ imageLoad: [] }>()
     <div v-for="block in turn.blocks" :key="block.key" class="message-block">
       <template v-if="block.kind === 'tools'">
         <template v-for="tool in block.messages" :key="`image-${tool.key}`">
-          <MarkdownMessage v-if="generatedImage(tool.text, tool.name)" :text="`![Generated image](<${generatedImage(tool.text, tool.name)}>)`" @image-load="$emit('imageLoad')" />
+          <MarkdownMessage :profile="profile" v-if="generatedImage(tool.text, tool.name)" :text="`![Generated image](<${generatedImage(tool.text, tool.name)}>)`" @image-load="$emit('imageLoad')" />
         </template>
         <details class="tool-group">
           <summary>
@@ -44,7 +44,7 @@ defineEmits<{ imageLoad: [] }>()
       </details>
       <template v-else>
         <span v-if="block.message.kind" class="message-kind">{{ block.message.kind.replaceAll('_', ' ') }}</span>
-        <MarkdownMessage v-if="turn.role === 'assistant' && block.message.text.trim()" :text="block.message.text" @image-load="$emit('imageLoad')" />
+        <MarkdownMessage :profile="profile" v-if="turn.role === 'assistant' && block.message.text.trim()" :text="block.message.text" @image-load="$emit('imageLoad')" />
         <div v-else-if="turn.role !== 'assistant'" :class="turn.role === 'user' ? 'user-text' : 'muted'">{{ block.message.text }}</div>
         <span v-else-if="thinking" class="thinking">Thinking…</span>
       </template>

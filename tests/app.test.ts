@@ -160,7 +160,7 @@ describe('chat interface', () => {
   })
 
   it('renders generated tool images inline and preserves previews during streaming updates', async () => {
-    const request = vi.spyOn(HermesApi.prototype, 'request').mockResolvedValue({ data_url: 'data:image/png;base64,aGVsbG8=' })
+    const request = vi.spyOn(HermesApi.prototype, 'request').mockResolvedValue({ dataUrl: 'data:image/png;base64,aGVsbG8=' })
     const { host, client } = mountApp()
     client.state.messages = [{ key: 'image-tool', role: 'tool', name: 'image_generate', text: JSON.stringify({ success: true, image: '/home/hermes/images/cat.png' }) }]
     await vi.waitFor(() => expect(host.querySelector('.markdown img')?.getAttribute('src')).toBe('data:image/png;base64,aGVsbG8='))
@@ -170,6 +170,19 @@ describe('chat interface', () => {
     await nextTick()
     expect(host.querySelector('.markdown img')).not.toBeNull()
     expect(request).toHaveBeenCalledTimes(1)
+  })
+
+  it('renders live MEDIA images and reloads them when the profile changes', async () => {
+    const request = vi.spyOn(HermesApi.prototype, 'request').mockResolvedValue({ dataUrl: 'data:image/png;base64,aGVsbG8=' })
+    const { host, client } = mountApp()
+    client.state.profile = 'work'
+    client.state.messages = [{ key: 'media-reply', role: 'assistant', text: 'Here is the chart.\nMEDIA:\n/workspace/chart.png' }]
+    await vi.waitFor(() => expect(host.querySelector('.markdown img')).not.toBeNull())
+    expect(request).toHaveBeenLastCalledWith('/api/fs/read-data-url?path=%2Fworkspace%2Fchart.png&profile=work')
+    client.state.profile = 'personal'
+    await vi.waitFor(() => expect(request).toHaveBeenLastCalledWith('/api/fs/read-data-url?path=%2Fworkspace%2Fchart.png&profile=personal'))
+    await vi.waitFor(() => expect(host.querySelector('.markdown img')).not.toBeNull())
+    expect(request).toHaveBeenCalledTimes(2)
   })
 
   it('shows tasks while the main turn is idle and renders task data safely', async () => {

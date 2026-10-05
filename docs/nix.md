@@ -1,11 +1,20 @@
 # Nix package and NixOS module
 
-The package and module are standalone expressions. The development flake does
-not export packages or NixOS modules.
+The flake exports `packages.<system>.default` and `packages.<system>.agora` for
+Apple Silicon macOS and x86_64/aarch64 Linux, plus `nixosModules.default` and
+`nixosModules.agora`. The standalone expressions in `nix/` remain importable.
 
 ## Build and run
 
-With Nixpkgs available as `<nixpkgs>`:
+From this checkout:
+
+```sh
+nix build .
+HERMES_ENDPOINT=https://hermes.example.com nix run .
+```
+
+Use `github:victorjacobs/agora` instead of `.` to build or run without cloning.
+For direct use with Nixpkgs available as `<nixpkgs>`:
 
 ```sh
 nix-build --expr 'let pkgs = import <nixpkgs> {}; in pkgs.callPackage ./nix/package.nix {}'
@@ -22,12 +31,15 @@ environment files, dependencies, and build artifacts are excluded from its
 source. To select a Hermes profile when building:
 
 ```nix
-pkgs.callPackage ./nix/package.nix { hermesProfile = "work"; }
+agora.packages.${pkgs.stdenv.hostPlatform.system}.default.override { hermesProfile = "work"; }
 ```
+
+Alternatively, use `pkgs.callPackage ./nix/package.nix { hermesProfile = "work"; }`.
 
 ## NixOS
 
-Import the module from a checkout or a fetched repository source:
+Add `agora.nixosModules.default` to the system's modules when using a flake input,
+as shown in the [README](../README.md#nix-package-and-nixos). A direct import also works:
 
 ```nix
 {
@@ -83,11 +95,12 @@ selection, so its current routes do not need a catch-all SPA fallback.
 
 ## Verify changes
 
-From this repository, use the flake's pinned Nixpkgs without adding new outputs:
+From this repository:
 
 ```sh
-nix build --impure --no-link --expr 'let pkgs = import (builtins.getFlake (toString ./.)).inputs.nixpkgs { system = builtins.currentSystem; }; in pkgs.callPackage ./nix/package.nix {}'
-nix eval --impure --json --expr 'let pkgs = import (builtins.getFlake (toString ./.)).inputs.nixpkgs { system = "x86_64-linux"; }; in import ./tests/nixos-module.nix { inherit pkgs; }'
+nix flake check . --no-build
+nix build .
+nix eval --impure --json --expr 'let flake = builtins.getFlake (toString ./.); pkgs = import flake.inputs.nixpkgs { system = "x86_64-linux"; }; in import ./tests/nixos-module.nix { inherit pkgs; module = flake.nixosModules.default; }'
 ```
 
 After building with a `result` link, run `node tests/nix-package.mjs ./result`

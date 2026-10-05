@@ -58,6 +58,7 @@ async function fixture() {
       return send({ access_token: token, refresh_token: 'refresh-1', provider: 'self-hosted', expires_at: Date.now() / 1000 + 3600 })
     }
     if (request.headers.authorization !== `Bearer ${token}`) return send({ detail: 'Unauthorized' }, 401)
+    if (url.pathname === '/api/fs/read-data-url') return send({ dataUrl: 'data:image/png;base64,aGVsbG8=' })
     if (['/api/media', '/api/media/proxy'].includes(url.pathname)) return send({ data_url: 'data:image/png;base64,aGVsbG8=' })
     if (url.pathname === '/api/sessions/search') return send({ results: [{ id: 'old', title: 'Older chat' }] })
     if (url.pathname === '/api/auth/me') return send({ display_name: 'Synthetic operator' })
@@ -143,6 +144,9 @@ describe('local remote-Hermes connection', () => {
       expect(await response.json()).toEqual({ data_url: 'data:image/png;base64,aGVsbG8=' })
       expect(response.headers.get('cache-control')).toBe('no-store')
     }
+    const workspaceImage = await fetch(`${test.origin}/api/fs/read-data-url?path=/workspace/chart.png&profile=work`, { headers: { Cookie: cookie } })
+    expect(await workspaceImage.json()).toEqual({ dataUrl: 'data:image/png;base64,aGVsbG8=' })
+    expect(test.records.findLast(record => record.path === '/api/fs/read-data-url')?.authorization).toBe('Bearer access-1')
     expect(test.records.findLast(record => record.path === '/api/media')?.authorization).toBe('Bearer access-1')
     expect(test.records.findLast(record => record.path === '/api/media/proxy')?.cookie).toBeUndefined()
     expect((await fetch(`${test.origin}/api/media`, { method: 'POST', headers: { Cookie: cookie, Origin: test.origin } })).status).toBe(404)

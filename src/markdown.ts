@@ -6,25 +6,39 @@ const markdown = new MarkdownIt({ html: false, linkify: false, breaks: true })
 markdown.core.ruler.after('inline', 'hermes-media', state => {
   for (const block of state.tokens) {
     if (!block.children) continue
-    block.children = block.children.flatMap(token => {
-      if (token.type !== 'text') return [token]
-      const parts = []
+    const children = block.children
+    const output = []
+    const appendText = (content: string) => {
+      for (const [index, line] of content.split('\n').entries()) {
+        if (index) output.push(new state.Token('softbreak', 'br', 0))
+        if (!line) continue
+        const text = new state.Token('text', '', 0)
+        text.content = line
+        output.push(text)
+      }
+    }
+    for (let index = 0; index < children.length; index++) {
+      const token = children[index]!
+      if (token.type !== 'text') { output.push(token); continue }
+      let content = token.content
+      while (children[index + 1]?.type === 'text' || children[index + 1]?.type === 'softbreak') {
+        const next = children[++index]!
+        content += next.type === 'softbreak' ? '\n' : next.content
+      }
       let offset = 0
-      for (const match of token.content.matchAll(/MEDIA:(?:"([^"\n]+)"|'([^'\n]+)'|([^\s]+))/g)) {
+      for (const match of content.matchAll(/MEDIA:\s*(?:"([^"\n]+)"|'([^'\n]+)'|([^\s]+))/g)) {
         const source = (match[1] || match[2] || match[3] || '').replace(/[.,;!]$/, '')
         if (!/\.(?:png|jpe?g|gif|webp|svg|bmp|ico)(?:\?.*)?$/i.test(source) || !imageSource(source)) continue
-        const text = new state.Token('text', '', 0)
-        text.content = token.content.slice(offset, match.index)
+        appendText(content.slice(offset, match.index))
         const image = new state.Token('image', 'img', 0)
         image.attrSet('src', source)
         image.content = 'Generated image'
-        parts.push(text, image)
+        output.push(image)
         offset = match.index! + match[0].length
       }
-      const tail = new state.Token('text', '', 0)
-      tail.content = token.content.slice(offset)
-      return parts.length ? [...parts, tail] : [token]
-    })
+      appendText(content.slice(offset))
+    }
+    block.children = output
   }
 })
 

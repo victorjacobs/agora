@@ -558,6 +558,7 @@ export class ChatClient {
         // Fresh Hermes drafts have a stored key before their first database row.
         // Resume that exact key; accept missing history only for a proven empty draft.
         const draftSnapshot = await this.gateway.request<Snapshot>('session.resume', {
+          source: 'desktop',
           session_id: id, profile, omit_messages: true,
           inline_images: false, close_on_disconnect: false,
         })
@@ -572,6 +573,7 @@ export class ChatClient {
       }
       if (generation !== this.selectionGeneration) return
       let snapshot = await this.gateway.request<Snapshot>('session.resume', {
+        source: 'desktop',
         session_id: page.session_id, profile: page.profile || profile,
         omit_messages: true, inline_images: false, close_on_disconnect: false,
       })
@@ -582,6 +584,7 @@ export class ChatClient {
         page = await this.api.history(snapshot.stored_session_id || page.session_id, page.profile || profile)
         if (generation !== this.selectionGeneration) return
         snapshot = await this.gateway.request<Snapshot>('session.resume', {
+          source: 'desktop',
           session_id: page.session_id, profile: page.profile || profile, omit_messages: true,
           inline_images: false, close_on_disconnect: false,
         })
@@ -657,6 +660,7 @@ export class ChatClient {
     this.state.connection = 'recovering'
     try {
       const result = await this.gateway.request<Snapshot>('session.create', {
+        source: 'desktop',
         profile: this.configuredProfile, close_on_disconnect: false,
         idempotency_key: crypto.randomUUID(),
       })

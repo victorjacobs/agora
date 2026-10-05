@@ -1,5 +1,5 @@
 {
-  description = "Development environment for Agora, a Hermes chat client";
+  description = "Agora, a Hermes chat client";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
 
@@ -8,6 +8,21 @@
       systems = [ "aarch64-darwin" "aarch64-linux" "x86_64-linux" ];
     in
     {
+      packages = nixpkgs.lib.genAttrs systems (system:
+        let
+          pkgs = import nixpkgs { inherit system; };
+          agora = pkgs.callPackage ./nix/package.nix { };
+        in
+        {
+          inherit agora;
+          default = agora;
+        });
+
+      nixosModules = {
+        agora = import ./nix/module.nix;
+        default = import ./nix/module.nix;
+      };
+
       devShells = nixpkgs.lib.genAttrs systems (system:
         let
           pkgs = import nixpkgs { inherit system; };
