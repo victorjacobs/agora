@@ -22,7 +22,7 @@ Hermes does not need to host the UI. Native desktop packaging is deferred.
   an ordinary chat. Show unsupported requests clearly; never silently accept them.
 - Login/logout and a clear expired-session state. Preserve the selected
   conversation across login and reload using a stable URL where practical.
-  Signed-out users see a dedicated sign-in screen with the Hermes endpoint and
+  Signed-out users see a dedicated sign-in screen with
   one prominent sign-in action; connection errors remain visible there.
 - Responsive layout, keyboard-accessible controls, visible focus, and sensible
   scrolling that does not drag a reader away from older messages.

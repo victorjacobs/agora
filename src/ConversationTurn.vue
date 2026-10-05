@@ -1,14 +1,16 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import type { ConversationTurn } from './hermes/transcript'
 import MarkdownMessage from './MarkdownMessage.vue'
 import { generatedImage } from './hermes/media'
 
-defineProps<{ turn: ConversationTurn; thinking: boolean }>()
+const props = defineProps<{ turn: ConversationTurn; thinking: boolean }>()
+const completionNotice = computed(() => props.turn.blocks.every(block => block.kind === 'text' && ['async_delegation_complete', 'process_complete'].includes(block.message.kind || '')))
 defineEmits<{ imageLoad: [] }>()
 </script>
 
 <template>
-  <article class="message" :class="turn.role">
+  <article class="message" :class="[turn.role, { 'completion-notice': completionNotice }]">
     <div v-if="turn.role !== 'other'" class="message-author"><span class="avatar" aria-hidden="true">{{ turn.role === 'user' ? 'Y' : 'a' }}</span>{{ turn.role === 'user' ? 'You' : 'Hermes' }}</div>
     <div v-for="block in turn.blocks" :key="block.key" class="message-block">
       <template v-if="block.kind === 'tools'">
@@ -31,7 +33,10 @@ defineEmits<{ imageLoad: [] }>()
         </details>
       </template>
       <details v-else-if="['async_delegation_complete', 'process_complete'].includes(block.message.kind || '')" class="tool-group task-result">
-        <summary>{{ block.message.metadata?.display_text || (block.message.kind === 'process_complete' ? 'Background process finished' : 'Background tasks finished') }}</summary>
+        <summary>
+          <svg class="tool-chevron" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m6 4 4 4-4 4" /></svg>
+          <span class="task-result-title" :title="String(block.message.metadata?.display_text || '')">{{ block.message.metadata?.display_text || (block.message.kind === 'process_complete' ? 'Background process finished' : 'Background tasks finished') }}</span>
+        </summary>
         <div class="tool-outputs">
           <p v-if="typeof block.message.metadata?.task_count === 'number'">{{ block.message.metadata.task_count }} {{ block.message.metadata.task_count === 1 ? 'task' : 'tasks' }} · {{ block.message.metadata.completed_count ?? '—' }} completed · {{ block.message.metadata.failed_count ?? '—' }} failed</p>
           <pre>{{ block.message.text }}</pre>
@@ -65,4 +70,13 @@ defineEmits<{ imageLoad: [] }>()
 .tool-output h3 { margin: 0 0 8px; font: 550 11px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--secondary-text); overflow-wrap: anywhere; }
 .tool-output pre { margin: 0; padding: 12px; font-size: 11px; line-height: 1.6; max-height: 280px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--surface); border-color: var(--border); }
 .tool-no-output { margin: 0; font-size: 12px; color: var(--muted); }
+.message.completion-notice { margin-bottom: 12px; padding: 0; }
+.task-result { background: transparent; border: 0; border-radius: 6px; }
+.task-result > summary { padding: 5px 8px; font-size: 11px; }
+.task-result > summary > .task-result-title:first-of-type { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 400; }
+.task-result[open] { background: var(--panel); }
+.task-result[open] > summary > .task-result-title:first-of-type { white-space: normal; }
+.task-result .tool-outputs { font-size: 11px; padding: 8px 12px; }
+.task-result .tool-outputs p { margin: 0 0 8px; }
+.task-result pre { margin: 0; padding: 10px; font-size: 11px; max-height: 180px; }
 </style>

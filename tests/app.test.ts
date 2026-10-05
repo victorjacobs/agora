@@ -71,7 +71,7 @@ describe('chat interface', () => {
     expect(panel.querySelector('details:not(.task-description)')?.textContent).toContain('<script>danger()</script>')
     expect(panel.querySelector('script')).toBeNull()
     expect(host.querySelector('.message-author')).toBeNull()
-    expect(host.querySelector('.task-result summary')?.textContent).toBe('Logs checked')
+    expect(host.querySelector('.task-result-title')?.textContent).toBe('Logs checked')
     expect(host.querySelector('.task-result')?.textContent).toContain('1 task · 0 completed · 1 failed')
   })
 
