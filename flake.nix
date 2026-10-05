@@ -15,10 +15,11 @@
         {
           default = pkgs.mkShell {
             packages = with pkgs; [
-              nodejs_24 git ripgrep
+              nodejs_24 git ripgrep imagemagick
               (writeShellScriptBin "agora-dev" "exec npm run dev -- \"$@\"")
               (writeShellScriptBin "agora-start" "exec npm start -- \"$@\"")
               (writeShellScriptBin "agora-screenshot" "exec npm run screenshot -- \"$@\"")
+              (writeShellScriptBin "agora-icons" "exec sh scripts/icons.sh")
               (writeShellScriptBin "agora-check" "npm run typecheck && npm test && npm run build")
             ];
           };

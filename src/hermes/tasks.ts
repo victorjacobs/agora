@@ -1,4 +1,4 @@
-import type { GatewayEvent } from './types'
+import type { GatewayEvent, Message } from './types'
 
 export interface BackgroundTask {
   key: string
@@ -10,6 +10,7 @@ export interface BackgroundTask {
   toolCount?: number
   tool?: string
   summary?: string
+  completedAfter?: Pick<Message, 'key' | 'rowId' | 'role' | 'text'> | null
 }
 
 export interface SubagentRoster {
@@ -24,11 +25,20 @@ export function taskRunning(task: BackgroundTask) {
   return ['running', 'queued', 'working', 'starting'].includes(task.status)
 }
 
+export function anchorFinishedTasks(tasks: BackgroundTask[], messages: Message[]): BackgroundTask[] {
+  const message = messages.findLast(message => message.text.trim())
+  return tasks.map(task => taskRunning(task) || task.completedAfter !== undefined ? task : {
+    ...task,
+    completedAfter: message ? { key: message.key, rowId: message.rowId, role: message.role, text: message.text } : null,
+  })
+}
+
 export function taskEvent(tasks: BackgroundTask[], event: GatewayEvent): BackgroundTask[] {
   const p = event.payload || {}
   if (event.type === 'background.complete' && typeof p.task_id === 'string') {
     const key = `background:${p.task_id}`
     return [...tasks.filter(task => task.key !== key), {
+      ...tasks.find(task => task.key === key),
       key, goal: 'Background task', status: 'completed', summary: typeof p.text === 'string' ? p.text : undefined,
     }]
   }
@@ -65,6 +75,7 @@ export function reconcileTasks(tasks: BackgroundTask[], roster: SubagentRoster):
   const retained = tasks.filter(task => !live.some(row => row.key === task.key)).map(task =>
     taskRunning(task) ? { ...task, status: 'unknown' } : task)
   const failed = (roster.delegations || []).map(row => ({
+    ...tasks.find(task => task.key === `${row.delegation_id}:${row.task_index}` || task.delegationKey === `${row.delegation_id}:${row.task_index}`),
     key: tasks.find(task => task.delegationKey === `${row.delegation_id}:${row.task_index}`)?.key || `${row.delegation_id}:${row.task_index}`, goal: row.goal || 'Background task',
     status: row.status, summary: row.error,
   }))

@@ -1,4 +1,5 @@
-import { reconcileTasks, taskEvent, taskRunning, type BackgroundTask, type SubagentRoster } from './tasks'
+import { modelSwitchValue, reasoningEfforts, type ModelChoice, type ModelChangeResult, type ModelInventory, type ModelProvider, type SessionModelInfo } from './settings'
+import { anchorFinishedTasks, reconcileTasks, taskEvent, taskRunning, type BackgroundTask, type SubagentRoster } from './tasks'
 import { HermesApi, HttpError } from './api'
 import { ConnectionLost, Gateway } from './gateway'
 import { historyMessages, mergeHistory, restoreInflight } from './transcript'
@@ -27,6 +28,16 @@ export function initialState() {
     selected: '',
     runtime: '',
     profile: undefined as string | undefined,
+    model: '',
+    provider: '',
+    reasoning: '',
+    reasoningWire: '',
+    modelProviders: [] as ModelProvider[],
+    settingsLoading: false,
+    settingsPending: false,
+    settingsError: '',
+    settingsNotice: '',
+    modelConfirmation: undefined as (ModelChoice & { message: string }) | undefined,
     title: 'New conversation',
     messages: [] as Message[],
     historyOffset: 0,
@@ -52,6 +63,9 @@ export interface ChatLocation {
 }
 
 export class ChatClient {
+  private settingsMutation = false
+  private settingsRevision = 0
+  private settingsReadGeneration = 0
   private selectionGeneration = 0
   private connectionGeneration = 0
   private searchTimer?: ReturnType<typeof setTimeout>
@@ -166,7 +180,7 @@ export class ChatClient {
       await this.refreshSessions()
       if (connectionGeneration !== this.connectionGeneration) return
       if (this.state.selected) await this.open(this.state.selected, this.state.profile)
-      else { this.state.connection = 'ready'; this.state.activity = '' }
+      else { this.state.connection = 'ready'; this.state.activity = ''; void this.refreshSettings() }
       if (connectionGeneration !== this.connectionGeneration || this.state.connection !== 'ready') return
       this.activeTimer = setInterval(() => { void this.refreshActiveSessions(); void this.refreshTasks() }, 5000)
       this.attempts = 0
@@ -217,6 +231,143 @@ export class ChatClient {
       if (this.stopped || connectionGeneration !== this.connectionGeneration) return
       if (!this.handleAuth(error)) this.state.listError = errorMessage(error)
     } finally { this.state.listLoading = false }
+  }
+
+  private applyModelInfo(info: SessionModelInfo) {
+    if (typeof info.model === 'string') this.state.model = info.model
+    if (typeof info.provider === 'string') this.state.provider = info.provider
+    if (typeof info.reasoning_effort === 'string') this.state.reasoning = info.reasoning_effort
+    if (typeof info.reasoning_effort_wire === 'string') this.state.reasoningWire = info.reasoning_effort_wire
+    if (['model', 'provider', 'reasoning_effort', 'reasoning_effort_wire'].some(key => typeof info[key as keyof SessionModelInfo] === 'string')) this.settingsRevision++
+  }
+
+  async refreshSettings() {
+    if (this.stopped || this.state.connection !== 'ready' || this.state.settingsPending || this.settingsMutation) return
+    const read = ++this.settingsReadGeneration
+    const generation = this.selectionGeneration
+    const connection = this.connectionGeneration
+    const revision = this.settingsRevision
+    this.state.settingsLoading = true
+    this.state.settingsError = ''
+    try {
+      const [inventory, reasoning] = await Promise.all([
+        this.gateway.request<ModelInventory>('model.options', { session_id: this.state.runtime || undefined, profile: this.state.profile, explicit_only: true }),
+        this.gateway.request<{ value?: string }>('config.get', { key: 'reasoning', session_id: this.state.runtime || undefined, profile: this.state.profile }),
+      ])
+      if (this.stopped || read !== this.settingsReadGeneration || generation !== this.selectionGeneration || connection !== this.connectionGeneration) return
+      if (!Array.isArray(inventory.providers)) throw new Error('Model choices are unavailable from this Hermes gateway.')
+      this.state.modelProviders = inventory.providers
+      if (revision === this.settingsRevision) {
+        this.state.model = inventory.model || this.state.model
+        this.state.provider = inventory.provider || this.state.provider
+        this.state.reasoning = reasoning.value || this.state.reasoning
+      }
+    } catch (error) {
+      if (!this.stopped && read === this.settingsReadGeneration && generation === this.selectionGeneration && connection === this.connectionGeneration) this.state.settingsError = errorMessage(error)
+    } finally { if (read === this.settingsReadGeneration) this.state.settingsLoading = false }
+  }
+
+  private async ensureSettingsSession(): Promise<number | undefined> {
+    if (this.state.connection !== 'ready' || this.state.running || this.state.sending || this.state.actionPending || this.settingsMutation || this.stopped) return undefined
+    this.settingsMutation = true
+    this.state.settingsPending = true
+    if (!this.state.runtime) {
+      const draft = this.state.draft
+      const creation = this.newChat()
+      const generation = this.selectionGeneration
+      await creation
+      if (generation !== this.selectionGeneration) {
+        this.settingsMutation = false
+        this.state.settingsPending = false
+        void this.refreshSettings()
+        return undefined
+      }
+      this.state.draft = draft
+    }
+    const ready = Boolean(this.state.runtime && this.state.connection === 'ready')
+    this.state.settingsPending = ready
+    if (!ready) this.settingsMutation = false
+    return ready ? this.selectionGeneration : undefined
+  }
+
+  private settingsSelectionCurrent(generation: number | undefined): generation is number {
+    if (generation === undefined) return false
+    if (generation === this.selectionGeneration && this.state.connection === 'ready' && !this.stopped) return true
+    this.settingsMutation = false
+    this.state.settingsPending = false
+    void this.refreshSettings()
+    return false
+  }
+
+  async chooseModel(choice: ModelChoice, confirmed = false) {
+    const provider = this.state.modelProviders.find(provider => provider.slug === choice.provider)
+    if (!provider?.models.includes(choice.model) || provider.authenticated === false || provider.unavailable_models?.includes(choice.model)) return
+    if (confirmed && (!this.state.modelConfirmation || this.state.modelConfirmation.model !== choice.model || this.state.modelConfirmation.provider !== choice.provider)) return
+    const generation = await this.ensureSettingsSession()
+    if (!this.settingsSelectionCurrent(generation)) return
+    this.state.settingsPending = true
+    this.state.settingsError = ''
+    this.state.settingsNotice = ''
+    this.state.modelConfirmation = undefined
+    this.settingsRevision++
+    try {
+      const result = await this.gateway.request<ModelChangeResult>('config.set', {
+        key: 'model', value: modelSwitchValue(choice), session_id: this.state.runtime,
+        profile: this.state.profile, scope: 'session', confirm_expensive_model: confirmed,
+      }, 300_000)
+      if (generation !== this.selectionGeneration || this.stopped) return
+      if (result.confirm_required) {
+        this.state.modelConfirmation = { ...choice, message: result.confirm_message || 'Hermes requires confirmation before switching to this model.' }
+        return
+      }
+      if (result.info) this.applyModelInfo(result.info)
+      else if (!result.deferred) { this.state.model = choice.model; this.state.provider = choice.provider; this.state.reasoningWire = '' }
+      this.state.settingsNotice = [result.warning, result.deferred ? 'Model change queued for the next turn.' : ''].filter(Boolean).join(' ')
+    } catch (error) {
+      if (generation === this.selectionGeneration && !this.stopped) this.state.settingsError = error instanceof ConnectionLost
+        ? 'The model change may have reached Hermes. Reconnect to check its current setting.' : errorMessage(error)
+    } finally {
+      this.settingsMutation = false
+      this.state.settingsPending = false
+      if (!this.state.settingsError) void this.refreshSettings()
+    }
+  }
+
+  async chooseReasoning(effort: string) {
+    if (!reasoningEfforts.includes(effort)) return
+    const generation = await this.ensureSettingsSession()
+    if (!this.settingsSelectionCurrent(generation)) return
+    const revision = ++this.settingsRevision
+    this.state.settingsPending = true
+    this.state.settingsError = ''
+    this.state.settingsNotice = ''
+    try {
+      const result = await this.gateway.request<{ value?: string }>('config.set', {
+        key: 'reasoning', value: effort, scope: 'session', session_id: this.state.runtime, profile: this.state.profile,
+      })
+      if (generation !== this.selectionGeneration || this.stopped) return
+      if (revision === this.settingsRevision && result.value) { this.state.reasoning = result.value; this.state.reasoningWire = '' }
+    } catch (error) {
+      if (generation === this.selectionGeneration && !this.stopped) this.state.settingsError = error instanceof ConnectionLost
+        ? 'The reasoning change may have reached Hermes. Reconnect to check its current setting.' : errorMessage(error)
+    } finally {
+      this.settingsMutation = false
+      this.state.settingsPending = false
+      if (!this.state.settingsError) void this.refreshSettings()
+    }
+  }
+
+  private resetSettings() {
+    this.settingsReadGeneration++
+    this.state.settingsLoading = false
+    this.state.settingsPending = this.settingsMutation
+    this.state.settingsError = ''
+    this.state.settingsNotice = ''
+    this.state.modelConfirmation = undefined
+    this.state.model = ''
+    this.state.provider = ''
+    this.state.reasoning = ''
+    this.state.reasoningWire = ''
   }
 
   visibleSessions(): SessionRow[] {
@@ -334,7 +485,7 @@ export class ChatClient {
       })
       if (this.stopped || generation !== this.selectionGeneration || connection !== this.connectionGeneration || revision !== this.taskRevision) return
       if (!Array.isArray(roster.subagents)) return
-      this.state.tasks = reconcileTasks(this.state.tasks, roster)
+      this.state.tasks = anchorFinishedTasks(reconcileTasks(this.state.tasks, roster), this.state.messages)
       this.taskCache.set(this.taskScope(), this.state.tasks)
       this.state.taskError = ''
     } catch {
@@ -348,8 +499,8 @@ export class ChatClient {
     const tasks = taskEvent(this.state.tasks, event)
     if (tasks === this.state.tasks) return
     this.taskRevision++
-    this.state.tasks = tasks
-    this.taskCache.set(this.taskScope(), tasks)
+    this.state.tasks = anchorFinishedTasks(tasks, this.state.messages)
+    this.taskCache.set(this.taskScope(), this.state.tasks)
   }
 
   private rememberActiveSession() {
@@ -377,6 +528,7 @@ export class ChatClient {
     this.state.taskError = ''
     this.taskRequest = undefined
     this.state.runtime = ''
+    this.resetSettings()
     this.state.olderLoading = false
     this.state.draft = this.drafts.get(id) || ''
     this.state.uncertain = this.uncertain.has(id)
@@ -441,6 +593,7 @@ export class ChatClient {
       this.state.selected = stored
       this.state.runtime = snapshot.session_id
       this.state.profile = page.profile || profile
+      this.applyModelInfo(snapshot.info)
       this.state.title = snapshot.info.title || this.state.title
       this.state.messages = restoreInflight(historyMessages(page), snapshot)
       this.state.historyOffset = page.pagination.returned
@@ -485,6 +638,7 @@ export class ChatClient {
       }
       for (const event of eventsAfterSnapshot) this.receiveEvent(event)
       void this.refreshTasks()
+      void this.refreshSettings()
     } catch (error) {
       if (generation !== this.selectionGeneration) return
       this.recovering = false
@@ -509,7 +663,9 @@ export class ChatClient {
       if (generation !== this.selectionGeneration) return
       this.state.selected = result.stored_session_id || result.info.stored_session_id || ''
       this.state.runtime = result.session_id
-      this.state.profile = this.configuredProfile
+      this.state.profile = this.configuredProfile || result.info.profile_name || undefined
+      this.resetSettings()
+      this.applyModelInfo(result.info)
       this.state.messages = []
       this.state.tasks = []
       this.state.taskError = ''
@@ -528,6 +684,7 @@ export class ChatClient {
       this.rememberRuntime()
       this.markReplyRead()
       await this.refreshSessions()
+      void this.refreshSettings()
     } catch (error) {
       if (generation !== this.selectionGeneration) return
       if (this.handleAuth(error)) return
@@ -574,7 +731,7 @@ export class ChatClient {
 
   canSend() {
     return this.state.connection === 'ready' && Boolean(this.state.runtime && this.state.draft.trim()) &&
-      !this.state.running && !this.state.sending && !this.state.actionPending && !this.state.uncertain
+      !this.state.running && !this.state.sending && !this.state.actionPending && !this.state.settingsPending && !this.state.modelConfirmation && !this.state.uncertain
   }
 
   acknowledgeUncertain() {
@@ -662,7 +819,9 @@ export class ChatClient {
           approvals: [], requests: [], draft: '', running: false, uncertain: false,
           activity: '', hasOlder: false,
         })
+        this.resetSettings()
         this.location.select('')
+        void this.refreshSettings()
       }
       await this.refreshSessions()
     } catch (error) { if (!this.handleAuth(error)) this.state.error = errorMessage(error) }
@@ -725,6 +884,7 @@ export class ChatClient {
       case 'tool.complete': this.state.activity = typeof payload.summary === 'string' ? payload.summary : `Finished ${String(payload.name || 'tool')}`; break
       case 'status.update': this.state.activity = typeof payload.text === 'string' ? payload.text : ''; break
       case 'session.info':
+        this.applyModelInfo(payload)
         if (typeof payload.running === 'boolean') this.state.running = payload.running
         if (typeof payload.stored_session_id === 'string' && payload.stored_session_id !== this.state.selected) {
           const old = this.state.selected

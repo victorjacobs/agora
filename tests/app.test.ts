@@ -31,6 +31,54 @@ function mountApp(connection: 'ready' | 'connecting' = 'ready') {
 }
 
 describe('chat interface', () => {
+  it('pins only running tasks and leaves finished tasks before subsequent messages', async () => {
+    const { host, client } = mountApp()
+    client.state.messages = [{ key: 'reply', role: 'assistant', text: 'Initial reply' }]
+    client.state.tasks = [{ key: 'child', goal: 'Check logs', status: 'running' }]
+    await nextTick()
+    expect(host.querySelector('.pinned-tasks')?.textContent).toContain('Check logs')
+    expect(host.querySelector('.transcript .background-tasks')).toBeNull()
+    client.state.tasks = [{ ...client.state.tasks[0]!, status: 'completed', completedAfter: { ...client.state.messages[0]! } }]
+    client.state.messages.push({ key: 'question', role: 'user', text: 'Next question' })
+    await nextTick()
+    expect(host.querySelector('.pinned-tasks')).toBeNull()
+    const transcript = host.querySelector('.transcript')!
+    expect(transcript.textContent!.indexOf('Initial reply')).toBeLessThan(transcript.textContent!.indexOf('Check logs'))
+    expect(transcript.textContent!.indexOf('Check logs')).toBeLessThan(transcript.textContent!.indexOf('Next question'))
+    expect(host.querySelectorAll('.background-tasks')).toHaveLength(1)
+  })
+  it('exposes model and reasoning choices and asks before confirming a guarded model switch', async () => {
+    const { host, client } = mountApp()
+    Object.assign(client.state, {
+      model: 'first', provider: 'configured', reasoning: 'medium',
+      modelProviders: [{ slug: 'configured', name: 'Configured', models: ['first', 'second'], capabilities: { first: { reasoning: true, can_disable_reasoning: false } } }],
+    })
+    const model = vi.spyOn(client, 'chooseModel').mockResolvedValue()
+    const reasoning = vi.spyOn(client, 'chooseReasoning').mockResolvedValue()
+    await nextTick()
+    const modelSelect = host.querySelector<HTMLSelectElement>('[aria-label="Model"]')!
+    const reasoningSelect = host.querySelector<HTMLSelectElement>('[aria-label="Reasoning effort"]')!
+    expect(modelSelect.value).toBe(JSON.stringify(['configured', 'first']))
+    expect(reasoningSelect.querySelector<HTMLOptionElement>('option[value="none"]')?.disabled).toBe(true)
+    modelSelect.value = JSON.stringify(['configured', 'second'])
+    modelSelect.dispatchEvent(new Event('change', { bubbles: true }))
+    expect(model).toHaveBeenCalledWith({ model: 'second', provider: 'configured' })
+    reasoningSelect.value = 'high'
+    reasoningSelect.dispatchEvent(new Event('change', { bubbles: true }))
+    expect(reasoning).toHaveBeenCalledWith('high')
+    client.state.modelConfirmation = { model: 'second', provider: 'configured', message: 'This model costs more.' }
+    await nextTick()
+    expect(host.querySelector('.settings-confirmation')?.textContent).toContain('costs more')
+    expect(model).toHaveBeenCalledTimes(1)
+    host.querySelector<HTMLButtonElement>('.settings-confirmation button')!.click()
+    expect(model).toHaveBeenLastCalledWith(expect.objectContaining({ model: 'second', provider: 'configured' }), true)
+    client.state.modelConfirmation = undefined
+    client.state.running = true
+    await nextTick()
+    expect(modelSelect.disabled).toBe(true)
+    expect(reasoningSelect.disabled).toBe(true)
+  })
+
   it('filters chat titles, opens search results, and clears search on Escape', async () => {
     const { host, client } = mountApp()
     client.state.sessions = [{ id: 'one', title: 'Deployment notes', profile: 'work' }, { id: 'two', title: 'Garden plans', profile: 'work' }]
@@ -87,9 +135,11 @@ describe('chat interface', () => {
     client.state.tasks = [{ key: 'child', goal: 'Check logs', status: 'failed', summary: '<script>danger()</script>' }]
     client.state.messages = [{ key: 'notice', role: 'user', kind: 'async_delegation_complete', text: 'Result evidence', metadata: { display_text: 'Logs checked', task_count: 1, completed_count: 0, failed_count: 1 } }]
     await nextTick()
-    expect(panel.textContent).toContain('Failed')
-    expect(panel.querySelector('details:not(.task-description)')?.textContent).toContain('<script>danger()</script>')
-    expect(panel.querySelector('script')).toBeNull()
+    const finishedPanel = host.querySelector('.transcript [aria-label="Background tasks"]')!
+    expect(host.querySelector('.pinned-tasks')).toBeNull()
+    expect(finishedPanel.textContent).toContain('Failed')
+    expect(finishedPanel.querySelector('details:not(.task-description)')?.textContent).toContain('<script>danger()</script>')
+    expect(finishedPanel.querySelector('script')).toBeNull()
     expect(host.querySelector('.message-author')).toBeNull()
     expect(host.querySelector('.task-result-title')?.textContent).toBe('Logs checked')
     expect(host.querySelector('.task-result')?.textContent).toContain('1 task · 0 completed · 1 failed')

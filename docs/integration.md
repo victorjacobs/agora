@@ -260,3 +260,20 @@ up to 100 matches; its endpoint does not support search pagination or title
 search across unloaded conversations. Stale responses are discarded when the
 query changes, clears, or the client disconnects. Queries and results remain
 in memory. Clearing search restores the paginated conversation list.
+
+### Composer model and reasoning choices
+
+The composer reads `model.options` with `explicit_only=true` and session-aware
+`config.get` for reasoning. Changes use `config.set` with the selected runtime ID
+and profile. Model values include `--provider` and `--session`; reasoning uses
+`scope=session`. Choosing a setting before a chat exists creates a session first
+and preserves the unsent draft. Agora never writes profile-wide model defaults.
+
+Hermes remains authoritative through resume/create info and `session.info` events,
+including the effective `reasoning_effort_wire` when a route clamps the requested
+effort. Inventory capabilities disable reasoning for models without support and
+disable “None” where reasoning cannot be turned off. Switch confirmations and
+warnings are shown to the user; deferred switches are labelled as queued rather
+than reported as already active. Controls are disabled during a turn or setting
+change. Ambiguous setting failures are not retried automatically. Inventory reads
+do not delay normal chat recovery; unsupported methods show a refreshable error.

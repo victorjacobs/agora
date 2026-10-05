@@ -2,7 +2,9 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ChatClient, initialState } from './hermes/chat'
 import { groupSessions } from './session-groups'
-import { conversationTurns } from './hermes/transcript'
+import { conversationTimeline } from './hermes/transcript'
+import { taskRunning } from './hermes/tasks'
+import ComposerSettings from './ComposerSettings.vue'
 import BackgroundTasks from './BackgroundTasks.vue'
 import ConversationTurn from './ConversationTurn.vue'
 import RequestCard from './RequestCard.vue'
@@ -27,11 +29,12 @@ const searching = computed(() => Boolean(state.searchQuery.trim()))
 const visibleSessions = computed(() => chat.visibleSessions())
 const sessionGroups = computed(() => groupSessions(visibleSessions.value, currentDate.value))
 const displayedRequests = computed(() => state.requests)
-const displayedTurns = computed(() => conversationTurns(state.messages, state.running && !state.activity))
+const displayedItems = computed(() => conversationTimeline(state.messages, state.tasks, state.running && !state.activity))
+const runningTasks = computed(() => state.tasks.filter(taskRunning))
 const displayedApprovals = computed(() => state.approvals.filter(approval =>
   !state.requests.some(request => request.method === 'approval' && request.params.request_id === approval.request_id),
 ))
-const actionsDisabled = computed(() => state.connection !== 'ready' || state.actionPending || mutationPending.value)
+const actionsDisabled = computed(() => state.connection !== 'ready' || state.actionPending || state.settingsPending || mutationPending.value)
 const loginUrl = computed(() => `/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`)
 const checkingSession = computed(() => !state.identity && ['connecting', 'recovering', 'reconnecting'].includes(state.connection))
 const showSignIn = computed(() => !state.identity && state.connection !== 'ready')
@@ -87,6 +90,13 @@ function composerKey(event: KeyboardEvent) {
   if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); void send() }
 }
 
+function resizeComposer() {
+  const input = composer.value
+  if (!input) return
+  input.style.height = 'auto'
+  input.style.height = `${Math.min(input.scrollHeight, 240)}px`
+}
+
 function showDialog(kind: 'rename' | 'delete') {
   dialogKind.value = kind
   newTitle.value = state.title
@@ -118,11 +128,16 @@ watch(() => [state.messages.length, state.messages.at(-1)?.text], () => {
   if (following.value) void scrollToLatest(false)
 }, { flush: 'post' })
 watch(() => state.selected, () => { following.value = true })
+watch(() => state.tasks.map(task => [task.key, task.status]), () => {
+  if (following.value) void scrollToLatest(false)
+}, { flush: 'post' })
+watch([() => state.draft, composer], resizeComposer, { flush: 'post' })
 onMounted(() => {
   void chat.start(import.meta.env.VITE_HERMES_PROFILE)
   dateTimer = setInterval(() => { currentDate.value = new Date() }, 60_000)
+  window.addEventListener('resize', resizeComposer)
 })
-onBeforeUnmount(() => { clearInterval(dateTimer); chat.dispose() })
+onBeforeUnmount(() => { clearInterval(dateTimer); window.removeEventListener('resize', resizeComposer); chat.dispose() })
 </script>
 
 <template>
@@ -194,9 +209,12 @@ onBeforeUnmount(() => { clearInterval(dateTimer); chat.dispose() })
             <h2>Start a conversation.</h2>
             <p>Send a message to start.</p>
           </div>
-          <ConversationTurn v-for="turn in displayedTurns" :key="turn.key" :turn="turn" :thinking="state.running && !state.activity" @image-load="scrollToLatest(false)" />
+          <template v-for="item in displayedItems" :key="item.key">
+            <ConversationTurn v-if="item.kind === 'turn'" :turn="item.turn" :thinking="state.running && !state.activity" @image-load="scrollToLatest(false)" />
+            <BackgroundTasks v-else :tasks="item.tasks" error="" :connected="true" />
+          </template>
           <div v-if="state.activity" class="activity" role="status"><span v-if="state.running" class="pulse" aria-hidden="true"></span>{{ state.activity }}</div>
-          <BackgroundTasks :tasks="state.tasks" :error="state.taskError" :connected="state.connection === 'ready'" />
+          <p v-if="state.taskError && !runningTasks.length" class="muted task-status-error" role="status">{{ state.taskError }}</p>
           <RequestCard v-for="request in displayedRequests" :key="request.id" :request="request" :disabled="actionsDisabled" :dashboard-url="state.endpoint || '/'" @answer="chat.answer(request, $event)" />
           <section v-for="approval in displayedApprovals" :key="approval.request_id || 'pending'" class="request-card">
             <h3>Approval required</h3><p>{{ approval.description }}</p><pre v-if="approval.command">{{ approval.command }}</pre>
@@ -207,12 +225,16 @@ onBeforeUnmount(() => { clearInterval(dateTimer); chat.dispose() })
       <button v-if="!following" class="jump-latest" @click="scrollToLatest()">↓ Latest messages</button>
 
       <footer class="composer-footer">
+        <div v-if="runningTasks.length" class="pinned-tasks conversation-width">
+          <BackgroundTasks :tasks="runningTasks" :error="state.taskError" :connected="state.connection === 'ready'" />
+        </div>
         <form class="composer conversation-width" @submit.prevent="send">
           <label class="sr-only" for="prompt">Message Hermes</label>
-          <textarea id="prompt" ref="composer" v-model="state.draft" rows="3" placeholder="Message Hermes…" :disabled="state.connection === 'expired' || state.connection === 'closed'" @keydown="composerKey"></textarea>
-          <div class="composer-bottom"><span>Enter to send <span class="desktop-hint">· Shift + Enter for a new line</span></span>
+          <textarea id="prompt" ref="composer" v-model="state.draft" rows="2" placeholder="Message Hermes…" title="Enter to send · Shift + Enter for a new line" :disabled="state.connection === 'expired' || state.connection === 'closed'" @keydown="composerKey"></textarea>
+          <div class="composer-bottom">
+            <div class="composer-options"><ComposerSettings :state="state" @model="chat.chooseModel($event)" @reasoning="chat.chooseReasoning($event)" @confirm="state.modelConfirmation && chat.chooseModel(state.modelConfirmation, true)" @cancel="state.modelConfirmation = undefined" @retry="chat.refreshSettings()" /></div>
             <button v-if="state.running" type="button" class="stop" :disabled="actionsDisabled" @click="chat.stop()">■ Stop</button>
-            <button v-else class="primary send" :disabled="state.runtime ? !chat.canSend() : state.connection !== 'ready' || !state.draft.trim()" type="submit">{{ state.sending ? 'Sending…' : 'Send ↑' }}</button>
+            <button v-else class="primary send" :disabled="state.runtime ? !chat.canSend() : state.connection !== 'ready' || state.settingsPending || !state.draft.trim()" type="submit">{{ state.sending ? 'Sending…' : 'Send ↑' }}</button>
           </div>
         </form>
       </footer>

@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs'
+import assert from 'node:assert/strict'
 import { mkdir } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { createServer } from 'vite'
@@ -31,11 +32,12 @@ const server = await createServer({
   server: { host: '127.0.0.1', port: 0 }, logLevel: 'error',
 })
 let browser
+let liveSocket
 try {
   await server.listen()
   const origin = `http://127.0.0.1:${server.httpServer.address().port}`
   browser = await chromium.launch({ executablePath, headless: true })
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, deviceScaleFactor: 1, colorScheme: 'light', reducedMotion: 'reduce' })
+  const page = await browser.newPage({ viewport: { width: 1280, height: 960 }, deviceScaleFactor: 1, colorScheme: 'light', reducedMotion: 'reduce' })
   const errors = []
   page.on('pageerror', error => errors.push(error.message))
   await page.route('**/api/**', async route => {
@@ -51,11 +53,14 @@ try {
     await route.fulfill({ json: result })
   })
   await page.routeWebSocket('**/api/ws', socket => {
+    liveSocket = socket
     socket.send(JSON.stringify({ jsonrpc: '2.0', method: 'event', params: { type: 'gateway.ready', payload: { heartbeat: false } } }))
     socket.onMessage(raw => {
       const request = JSON.parse(String(raw))
       let result = {}
-      if (request.method === 'session.active_list') result = { sessions: [{ id: 'runtime-interface', session_key: 'interface', status: 'working' }] }
+      if (request.method === 'model.options') result = { model: 'gpt-6.1-sol', provider: 'openai', providers: [{ slug: 'openai', name: 'OpenAI', models: ['gpt-6.1-sol'], capabilities: { 'gpt-6.1-sol': { reasoning: true } } }] }
+      else if (request.method === 'config.get') result = { value: 'medium' }
+      else if (request.method === 'session.active_list') result = { sessions: [{ id: 'runtime-interface', session_key: 'interface', status: 'working' }] }
       else if (request.method === 'session.resume') result = { session_id: 'runtime-release', stored_session_id: 'release', info: { title: 'Release checklist', profile_name: 'default', running: false } }
       else if (request.method === 'approval.pending') result = { approvals: [] }
       else if (request.method === 'subagent.list') result = { subagents: [{ subagent_id: 'changelog', goal: 'Review the changelog and check that the release notes cover the recent changes.', status: 'running', tool_count: 4, last_tool: 'read_file' }] }
@@ -66,6 +71,20 @@ try {
   await page.getByRole('heading', { name: 'Release checklist', exact: true }).waitFor()
   await page.getByText('Review the changelog and check that the release notes cover the recent changes.', { exact: true }).waitFor()
   await page.locator('textarea:not([disabled])').waitFor()
+  await page.locator('select[aria-label="Model"]:not([disabled])').waitFor()
+  const composer = page.locator('textarea')
+  const emptyHeight = await composer.evaluate(element => element.clientHeight)
+  await composer.fill(Array.from({ length: 10 }, () => 'A longer message line.').join('\n'))
+  await page.waitForFunction(height => document.querySelector('textarea').clientHeight > height, emptyHeight)
+  await composer.fill(Array.from({ length: 40 }, () => 'A longer message line.').join('\n'))
+  await page.waitForFunction(() => {
+    const input = document.querySelector('textarea')
+    return input.clientHeight <= 240 && input.scrollHeight > input.clientHeight
+  })
+  assert.equal(await composer.evaluate(element => getComputedStyle(element).resize), 'none')
+  await composer.fill('')
+  await page.waitForFunction(height => document.querySelector('textarea').clientHeight === height, emptyHeight)
+  await composer.blur()
   await page.evaluate(() => document.fonts.ready)
   if (errors.length) throw new Error(errors.join('\n'))
   const output = resolve('docs/screenshots')
@@ -73,6 +92,30 @@ try {
   await page.screenshot({ path: `${output}/chat-light.png` })
   await page.emulateMedia({ colorScheme: 'dark' })
   await page.screenshot({ path: `${output}/chat-dark.png` })
+  const pinned = page.locator('.pinned-tasks')
+  const pinnedTop = await pinned.evaluate(element => element.getBoundingClientRect().top)
+  await page.locator('.transcript').evaluate(element => { element.scrollTop = 0 })
+  assert.equal(await pinned.evaluate(element => element.getBoundingClientRect().top), pinnedTop, 'Running tasks must stay pinned while scrolling.')
+  await page.setViewportSize({ width: 390, height: 844 })
+  const controlsFit = await page.evaluate(() => {
+    const controls = [...document.querySelectorAll('.setting-control, .composer-bottom > button')]
+    return controls.every(element => {
+      const bounds = element.getBoundingClientRect()
+      return bounds.left >= 0 && bounds.right <= innerWidth
+    })
+  })
+  assert.ok(controlsFit, 'Composer controls must fit a narrow screen.')
+  liveSocket.send(JSON.stringify({ jsonrpc: '2.0', method: 'event', params: { type: 'subagent.complete', session_id: 'runtime-release', payload: { subagent_id: 'changelog', status: 'completed', summary: 'Changelog checked.' } } }))
+  await pinned.waitFor({ state: 'detached' })
+  await page.locator('.transcript .background-tasks').waitFor()
+  liveSocket.send(JSON.stringify({ jsonrpc: '2.0', method: 'event', params: { type: 'message.interim', session_id: 'runtime-release', payload: { text: 'A follow-up reply.' } } }))
+  await page.getByText('A follow-up reply.', { exact: true }).waitFor()
+  assert.ok(await page.evaluate(() => {
+    const task = document.querySelector('.transcript .background-tasks')
+    const reply = [...document.querySelectorAll('.message')].find(element => element.textContent.includes('A follow-up reply.'))
+    return Boolean(task.compareDocumentPosition(reply) & Node.DOCUMENT_POSITION_FOLLOWING)
+  }), 'Completed tasks must stay before later replies.')
+  if (errors.length) throw new Error(errors.join('\n'))
   console.info('Saved docs/screenshots/chat-light.png and chat-dark.png (sample data).')
 } finally {
   await browser?.close()

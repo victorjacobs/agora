@@ -1,7 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import { reconcileTasks, taskEvent, taskRunning } from '../src/hermes/tasks'
+import { anchorFinishedTasks, reconcileTasks, taskEvent, taskRunning } from '../src/hermes/tasks'
 
 describe('delegated background tasks', () => {
+  it('anchors a finished task once, including when its completion is first found in the roster', () => {
+    const messages = [{ key: 'reply', role: 'assistant', text: 'Reply' }]
+    const running = taskEvent([], { type: 'subagent.start', payload: { subagent_id: 'child' } })
+    expect(anchorFinishedTasks(running, messages)[0]?.completedAfter).toBeUndefined()
+    const finished = anchorFinishedTasks(reconcileTasks(running, { subagents: [{ subagent_id: 'child', status: 'completed' }] }), messages)
+    expect(finished[0]?.completedAfter?.key).toBe('reply')
+    messages.push({ key: 'question', role: 'user', text: 'Another question' })
+    expect(anchorFinishedTasks(finished, messages)[0]?.completedAfter?.key).toBe('reply')
+  })
   it('tracks lifecycle without exposing reasoning or reviving finished tasks', () => {
     let tasks = taskEvent([], { type: 'subagent.spawn_requested', payload: { subagent_id: 'child', goal: 'Check the logs' } })
     expect(tasks[0]?.status).toBe('queued')

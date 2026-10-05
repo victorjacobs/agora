@@ -1,8 +1,20 @@
 import { describe, expect, it } from 'vitest'
-import { conversationTurns, historyMessages, mergeHistory, restoreInflight } from '../src/hermes/transcript'
+import { conversationTimeline, conversationTurns, historyMessages, mergeHistory, restoreInflight } from '../src/hermes/transcript'
 import { renderMarkdown } from '../src/markdown'
 
 describe('transcripts', () => {
+  it('keeps task completions between assistant blocks and recovers their place after streaming IDs change', () => {
+    const anchor = { key: 'live-reply', role: 'assistant', text: 'First reply' }
+    const tasks = [{ key: 'child', goal: 'Check logs', status: 'failed', completedAfter: anchor }]
+    const messages = [anchor, { key: 'second', role: 'assistant', text: 'Follow-up reply' }]
+    expect(conversationTimeline(messages, tasks, false).map(item => item.kind)).toEqual(['turn', 'tasks', 'turn'])
+    const recovered = [{ ...anchor, key: 'row-1', rowId: 1 }, messages[1]!]
+    const timeline = conversationTimeline(recovered, tasks, false)
+    expect(timeline.map(item => item.kind)).toEqual(['turn', 'tasks', 'turn'])
+    expect(timeline[0]?.key).toBe('row-1')
+    expect(timeline[2]?.key).toBe('second')
+    expect(conversationTimeline(messages, [{ ...tasks[0]!, status: 'running' }], false).map(item => item.kind)).toEqual(['turn'])
+  })
   it('groups tool rows across empty assistant messages without changing their order or crossing user turns', () => {
     const messages = historyMessages({ session_id: 'stored', pagination: { returned: 8, offset: 0, limit: 50 }, messages: [
       { id: 1, role: 'user', content: 'Question' },

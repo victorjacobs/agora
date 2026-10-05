@@ -41,7 +41,7 @@ states returned by Hermes, including work started from another client.
 
 ## Deferred
 
-Multiple-server/profile management, model/provider settings, prompt editing or
+Multiple-server/profile management, global model/provider settings, prompt editing or
 branching, attachments, voice, terminal/file browser, tasks/boards, cron, skills,
 MCP management, analytics, notifications, offline mode, and custom account
 management. No feature parity with Hermes's dashboard, Conduit, or hermes-webui.
@@ -57,3 +57,9 @@ No Agora process needs the Hermes home directory or database mounted.
 In-chat background activity includes a delegated-task panel with goals, lifecycle
 status, model, tool activity, and expandable results or errors. Task completion
 notices in stored history are distinguished from user messages.
+Running tasks stay pinned above the composer while the transcript scrolls.
+When a task finishes, its card is placed at that point in the conversation.
+
+The composer offers model and reasoning-effort choices for the current session.
+Hermes supplies the model inventory and remains authoritative for applied
+settings. Guarded model switches require explicit confirmation.

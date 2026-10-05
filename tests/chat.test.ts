@@ -32,6 +32,8 @@ function setup(selected = '') {
   vi.spyOn(gateway, 'request').mockImplementation(async (method, params) => {
     if (method === 'session.active_list') return { sessions: [] }
     if (method === 'subagent.list') return { subagents: [] }
+    if (method === 'model.options') return { providers: [], model: '', provider: '' }
+    if (method === 'config.get') return { value: 'medium' }
     if (method === 'session.resume') return snapshot(String(params?.session_id))
     if (method === 'approval.pending') return { approvals: [] }
     if (method === 'session.create') return snapshot('new')
@@ -47,6 +49,149 @@ function setup(selected = '') {
 afterEach(() => vi.useRealTimers())
 
 describe('chat recovery and session ownership', () => {
+  it('loads session model choices and applies reasoning only to the current runtime', async () => {
+    const { state, gateway, chat } = setup('a')
+    const ordinary = vi.mocked(gateway.request).getMockImplementation()!
+    let effort = 'medium'
+    vi.mocked(gateway.request).mockImplementation(async (method, params, timeout) => {
+      if (method === 'model.options') return { model: 'first', provider: 'configured', providers: [{ slug: 'configured', name: 'Configured', models: ['first', 'second'], authenticated: true }] }
+      if (method === 'config.get') return { value: effort }
+      if (method === 'config.set') { effort = String(params?.value); return { value: effort } }
+      return ordinary(method, params, timeout)
+    })
+    await chat.start('work')
+    await chat.refreshSettings()
+    expect(state.model).toBe('first')
+    expect(state.reasoning).toBe('medium')
+    await chat.chooseReasoning('high')
+    expect(gateway.request).toHaveBeenCalledWith('config.set', { key: 'reasoning', value: 'high', scope: 'session', session_id: 'runtime-a', profile: 'work' })
+    expect(state.reasoning).toBe('high')
+    state.running = true
+    await chat.chooseReasoning('ultra')
+    expect(effort).toBe('high')
+    chat.dispose()
+  })
+
+  it('uses the accepted model info and refuses picks outside the configured inventory', async () => {
+    const { state, gateway, chat } = setup('a')
+    await chat.start('work')
+    await chat.refreshSettings()
+    const providers = [{ slug: 'configured', name: 'Configured', models: ['first', 'second'] }]
+    state.modelProviders = providers
+    const ordinary = vi.mocked(gateway.request).getMockImplementation()!
+    let selected = 'first'
+    vi.mocked(gateway.request).mockImplementation(async (method, params, timeout) => {
+      if (method === 'model.options') return { providers, model: selected, provider: 'configured' }
+      if (method === 'config.get') return { value: 'high' }
+      if (method === 'config.set') {
+        selected = 'second'
+        return { info: { model: 'second', provider: 'configured', reasoning_effort: 'high', reasoning_effort_wire: 'medium' }, warning: 'Hermes warning' }
+      }
+      return ordinary(method, params, timeout)
+    })
+    await chat.chooseModel({ model: 'unknown', provider: 'configured' })
+    expect(vi.mocked(gateway.request).mock.calls.filter(call => call[0] === 'config.set')).toHaveLength(0)
+    await chat.chooseModel({ model: 'second', provider: 'configured' })
+    expect(state.model).toBe('second')
+    expect(state.provider).toBe('configured')
+    expect(state.reasoning).toBe('high')
+    expect(state.reasoningWire).toBe('medium')
+    expect(state.settingsNotice).toBe('Hermes warning')
+    chat.dispose()
+  })
+
+  it('requires explicit confirmation and does not claim a deferred model is already active', async () => {
+    const { state, gateway, chat } = setup('a')
+    await chat.start('work')
+    await chat.refreshSettings()
+    state.modelProviders = [{ slug: 'configured', name: 'Configured', models: ['first', 'second'] }]
+    state.model = 'first'
+    state.provider = 'configured'
+    const ordinary = vi.mocked(gateway.request).getMockImplementation()!
+    vi.mocked(gateway.request).mockImplementation(async (method, params, timeout) => {
+      if (method === 'config.set') return params?.confirm_expensive_model
+        ? { deferred: true, warning: 'Next turn uses the new model.' }
+        : { confirm_required: true, confirm_message: 'This model costs more. Continue?' }
+      return ordinary(method, params, timeout)
+    })
+    const choice = { model: 'second', provider: 'configured' }
+    await chat.chooseModel(choice)
+    expect(state.model).toBe('first')
+    expect(state.modelConfirmation?.message).toContain('costs more')
+    expect(vi.mocked(gateway.request).mock.calls.filter(call => call[0] === 'config.set')).toHaveLength(1)
+    state.draft = 'Question'
+    expect(chat.canSend()).toBe(false)
+    await chat.chooseModel(choice, true)
+    expect(state.modelConfirmation).toBeUndefined()
+    expect(state.model).toBe('first')
+    expect(state.settingsNotice).toContain('queued for the next turn')
+    expect(gateway.request).toHaveBeenLastCalledWith('config.get', expect.anything())
+    expect(vi.mocked(gateway.request).mock.calls.filter(call => call[0] === 'config.set').at(-1)?.[1]).toMatchObject({ value: "'second' --provider 'configured' --session", session_id: 'runtime-a', scope: 'session', confirm_expensive_model: true })
+    chat.dispose()
+  })
+
+  it('creates a session before changing settings and preserves the unsent draft', async () => {
+    const { state, gateway, chat } = setup()
+    await chat.start('work')
+    await chat.refreshSettings()
+    state.draft = 'Keep this unsent message'
+    const ordinary = vi.mocked(gateway.request).getMockImplementation()!
+    vi.mocked(gateway.request).mockImplementation(async (method, params, timeout) => method === 'config.set' ? { value: params?.value } : ordinary(method, params, timeout))
+    await chat.chooseReasoning('low')
+    expect(state.draft).toBe('Keep this unsent message')
+    expect(gateway.request).toHaveBeenCalledWith('config.set', { key: 'reasoning', value: 'low', scope: 'session', session_id: 'runtime-new', profile: 'work' })
+    chat.dispose()
+  })
+
+  it('ignores stale inventories and setting replies after switching conversations', async () => {
+    const { state, gateway, chat } = setup('a')
+    await chat.start('work')
+    await chat.refreshSettings()
+    const oldInventory = deferred<unknown>()
+    const oldSetting = deferred<unknown>()
+    const ordinary = vi.mocked(gateway.request).getMockImplementation()!
+    vi.mocked(gateway.request).mockImplementation((method, params, timeout) => {
+      if (method === 'model.options' && params?.session_id === 'runtime-a') return oldInventory.promise
+      if (method === 'config.set') return oldSetting.promise
+      if (method === 'model.options') return Promise.resolve({ providers: [], model: 'model-b', provider: 'provider-b' })
+      return ordinary(method, params, timeout)
+    })
+    const read = chat.refreshSettings()
+    const change = chat.chooseReasoning('high')
+    await Promise.resolve()
+    await chat.open('b', 'work')
+    oldInventory.resolve({ providers: [], model: 'wrong-a', provider: 'provider-a' })
+    oldSetting.resolve({ value: 'ultra' })
+    await Promise.all([read, change])
+    await chat.refreshSettings()
+    expect(state.model).toBe('model-b')
+    expect(state.reasoning).toBe('medium')
+    expect(state.settingsPending).toBe(false)
+    chat.dispose()
+  })
+
+  it('preserves newer session info and never retries an ambiguous setting mutation', async () => {
+    const { state, gateway, chat } = setup('a')
+    await chat.start('work')
+    await chat.refreshSettings()
+    const delayed = deferred<unknown>()
+    const ordinary = vi.mocked(gateway.request).getMockImplementation()!
+    vi.mocked(gateway.request).mockImplementation((method, params, timeout) => method === 'config.set' ? delayed.promise : ordinary(method, params, timeout))
+    const change = chat.chooseReasoning('ultra')
+    await Promise.resolve()
+    gateway.onEvent?.({ type: 'session.info', session_id: 'runtime-a', payload: { reasoning_effort: 'ultra', reasoning_effort_wire: 'max' } })
+    delayed.resolve({ value: 'high' })
+    await change
+    expect(state.reasoning).toBe('ultra')
+    expect(state.reasoningWire).toBe('max')
+    vi.mocked(gateway.request).mockImplementation((method, params, timeout) => method === 'config.set' ? Promise.reject(new ConnectionLost()) : ordinary(method, params, timeout))
+    const before = vi.mocked(gateway.request).mock.calls.filter(call => call[0] === 'config.set').length
+    await chat.chooseReasoning('low')
+    expect(state.settingsError).toContain('may have reached Hermes')
+    expect(vi.mocked(gateway.request).mock.calls.filter(call => call[0] === 'config.set')).toHaveLength(before + 1)
+    chat.dispose()
+  })
+
   it('debounces search, combines title and server matches, and preserves the current chat', async () => {
     vi.useFakeTimers()
     const { state, api, chat } = setup('a')

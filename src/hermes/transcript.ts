@@ -1,5 +1,6 @@
 import { imageSource } from './media'
 import type { HistoryPage, Message, Snapshot } from './types'
+import { taskRunning, type BackgroundTask } from './tasks'
 
 export function contentText(content: unknown): string {
   if (typeof content === 'string') return content
@@ -50,6 +51,36 @@ export function conversationTurns(messages: Message[], running: boolean): Conver
     } else turn.blocks.push({ kind: 'text', key: message.key, message })
   }
   return turns
+}
+
+export type ConversationItem =
+  { kind: 'turn'; key: string; turn: ConversationTurn } |
+  { kind: 'tasks'; key: string; tasks: BackgroundTask[] }
+
+export function conversationTimeline(messages: Message[], tasks: BackgroundTask[], running: boolean): ConversationItem[] {
+  const finished = new Map<number, BackgroundTask[]>()
+  for (const task of tasks.filter(task => !taskRunning(task))) {
+    const anchor = task.completedAfter
+    let index = anchor === null ? -1 : messages.length - 1
+    if (anchor) {
+      const keyed = messages.findIndex(message => message.key === anchor.key || anchor.rowId !== undefined && message.rowId === anchor.rowId)
+      // Recovery replaces temporary streaming IDs with stored history IDs.
+      const recovered = keyed < 0 && anchor.text ? messages.findLastIndex(message => message.role === anchor.role && message.text.startsWith(anchor.text)) : -1
+      index = keyed >= 0 ? keyed : recovered >= 0 ? recovered : -1
+    }
+    finished.set(index, [...(finished.get(index) || []), task])
+  }
+  const items: ConversationItem[] = []
+  let start = 0
+  for (const index of [...finished.keys()].sort((a, b) => a - b)) {
+    items.push(...conversationTurns(messages.slice(start, index + 1), running && index === messages.length - 1)
+      .map(turn => ({ kind: 'turn' as const, key: turn.key, turn })))
+    const rows = finished.get(index)!
+    items.push({ kind: 'tasks', key: `tasks-${rows[0]!.key}`, tasks: rows })
+    start = index + 1
+  }
+  items.push(...conversationTurns(messages.slice(start), running).map(turn => ({ kind: 'turn' as const, key: turn.key, turn })))
+  return items
 }
 
 export function mergeHistory(older: Message[], newer: Message[]): Message[] {

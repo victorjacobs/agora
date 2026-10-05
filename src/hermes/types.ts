@@ -1,3 +1,5 @@
+import type { SessionModelInfo } from './settings'
+
 export interface SessionRow {
   id: string
   title?: string | null
@@ -64,7 +66,7 @@ export interface Snapshot {
   session_id: string
   message_count?: number
   stored_session_id?: string | null
-  info: { stored_session_id?: string; running?: boolean; title?: string; profile_name?: string | null; lazy?: boolean }
+  info: SessionModelInfo & { stored_session_id?: string; running?: boolean; title?: string; profile_name?: string | null; lazy?: boolean }
   running?: boolean | null
   inflight?: { user?: string; assistant?: string; streaming?: boolean; error?: string | null } | null
   pending_approval?: Approval | null

@@ -9,6 +9,8 @@ sign-in. Agora provides the chat interface.
 - A compact chat list grouped by date, with running and unread-reply indicators.
   Search loaded titles and stored message text; cron-job conversations are excluded.
 - Expandable tool activity and background-task progress, results, and errors.
+  Running tasks stay above the composer; finished tasks remain in the transcript.
+- Model and reasoning-effort choices scoped to each conversation.
 - Tool approvals and clarification questions.
 - New chats, history, rename, delete, and stop controls.
 - Automatic light/dark appearance and a layout that works on desktop and mobile.
@@ -102,6 +104,7 @@ After `direnv allow` and `npm ci`:
 | `npm run build` | Build the UI into `dist/`. |
 | `agora-start` | Serve a built UI with the local Hermes connection service. |
 | `agora-screenshot` | Regenerate the README screenshots using sample data. |
+| `agora-icons` | Regenerate raster favicons from the original [icon](docs/branding/icon.png). |
 
 Without direnv, use the same Nix environment explicitly:
 
