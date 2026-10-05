@@ -247,3 +247,6 @@ The loopback bridge forwards these read-only routes with its server-held grants.
 Images are rendered from validated image data URLs, kept only in component memory.
 Raw HTML images and unsupported URL schemes remain blocked. Failed image requests
 show an unavailable notice. Viewing a chat never reads Hermes files directly.
+
+The sidebar requests sessions with `exclude_sources=cron`, so scheduled-job
+conversations are excluded by Hermes before pagination and counting.

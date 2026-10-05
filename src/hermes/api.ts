@@ -36,7 +36,7 @@ export class HermesApi {
 
   sessions(profile: string | undefined, offset = 0) {
     return this.request<{ sessions: SessionRow[]; total: number; storage?: Record<string, string> }>(
-      `/api/sessions?${this.query({ profile, offset, limit: 20, order: 'recent' })}`,
+      `/api/sessions?${this.query({ profile, offset, limit: 20, order: 'recent', exclude_sources: 'cron' })}`,
     )
   }
 
