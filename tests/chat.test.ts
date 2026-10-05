@@ -30,6 +30,8 @@ function setup(selected = '') {
   vi.spyOn(api, 'history').mockImplementation(async id => history(id))
   vi.spyOn(gateway, 'connect').mockResolvedValue()
   vi.spyOn(gateway, 'request').mockImplementation(async (method, params) => {
+    if (method === 'session.active_list') return { sessions: [] }
+    if (method === 'subagent.list') return { subagents: [] }
     if (method === 'session.resume') return snapshot(String(params?.session_id))
     if (method === 'approval.pending') return { approvals: [] }
     if (method === 'session.create') return snapshot('new')
@@ -45,6 +47,161 @@ function setup(selected = '') {
 afterEach(() => vi.useRealTimers())
 
 describe('chat recovery and session ownership', () => {
+  it('marks offscreen completed replies unread and clears them after successful recovery', async () => {
+    const { state, gateway, chat } = setup('a')
+    await chat.start('work')
+    gateway.onEvent?.({ type: 'message.complete', session_id: 'runtime-b', seq: 1 })
+    expect(state.unreadReplies).toEqual([])
+    await chat.open('b', 'work')
+    gateway.onEvent?.({ type: 'message.complete', session_id: 'runtime-a', seq: 2, payload: { status: 'completed' } })
+    expect(chat.hasUnreadReply({ id: 'a', profile: 'work' })).toBe(true)
+    expect(chat.hasUnreadReply({ id: 'a', profile: 'other' })).toBe(false)
+    expect(state.selected).toBe('b')
+    expect(state.messages[0]?.text).toBe('question-b')
+    await chat.open('a', 'work')
+    expect(chat.hasUnreadReply({ id: 'a', profile: 'work' })).toBe(false)
+    await chat.open('b', 'work')
+    gateway.onEvent?.({ type: 'message.complete', session_id: 'runtime-a', seq: 2 })
+    expect(state.unreadReplies).toEqual([])
+    gateway.onEvent?.({ type: 'message.complete', session_id: 'runtime-a', seq: 3, payload: { status: 'interrupted' } })
+    expect(state.unreadReplies).toEqual([])
+    gateway.onEvent?.({ type: 'background.complete', session_id: 'runtime-a', seq: 4, payload: { task_id: 'side', text: 'Done' } })
+    expect(chat.hasUnreadReply({ id: 'a', profile: 'work' })).toBe(true)
+    chat.dispose()
+  })
+
+  it('recovers background tasks independently of the main turn and scopes them to each conversation', async () => {
+    const { state, gateway, chat } = setup('a')
+    const ordinaryRequest = vi.mocked(gateway.request).getMockImplementation()!
+    vi.mocked(gateway.request).mockImplementation(async (method, params, timeout) => method === 'subagent.list'
+      ? { subagents: params?.session_id === 'runtime-a' ? [{ subagent_id: 'child', goal: 'Check logs', status: 'running' }] : [] }
+      : ordinaryRequest(method, params, timeout))
+    await chat.start('work')
+    await vi.waitFor(() => expect(state.tasks[0]?.key).toBe('child'))
+    expect(state.running).toBe(false)
+    expect(chat.sessionStatus({ id: 'a', profile: 'work' })).toBe('working')
+    gateway.onEvent?.({ type: 'subagent.complete', session_id: 'runtime-b', payload: { subagent_id: 'child', status: 'failed' } })
+    expect(state.tasks[0]?.status).toBe('running')
+    gateway.onEvent?.({ type: 'subagent.complete', session_id: 'runtime-a', payload: { subagent_id: 'child', status: 'completed', summary: 'Logs checked' } })
+    expect(state.tasks[0]).toMatchObject({ status: 'completed', summary: 'Logs checked' })
+    await chat.open('b', 'work')
+    expect(state.tasks).toEqual([])
+    await chat.open('a', 'work')
+    expect(state.tasks[0]?.summary).toBe('Logs checked')
+    chat.dispose()
+  })
+
+  it('does not let a delayed roster overwrite a completion event or a different conversation', async () => {
+    const { state, gateway, chat } = setup('a')
+    const delayed = deferred<unknown>()
+    const ordinaryRequest = vi.mocked(gateway.request).getMockImplementation()!
+    vi.mocked(gateway.request).mockImplementation((method, params, timeout) => method === 'subagent.list' && params?.session_id === 'runtime-a'
+      ? delayed.promise : ordinaryRequest(method, params, timeout))
+    await chat.start('work')
+    gateway.onEvent?.({ type: 'subagent.complete', session_id: 'runtime-a', payload: { subagent_id: 'child', goal: 'Check logs', status: 'completed' } })
+    delayed.resolve({ subagents: [{ subagent_id: 'child', status: 'running' }] })
+    await Promise.resolve()
+    expect(state.tasks[0]?.status).toBe('completed')
+    await chat.open('b', 'work')
+    expect(state.tasks).toEqual([])
+    chat.dispose()
+  })
+
+  it('polls idle-session tasks, rejects replies after switching, and stops polling on disposal', async () => {
+    vi.useFakeTimers()
+    const { state, gateway, chat } = setup('a')
+    const delayed = deferred<unknown>()
+    const ordinaryRequest = vi.mocked(gateway.request).getMockImplementation()!
+    let calls = 0
+    vi.mocked(gateway.request).mockImplementation((method, params, timeout) => method === 'subagent.list' && ++calls === 2
+      ? delayed.promise : ordinaryRequest(method, params, timeout))
+    await chat.start('work')
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(calls).toBe(2)
+    await chat.open('b', 'work')
+    delayed.resolve({ subagents: [{ subagent_id: 'a-child', goal: 'Wrong conversation', status: 'running' }] })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(state.tasks).toEqual([])
+    chat.dispose()
+    const disposedCalls = calls
+    await vi.advanceTimersByTimeAsync(10000)
+    expect(calls).toBe(disposedCalls)
+  })
+
+  it('keeps chat usable when the task roster is unsupported', async () => {
+    const { state, gateway, chat } = setup('a')
+    const ordinaryRequest = vi.mocked(gateway.request).getMockImplementation()!
+    vi.mocked(gateway.request).mockImplementation((method, params, timeout) => method === 'subagent.list'
+      ? Promise.reject(new RpcError(-32601, 'Method not found')) : ordinaryRequest(method, params, timeout))
+    await chat.start('work')
+    expect(state.connection).toBe('ready')
+    await vi.waitFor(() => expect(state.taskError).toBe('Background task status unavailable.'))
+    gateway.onEvent?.({ type: 'subagent.start', session_id: 'runtime-a', payload: { subagent_id: 'child', goal: 'Check logs' } })
+    expect(state.tasks[0]?.goal).toBe('Check logs')
+    chat.dispose()
+  })
+
+  it('does not delay chat startup for an optional running-status request', async () => {
+    const { state, gateway, chat } = setup('a')
+    const delayed = deferred<unknown>()
+    const ordinaryRequest = vi.mocked(gateway.request).getMockImplementation()!
+    vi.mocked(gateway.request).mockImplementation((method, params, timeout) => method === 'session.active_list'
+      ? delayed.promise : ordinaryRequest(method, params, timeout))
+    await chat.start('work')
+    expect(state.connection).toBe('ready')
+    expect(state.runtime).toBe('runtime-a')
+    delayed.resolve({ sessions: [] })
+    chat.dispose()
+  })
+
+  it('uses stored IDs and profile-scoped runtime status for background conversations', async () => {
+    vi.useFakeTimers()
+    const { state, gateway, chat } = setup('a')
+    const ordinaryRequest = vi.mocked(gateway.request).getMockImplementation()!
+    let active = [
+      { id: 'runtime-b', session_key: 'b', status: 'working' },
+      { id: 'runtime-c', session_key: 'c', status: 'starting' },
+    ]
+    vi.mocked(gateway.request).mockImplementation(async (method, params, timeout) => method === 'session.active_list'
+      ? { sessions: active } : ordinaryRequest(method, params, timeout))
+    await chat.start('work')
+    expect(gateway.request).toHaveBeenCalledWith('session.active_list', { profile: 'work' })
+    expect(chat.sessionStatus({ id: 'b', profile: 'work' })).toBe('working')
+    expect(chat.sessionStatus({ id: 'b', profile: 'other' })).toBeUndefined()
+    expect(chat.sessionStatus({ id: 'c', profile: 'work' })).toBeUndefined()
+    active = [{ id: 'runtime-b', session_key: 'b', status: 'waiting' }]
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(chat.sessionStatus({ id: 'b', profile: 'work' })).toBe('waiting')
+    active = []
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(chat.sessionStatus({ id: 'b', profile: 'work' })).toBeUndefined()
+    chat.dispose()
+    const calls = vi.mocked(gateway.request).mock.calls.length
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(gateway.request).toHaveBeenCalledTimes(calls)
+    expect(state.running).toBe(false)
+  })
+
+  it('keeps a newly running conversation marked when switching away despite a delayed status response', async () => {
+    vi.useFakeTimers()
+    const { state, gateway, chat } = setup('a')
+    await chat.start('work')
+    gateway.onEvent({ type: 'message.start', session_id: 'runtime-a', seq: 1, payload: {} })
+    expect(chat.sessionStatus({ id: 'a', profile: 'work' })).toBe('working')
+    const delayed = deferred<unknown>()
+    const ordinaryRequest = vi.mocked(gateway.request).getMockImplementation()!
+    vi.mocked(gateway.request).mockImplementation((method, params, timeout) => method === 'session.active_list'
+      ? delayed.promise : ordinaryRequest(method, params, timeout))
+    await vi.advanceTimersByTimeAsync(5000)
+    await chat.open('b', 'work')
+    delayed.resolve({ sessions: [] })
+    await Promise.resolve()
+    expect(state.selected).toBe('b')
+    expect(chat.sessionStatus({ id: 'a', profile: 'work' })).toBe('working')
+    expect(chat.sessionStatus({ id: 'b', profile: 'work' })).toBeUndefined()
+    chat.dispose()
+  })
+
   it('shows request failures while retrying instead of leaving an unexplained empty UI', async () => {
     vi.useFakeTimers()
     const { state, api, chat } = setup()

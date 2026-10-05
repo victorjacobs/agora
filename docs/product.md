@@ -12,6 +12,7 @@ Hermes does not need to host the UI. Native desktop packaging is deferred.
 
 - Session list ordered by recent activity, with loading, empty, and error states
   and a way to load more. New chat, open/resume, rename, and confirmed delete.
+  Show a running indicator and distinguish sessions waiting for input.
 - Conversation view with user/assistant messages, readable Markdown and code
   blocks, and compact tool activity. Load older history without fetching every
   conversation in advance.
@@ -21,6 +22,8 @@ Hermes does not need to host the UI. Native desktop packaging is deferred.
   an ordinary chat. Show unsupported requests clearly; never silently accept them.
 - Login/logout and a clear expired-session state. Preserve the selected
   conversation across login and reload using a stable URL where practical.
+  Signed-out users see a dedicated sign-in screen with the Hermes endpoint and
+  one prominent sign-in action; connection errors remain visible there.
 - Responsive layout, keyboard-accessible controls, visible focus, and sensible
   scrolling that does not drag a reader away from older messages.
 
@@ -50,3 +53,7 @@ stream a reply, stop a turn, answer an approval/clarification, resume after a
 reload, rename/delete a session, and log out. A dropped connection or expired
 login produces a recoverable state without duplicated prompts or messages.
 No Agora process needs the Hermes home directory or database mounted.
+
+In-chat background activity includes a delegated-task panel with goals, lifecycle
+status, model, tool activity, and expandable results or errors. Task completion
+notices in stored history are distinguished from user messages.

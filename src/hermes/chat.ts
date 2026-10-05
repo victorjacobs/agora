@@ -1,7 +1,8 @@
+import { reconcileTasks, taskEvent, taskRunning, type BackgroundTask, type SubagentRoster } from './tasks'
 import { HermesApi, HttpError } from './api'
 import { ConnectionLost, Gateway } from './gateway'
 import { historyMessages, mergeHistory, restoreInflight } from './transcript'
-import type { Approval, Connection, GatewayEvent, HistoryPage, Message, ServerRequest, SessionRow, Snapshot } from './types'
+import type { ActiveSession, Approval, Connection, GatewayEvent, HistoryPage, Message, ServerRequest, SessionRow, Snapshot } from './types'
 
 export function initialState() {
   return {
@@ -13,6 +14,10 @@ export function initialState() {
     error: '',
     listError: '',
     sessions: [] as SessionRow[],
+    activeSessions: [] as Array<ActiveSession & { profile?: string }>,
+    unreadReplies: [] as Array<{ id: string; profile?: string }>,
+    tasks: [] as BackgroundTask[],
+    taskError: '',
     total: 0,
     listLoading: false,
     selected: '',
@@ -46,6 +51,14 @@ export class ChatClient {
   private selectionGeneration = 0
   private connectionGeneration = 0
   private retryTimer?: ReturnType<typeof setTimeout>
+  private activeTimer?: ReturnType<typeof setInterval>
+  private activeRequestGeneration?: number
+  private activeRevision = 0
+  private runtimeSessions = new Map<string, { id: string; profile?: string }>()
+  private replySequences = new Map<string, number>()
+  private taskRevision = 0
+  private taskRequest?: object
+  private taskCache = new Map<string, BackgroundTask[]>()
   private attempts = 0
   private stopped = false
   private recovering = false
@@ -78,6 +91,7 @@ export class ChatClient {
     }
     this.gateway.onDisconnect = code => {
       if (this.stopped) return
+      clearInterval(this.activeTimer)
       this.connectionGeneration++
       this.selectionGeneration++
       this.recovering = false
@@ -107,12 +121,14 @@ export class ChatClient {
     this.connectionGeneration++
     this.selectionGeneration++
     clearTimeout(this.retryTimer)
+    clearInterval(this.activeTimer)
     this.gateway.close()
   }
 
   async connect() {
     if (this.stopped) return
     clearTimeout(this.retryTimer)
+    clearInterval(this.activeTimer)
     const connectionGeneration = ++this.connectionGeneration
     this.selectionGeneration++
     this.recovering = false
@@ -137,11 +153,14 @@ export class ChatClient {
       if (connectionGeneration !== this.connectionGeneration) return
       await this.gateway.request('client.capabilities', { server_requests: true })
       this.sequence.clear()
+      this.replySequences.clear()
       this.state.connection = 'recovering'
       await this.refreshSessions()
       if (connectionGeneration !== this.connectionGeneration) return
       if (this.state.selected) await this.open(this.state.selected, this.state.profile)
       else { this.state.connection = 'ready'; this.state.activity = '' }
+      if (connectionGeneration !== this.connectionGeneration || this.state.connection !== 'ready') return
+      this.activeTimer = setInterval(() => { void this.refreshActiveSessions(); void this.refreshTasks() }, 5000)
       this.attempts = 0
     } catch (error) {
       if (connectionGeneration !== this.connectionGeneration || this.stopped) return
@@ -184,19 +203,130 @@ export class ChatClient {
       if (Object.values(page.storage || {}).includes('corrupt')) throw new Error('Hermes session storage is unavailable.')
       this.state.sessions = more ? [...this.state.sessions, ...page.sessions.filter(row => !this.state.sessions.some(existing => existing.id === row.id))] : page.sessions
       this.state.total = page.total
+      void this.refreshActiveSessions()
     } catch (error) {
       if (this.stopped || connectionGeneration !== this.connectionGeneration) return
       if (!this.handleAuth(error)) this.state.listError = errorMessage(error)
     } finally { this.state.listLoading = false }
   }
 
+  hasUnreadReply(row: SessionRow) {
+    const profile = row.profile || this.configuredProfile || this.state.profile
+    return this.state.unreadReplies.some(reply => reply.id === row.id && reply.profile === profile)
+  }
+
+  private rememberRuntime() {
+    if (this.state.runtime && this.state.selected) this.runtimeSessions.set(this.state.runtime, { id: this.state.selected, profile: this.state.profile })
+  }
+
+  private markReplyRead() {
+    this.state.unreadReplies = this.state.unreadReplies.filter(reply => reply.id !== this.state.selected || reply.profile !== this.state.profile)
+  }
+
+  private observeReply(event: GatewayEvent) {
+    if (this.stopped || !['message.complete', 'background.complete'].includes(event.type) || !event.session_id) return
+    const session = this.runtimeSessions.get(event.session_id)
+    if (!session) return
+    if (event.seq !== undefined) {
+      const previous = this.replySequences.get(event.session_id) || 0
+      if (event.seq <= previous) return
+      this.replySequences.set(event.session_id, event.seq)
+    }
+    if (event.payload?.error || ['interrupted', 'failed', 'error'].includes(String(event.payload?.status))) return
+    if (session.id === this.state.selected && session.profile === this.state.profile && this.state.connection === 'ready') return
+    if (!this.state.unreadReplies.some(reply => reply.id === session.id && reply.profile === session.profile)) {
+      this.state.unreadReplies.push(session)
+    }
+  }
+
+  sessionStatus(row: SessionRow): 'working' | 'waiting' | undefined {
+    const profile = row.profile || this.configuredProfile || this.state.profile
+    if (row.id === this.state.selected && this.state.runtime && profile === this.state.profile) {
+      if (!this.state.running) return this.state.tasks.some(taskRunning) ? 'working' : undefined
+      return this.state.approvals.length || this.state.requests.length ? 'waiting' : 'working'
+    }
+    const active = this.state.activeSessions.find(session => session.session_key === row.id && session.profile === profile)
+    return active?.status === 'working' || active?.status === 'waiting' ? active.status : undefined
+  }
+
+  private async refreshActiveSessions() {
+    if (this.stopped || !['ready', 'recovering'].includes(this.state.connection)) return
+    const generation = this.connectionGeneration
+    if (this.activeRequestGeneration === generation) return
+    this.activeRequestGeneration = generation
+    const revision = this.activeRevision
+    const profile = this.configuredProfile || this.state.sessions[0]?.profile || this.state.profile
+    try {
+      const result = await this.gateway.request<{ sessions: ActiveSession[] }>('session.active_list', { profile })
+      if (!this.stopped && generation === this.connectionGeneration && revision === this.activeRevision && Array.isArray(result.sessions)) {
+        this.state.activeSessions = result.sessions.map(session => ({ ...session, profile }))
+        for (const session of result.sessions) this.runtimeSessions.set(session.id, { id: session.session_key, profile })
+      }
+    } catch {
+      // Older gateways may not support this optional read-only status probe.
+      // Selected-conversation status still comes from resume and live events.
+    } finally {
+      if (this.activeRequestGeneration === generation) this.activeRequestGeneration = undefined
+    }
+  }
+
+  private taskScope() { return JSON.stringify([this.state.profile, this.state.selected]) }
+
+  private async refreshTasks() {
+    if (this.stopped || this.state.connection !== 'ready' || !this.state.runtime || this.taskRequest) return
+    const request = {}
+    this.taskRequest = request
+    const generation = this.selectionGeneration
+    const connection = this.connectionGeneration
+    const revision = this.taskRevision
+    try {
+      const roster = await this.gateway.request<SubagentRoster>('subagent.list', {
+        session_id: this.state.runtime, profile: this.state.profile,
+      })
+      if (this.stopped || generation !== this.selectionGeneration || connection !== this.connectionGeneration || revision !== this.taskRevision) return
+      if (!Array.isArray(roster.subagents)) return
+      this.state.tasks = reconcileTasks(this.state.tasks, roster)
+      this.taskCache.set(this.taskScope(), this.state.tasks)
+      this.state.taskError = ''
+    } catch {
+      if (!this.stopped && generation === this.selectionGeneration && connection === this.connectionGeneration) {
+        this.state.taskError = 'Background task status unavailable.'
+      }
+    } finally { if (this.taskRequest === request) this.taskRequest = undefined }
+  }
+
+  private applyTaskEvent(event: GatewayEvent) {
+    const tasks = taskEvent(this.state.tasks, event)
+    if (tasks === this.state.tasks) return
+    this.taskRevision++
+    this.state.tasks = tasks
+    this.taskCache.set(this.taskScope(), tasks)
+  }
+
+  private rememberActiveSession() {
+    this.rememberRuntime()
+    if (this.state.runtime && this.state.selected) {
+      const current: ActiveSession & { profile?: string } = {
+        id: this.state.runtime, session_key: this.state.selected, profile: this.state.profile,
+        status: this.state.running || this.state.tasks.some(taskRunning) ? (this.state.approvals.length || this.state.requests.length ? 'waiting' : 'working') : 'idle',
+      }
+      this.state.activeSessions = [...this.state.activeSessions.filter(session => session.id !== current.id || session.profile !== current.profile), current]
+      this.activeRevision++
+    }
+  }
+
   async open(id: string, profile = this.configuredProfile) {
     if (['expired', 'reconnecting', 'connecting', 'closed'].includes(this.state.connection)) return
+    this.taskCache.set(this.taskScope(), this.state.tasks)
+    this.rememberActiveSession()
     this.drafts.set(this.state.selected, this.state.draft)
     const generation = ++this.selectionGeneration
     const previousId = this.state.selected
     this.state.selected = id
     this.state.profile = profile
+    this.state.tasks = this.taskCache.get(this.taskScope()) || []
+    this.state.taskError = ''
+    this.taskRequest = undefined
     this.state.runtime = ''
     this.state.olderLoading = false
     this.state.draft = this.drafts.get(id) || ''
@@ -286,6 +416,9 @@ export class ChatClient {
       }
       this.location.select(stored)
       for (const event of this.buffered.slice(0, eventBoundary)) {
+        if (event.session_id === snapshot.session_id) this.applyTaskEvent(event)
+      }
+      for (const event of this.buffered.slice(0, eventBoundary)) {
         if (event.session_id === snapshot.session_id && event.seq !== undefined) {
           this.sequence.set(event.session_id, Math.max(this.sequence.get(event.session_id) || 0, event.seq))
         }
@@ -296,10 +429,13 @@ export class ChatClient {
       this.buffered = []
       this.bufferedRequests = []
       this.state.connection = 'ready'
+      this.rememberRuntime()
+      this.markReplyRead()
       for (const request of requestsAfterSnapshot) {
         if (this.matchesRequest(request)) this.addRequest(request)
       }
       for (const event of eventsAfterSnapshot) this.receiveEvent(event)
+      void this.refreshTasks()
     } catch (error) {
       if (generation !== this.selectionGeneration) return
       this.recovering = false
@@ -311,6 +447,8 @@ export class ChatClient {
 
   async newChat() {
     if (this.state.connection !== 'ready' || this.state.sending || this.state.actionPending) return
+    this.taskCache.set(this.taskScope(), this.state.tasks)
+    this.rememberActiveSession()
     this.drafts.set(this.state.selected, this.state.draft)
     const generation = ++this.selectionGeneration
     this.state.connection = 'recovering'
@@ -324,6 +462,9 @@ export class ChatClient {
       this.state.runtime = result.session_id
       this.state.profile = this.configuredProfile
       this.state.messages = []
+      this.state.tasks = []
+      this.state.taskError = ''
+      this.taskRequest = undefined
       this.state.approvals = []
       this.state.requests = []
       this.state.title = 'New conversation'
@@ -335,6 +476,8 @@ export class ChatClient {
       this.state.hasOlder = false
       this.location.select(this.state.selected)
       this.state.connection = 'ready'
+      this.rememberRuntime()
+      this.markReplyRead()
       await this.refreshSessions()
     } catch (error) {
       if (generation !== this.selectionGeneration) return
@@ -464,8 +607,9 @@ export class ChatClient {
         this.selectionGeneration++
         this.drafts.delete(id)
         this.uncertain.delete(id)
+        this.markReplyRead()
         Object.assign(this.state, {
-          selected: '', runtime: '', title: 'New conversation', messages: [],
+          selected: '', runtime: '', title: 'New conversation', messages: [], tasks: [], taskError: '',
           approvals: [], requests: [], draft: '', running: false, uncertain: false,
           activity: '', hasOlder: false,
         })
@@ -477,6 +621,7 @@ export class ChatClient {
 
   private receiveEvent(event: GatewayEvent) {
     if (event.type === 'gateway.ready') return
+    this.observeReply(event)
     if (event.type === 'sessions.changed') { void this.refreshSessions(); return }
     if (this.recovering) { this.buffered.push(event); return }
     const payload = event.payload || {}
@@ -490,6 +635,7 @@ export class ChatClient {
       if (event.seq <= last) return
       this.sequence.set(event.session_id, event.seq)
     }
+    this.applyTaskEvent(event)
     switch (event.type) {
       case 'message.start':
         this.state.running = true
@@ -566,6 +712,7 @@ export class ChatClient {
   private handleAuth(error: unknown): boolean {
     if (!(error instanceof HttpError) || error.status !== 401) return false
     clearTimeout(this.retryTimer)
+    clearInterval(this.activeTimer)
     this.connectionGeneration++
     this.selectionGeneration++
     this.gateway.close()

@@ -1,8 +1,13 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ChatClient, initialState } from './hermes/chat'
-import { renderMarkdown } from './markdown'
+import { groupSessions } from './session-groups'
+import { taskRunning } from './hermes/tasks'
+import { conversationTurns } from './hermes/transcript'
+import BackgroundTasks from './BackgroundTasks.vue'
+import ConversationTurn from './ConversationTurn.vue'
 import RequestCard from './RequestCard.vue'
+import SignInPage from './SignInPage.vue'
 import type { Approval, SessionRow } from './hermes/types'
 
 const state = reactive(initialState())
@@ -17,16 +22,23 @@ const dialog = ref<HTMLDialogElement>()
 const dialogKind = ref<'rename' | 'delete'>('rename')
 const newTitle = ref('')
 const mutationPending = ref(false)
+const currentDate = ref(new Date())
+let dateTimer: ReturnType<typeof setInterval> | undefined
+const sessionGroups = computed(() => groupSessions(state.sessions, currentDate.value))
 const displayedRequests = computed(() => state.requests)
+const displayedTurns = computed(() => conversationTurns(state.messages, state.running && !state.activity))
 const displayedApprovals = computed(() => state.approvals.filter(approval =>
   !state.requests.some(request => request.method === 'approval' && request.params.request_id === approval.request_id),
 ))
+const runningTasks = computed(() => state.tasks.filter(taskRunning).length)
 const status = computed(() => ({
-  connecting: 'Connecting', recovering: 'Recovering conversation', ready: state.sending ? 'Sending' : state.running ? 'Running' : 'Connected',
+  connecting: 'Connecting', recovering: 'Recovering conversation', ready: state.sending ? 'Sending' : state.running ? 'Running' : runningTasks.value ? `${runningTasks.value} background ${runningTasks.value === 1 ? 'task' : 'tasks'} running` : 'Connected',
   reconnecting: 'Reconnecting', expired: 'Sign-in required', failed: 'Connection failed', closed: 'Disconnected',
 })[state.connection])
 const actionsDisabled = computed(() => state.connection !== 'ready' || state.actionPending || mutationPending.value)
 const loginUrl = computed(() => `/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`)
+const checkingSession = computed(() => !state.identity && ['connecting', 'recovering', 'reconnecting'].includes(state.connection))
+const showSignIn = computed(() => !state.identity && state.connection !== 'ready')
 
 async function toggleSidebar() {
   sidebarOpen.value = !sidebarOpen.value
@@ -110,25 +122,41 @@ watch(() => [state.messages.length, state.messages.at(-1)?.text], () => {
   if (following.value) void scrollToLatest(false)
 }, { flush: 'post' })
 watch(() => state.selected, () => { following.value = true })
-onMounted(() => { void chat.start(import.meta.env.VITE_HERMES_PROFILE) })
-onBeforeUnmount(() => chat.dispose())
+onMounted(() => {
+  void chat.start(import.meta.env.VITE_HERMES_PROFILE)
+  dateTimer = setInterval(() => { currentDate.value = new Date() }, 60_000)
+})
+onBeforeUnmount(() => { clearInterval(dateTimer); chat.dispose() })
 </script>
 
 <template>
-  <div class="shell" @keydown.esc="sidebarOpen && toggleSidebar()">
+  <main v-if="checkingSession" class="startup-page" aria-label="Connecting to Hermes">
+    <span class="brand-mark" aria-hidden="true">a</span>
+    <p role="status"><span class="session-indicator" aria-hidden="true"></span>Connecting to Hermes…</p>
+    <p v-if="state.error" class="startup-error" role="alert">{{ state.error }}</p>
+  </main>
+  <SignInPage v-else-if="showSignIn" :login-url="loginUrl" :endpoint="state.endpoint" :connection="state.connection" :error="state.error" @retry="chat.connect()" />
+  <div v-else class="shell" @keydown.esc="sidebarOpen && toggleSidebar()">
     <button v-if="sidebarOpen" class="sidebar-backdrop" aria-label="Close conversation list" @click="toggleSidebar()"></button>
     <aside class="sidebar" :class="{ open: sidebarOpen }" aria-label="Conversations">
-      <div class="brand"><span class="brand-mark" aria-hidden="true">a</span><div>agora<small>YOUR HERMES, IN CONVERSATION</small></div><button ref="closeMenuButton" class="mobile-close text-button" aria-label="Close conversations" @click="toggleSidebar()">×</button></div>
+      <div class="brand"><span class="brand-mark" aria-hidden="true">a</span><div>agora</div><button ref="closeMenuButton" class="mobile-close text-button" aria-label="Close conversations" @click="toggleSidebar()">×</button></div>
       <button class="new-chat" :disabled="actionsDisabled" @click="sidebarOpen = false; following = true; chat.newChat()"><span aria-hidden="true">＋</span> New conversation</button>
       <div class="list-heading"><span>CONVERSATIONS</span><button class="text-button" :disabled="state.listLoading || state.connection === 'expired'" @click="chat.refreshSessions()" aria-label="Refresh conversations">↻</button></div>
       <nav class="session-list" aria-label="Session history">
         <p v-if="state.listLoading && !state.sessions.length" class="muted">Loading conversations…</p>
         <div v-if="state.listError" class="list-error" role="alert"><p>{{ state.listError }}</p><button @click="chat.refreshSessions()">Try again</button></div>
         <p v-else-if="!state.listLoading && !state.sessions.length" class="muted">Your conversations will appear here.</p>
-        <button v-for="session in state.sessions" :key="session.id" class="session" :class="{ selected: session.id === state.selected }" :aria-current="session.id === state.selected ? 'page' : undefined" :disabled="['connecting', 'reconnecting', 'expired', 'closed'].includes(state.connection)" @click="selectSession(session)">
-          <span class="session-title">{{ session.title || 'Untitled conversation' }}</span>
-          <span class="session-preview">{{ session.preview || 'Open conversation' }}</span>
-        </button>
+        <section v-for="group in sessionGroups" :key="group.label" class="session-group" :aria-label="group.label">
+          <h2 class="session-group-heading">{{ group.label }}</h2>
+          <button v-for="session in group.sessions" :key="session.id" class="session" :class="{ selected: session.id === state.selected }" :aria-current="session.id === state.selected ? 'page' : undefined" :disabled="['connecting', 'reconnecting', 'expired', 'closed'].includes(state.connection)" @click="selectSession(session)">
+            <span class="session-heading">
+              <span class="session-title">{{ session.title || 'Untitled conversation' }}</span>
+              <span v-if="chat.hasUnreadReply(session)" class="unread-reply" role="img" aria-label="Unread response" title="Unread response"></span>
+              <span v-if="chat.sessionStatus(session)" class="session-indicator" :class="{ waiting: chat.sessionStatus(session) === 'waiting' }" :aria-label="chat.sessionStatus(session) === 'waiting' ? 'Waiting for input' : 'Running'" :title="chat.sessionStatus(session) === 'waiting' ? 'Waiting for input' : 'Running'" role="img"></span>
+            </span>
+            <span class="session-preview">{{ session.preview || 'Open conversation' }}</span>
+          </button>
+        </section>
         <button v-if="state.sessions.length < state.total" class="load-more" :disabled="state.listLoading" @click="chat.refreshSessions(true)">{{ state.listLoading ? 'Loading…' : 'Load more conversations' }}</button>
       </nav>
       <div class="sidebar-footer">
@@ -143,15 +171,13 @@ onBeforeUnmount(() => chat.dispose())
       <header class="conversation-header">
         <button ref="menuButton" class="mobile-menu" aria-label="Open conversations" :aria-expanded="sidebarOpen" @click="toggleSidebar()">☰</button>
         <div class="conversation-heading"><h1>{{ state.title }}</h1><p class="connection-status" role="status"><span class="status-dot" :class="state.connection"></span>{{ status }}<span v-if="!state.authRequired && state.connection === 'ready'"> · authentication disabled</span></p></div>
-        <a v-if="!state.identity && state.connection !== 'ready'" class="button primary" :href="loginUrl">Sign in with Hermes</a>
         <div v-if="state.selected" class="header-actions">
           <button :disabled="actionsDisabled" @click="showDialog('rename')">Rename</button>
           <button :disabled="actionsDisabled || state.running || state.sending" @click="showDialog('delete')">Delete</button>
         </div>
       </header>
 
-      <div v-if="state.connection === 'expired'" class="banner warning" role="alert"><span>{{ state.error }}</span><a class="button primary" :href="loginUrl">Sign in with Hermes</a></div>
-      <div v-else-if="state.error" class="banner warning" role="alert"><span>{{ state.error }}</span><button v-if="state.connection === 'failed'" @click="chat.connect()">Retry connection</button><button v-else class="text-button" aria-label="Dismiss error" @click="state.error = ''">×</button></div>
+      <div v-if="state.error" class="banner warning" role="alert"><span>{{ state.error }}</span><button v-if="state.connection === 'failed'" @click="chat.connect()">Retry connection</button><button v-else class="text-button" aria-label="Dismiss error" @click="state.error = ''">×</button></div>
       <div v-if="state.uncertain" class="banner warning" role="alert"><div>The last send may have reached Hermes. Check the recovered conversation before sending again. Your draft is retained.</div><button :disabled="state.connection !== 'ready'" @click="chat.acknowledgeUncertain()">I’ve checked; keep editing</button></div>
 
       <div ref="transcript" class="transcript" tabindex="0" aria-label="Conversation messages" @scroll="trackScroll">
@@ -159,22 +185,12 @@ onBeforeUnmount(() => chat.dispose())
           <button v-if="state.hasOlder" class="older-button" :disabled="state.olderLoading || state.connection !== 'ready'" @click="loadOlder">{{ state.olderLoading ? 'Loading…' : '↑ Load older messages' }}</button>
           <div v-if="!state.messages.length && !state.running" class="empty-conversation">
             <span class="empty-mark" aria-hidden="true">a</span>
-            <p class="eyebrow">A LITTLE SPACE TO THINK</p>
             <h2>Start a conversation.</h2>
-            <p>Ask a question, work through an idea,<br />or pick up where you left off.</p>
-            <p class="ownership-note">Connected to your operator’s Hermes installation.</p>
+            <p>Send a message to start.</p>
           </div>
-          <template v-for="message in state.messages" :key="message.key">
-            <article v-if="message.role === 'user' || message.role === 'assistant'" class="message" :class="message.role">
-              <div class="message-author"><span class="avatar" aria-hidden="true">{{ message.role === 'user' ? 'Y' : 'a' }}</span>{{ message.role === 'user' ? 'You' : 'Hermes' }}<span v-if="message.kind" class="message-kind">{{ message.kind.replaceAll('_', ' ') }}</span></div>
-              <div v-if="message.role === 'assistant'" class="markdown" v-html="renderMarkdown(message.text)"></div>
-              <div v-else class="user-text">{{ message.text }}</div>
-              <span v-if="!message.text && state.running" class="thinking">Thinking…</span>
-            </article>
-            <details v-else-if="message.role === 'tool'" class="tool-message"><summary>Tool activity</summary><pre>{{ message.text }}</pre></details>
-            <div v-else-if="message.role !== 'system'" class="muted">{{ message.text }}</div>
-          </template>
+          <ConversationTurn v-for="turn in displayedTurns" :key="turn.key" :turn="turn" :thinking="state.running && !state.activity" />
           <div v-if="state.activity" class="activity" role="status"><span v-if="state.running" class="pulse" aria-hidden="true"></span>{{ state.activity }}</div>
+          <BackgroundTasks :tasks="state.tasks" :error="state.taskError" :connected="state.connection === 'ready'" />
           <RequestCard v-for="request in displayedRequests" :key="request.id" :request="request" :disabled="actionsDisabled" :dashboard-url="state.endpoint || '/'" @answer="chat.answer(request, $event)" />
           <section v-for="approval in displayedApprovals" :key="approval.request_id || 'pending'" class="request-card">
             <h3>Approval required</h3><p>{{ approval.description }}</p><pre v-if="approval.command">{{ approval.command }}</pre>
@@ -193,7 +209,6 @@ onBeforeUnmount(() => chat.dispose())
             <button v-else class="primary send" :disabled="state.runtime ? !chat.canSend() : state.connection !== 'ready' || !state.draft.trim()" type="submit">{{ state.sending ? 'Sending…' : 'Send ↑' }}</button>
           </div>
         </form>
-        <p class="composer-note">Hermes runs the agent and keeps your conversations.</p>
       </footer>
     </main>
 

@@ -1,0 +1,33 @@
+import { describe, expect, it } from 'vitest'
+import { reconcileTasks, taskEvent, taskRunning } from '../src/hermes/tasks'
+
+describe('delegated background tasks', () => {
+  it('tracks lifecycle without exposing reasoning or reviving finished tasks', () => {
+    let tasks = taskEvent([], { type: 'subagent.spawn_requested', payload: { subagent_id: 'child', goal: 'Check the logs' } })
+    expect(tasks[0]?.status).toBe('queued')
+    tasks = taskEvent(tasks, { type: 'subagent.tool', payload: { subagent_id: 'child', tool_name: 'terminal', tool_count: 2, model: 'model' } })
+    expect(tasks[0]).toMatchObject({ goal: 'Check the logs', status: 'running', tool: 'terminal', toolCount: 2 })
+    expect(taskEvent(tasks, { type: 'subagent.thinking', payload: { subagent_id: 'child', text: 'private reasoning' } })).toBe(tasks)
+    tasks = taskEvent(tasks, { type: 'subagent.complete', payload: { subagent_id: 'child', status: 'failed', summary: 'No logs found' } })
+    expect(taskRunning(tasks[0]!)).toBe(false)
+    expect(taskEvent(tasks, { type: 'subagent.progress', payload: { subagent_id: 'child' } })).toBe(tasks)
+    expect(tasks[0]?.summary).toBe('No logs found')
+  })
+
+  it('exposes detached side-agent results without changing the main turn', () => {
+    const tasks = taskEvent([], { type: 'background.complete', payload: { task_id: 'side', text: 'Done' } })
+    expect(tasks[0]).toMatchObject({ key: 'background:side', status: 'completed', summary: 'Done' })
+  })
+
+  it('recovers live children and failures without inventing completion for a missing child', () => {
+    const tasks = taskEvent([], { type: 'subagent.start', payload: { subagent_id: 'child', delegation_id: 'batch', task_index: 0, goal: 'Check logs' } })
+    expect(reconcileTasks(tasks, { subagents: [] })[0]?.status).toBe('unknown')
+    const recovered = reconcileTasks(tasks, {
+      subagents: [{ subagent_id: 'other', goal: 'Search', status: 'running', tool_count: 3, last_tool: 'search' }],
+      delegations: [{ delegation_id: 'batch', task_index: 0, goal: 'Check logs', status: 'timeout', error: 'Deadline reached' }],
+    })
+    expect(recovered).toHaveLength(2)
+    expect(recovered.find(task => task.key === 'child')).toMatchObject({ status: 'timeout', summary: 'Deadline reached' })
+    expect(recovered.find(task => task.key === 'other')).toMatchObject({ status: 'running', toolCount: 3 })
+  })
+})

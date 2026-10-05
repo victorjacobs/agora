@@ -1,8 +1,41 @@
 import { describe, expect, it } from 'vitest'
-import { historyMessages, mergeHistory, restoreInflight } from '../src/hermes/transcript'
+import { conversationTurns, historyMessages, mergeHistory, restoreInflight } from '../src/hermes/transcript'
 import { renderMarkdown } from '../src/markdown'
 
 describe('transcripts', () => {
+  it('groups tool rows across empty assistant messages without changing their order or crossing user turns', () => {
+    const messages = historyMessages({ session_id: 'stored', pagination: { returned: 8, offset: 0, limit: 50 }, messages: [
+      { id: 1, role: 'user', content: 'Question' },
+      { id: 2, role: 'assistant', content: '' },
+      { id: 3, role: 'tool', tool_name: 'terminal', content: 'First output' },
+      { id: 4, role: 'assistant', content: ' ' },
+      { id: 5, role: 'tool', tool_name: 'read_file', content: 'Second output' },
+      { id: 6, role: 'assistant', content: 'Answer' },
+      { id: 7, role: 'user', content: 'Next question' },
+      { id: 8, role: 'assistant', content: 'Next answer' },
+    ] })
+    const turns = conversationTurns(messages, false)
+    expect(turns.map(turn => turn.role)).toEqual(['user', 'assistant', 'user', 'assistant'])
+    const tools = turns[1].blocks[0]
+    expect(tools.kind).toBe('tools')
+    if (tools.kind !== 'tools') throw new Error('Expected grouped tools')
+    expect(tools.messages.map(message => [message.name, message.text])).toEqual([['terminal', 'First output'], ['read_file', 'Second output']])
+    expect(turns[1].blocks[1].kind).toBe('text')
+    expect(messages).toHaveLength(8)
+  })
+
+  it('keeps text on both sides of tools and only shows an empty assistant when streaming', () => {
+    const messages = [
+      { key: 'a', role: 'assistant', text: 'Checking…' },
+      { key: 't', role: 'tool', text: 'Output' },
+      { key: 'b', role: 'assistant', text: 'Result' },
+      { key: 'live', role: 'assistant', text: '' },
+    ]
+    expect(conversationTurns(messages, false)[0].blocks.map(block => block.kind)).toEqual(['text', 'tools', 'text'])
+    expect(conversationTurns(messages, true)[0].blocks.map(block => block.kind)).toEqual(['text', 'tools', 'text', 'text'])
+    expect(conversationTurns([{ key: 'empty', role: 'assistant', text: '' }], false)).toEqual([])
+  })
+
   it('uses durable row IDs, respects projections, and merges overlapping pages', () => {
     const page = historyMessages({ session_id: 'stored', pagination: { returned: 4, offset: 0, limit: 50 }, messages: [
       { id: 1, role: 'user', content: 'private scaffolding', display_kind: 'hidden' },

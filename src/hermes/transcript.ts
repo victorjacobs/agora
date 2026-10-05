@@ -15,8 +15,40 @@ export function historyMessages(page: HistoryPage): Message[] {
       role: row.role,
       text: row.display_content ?? row.text ?? contentText(row.content),
       kind: row.display_kind,
+      metadata: row.display_metadata,
+      name: row.tool_name || row.name,
     }
   })
+}
+
+export interface ConversationTurn {
+  key: string
+  role: 'user' | 'assistant' | 'other'
+  blocks: Array<
+    { kind: 'text'; key: string; message: Message } |
+    { kind: 'tools'; key: string; messages: Message[] }
+  >
+}
+
+export function conversationTurns(messages: Message[], running: boolean): ConversationTurn[] {
+  const turns: ConversationTurn[] = []
+  for (const [index, message] of messages.entries()) {
+    const notification = ['async_delegation_complete', 'process_complete'].includes(message.kind || '')
+    if (message.role === 'system' && !notification) continue
+    if (message.role === 'assistant' && !message.text.trim() && !(running && index === messages.length - 1)) continue
+    const role = notification ? 'other' : message.role === 'tool' || message.role === 'assistant' ? 'assistant' : message.role === 'user' ? 'user' : 'other'
+    let turn = turns.at(-1)
+    if (!turn || role !== 'assistant' || turn.role !== 'assistant') {
+      turn = { key: message.key, role, blocks: [] }
+      turns.push(turn)
+    }
+    if (message.role === 'tool') {
+      const previous = turn.blocks.at(-1)
+      if (previous?.kind === 'tools') previous.messages.push(message)
+      else turn.blocks.push({ kind: 'tools', key: message.key, messages: [message] })
+    } else turn.blocks.push({ kind: 'text', key: message.key, message })
+  }
+  return turns
 }
 
 export function mergeHistory(older: Message[], newer: Message[]): Message[] {

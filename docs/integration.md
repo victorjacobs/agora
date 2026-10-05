@@ -73,9 +73,22 @@ WebSocket subprotocol, never in a URL or browser storage.
 `chat.ts` owns selection, reconnect backoff, pending interactions, and action
 state. `transcript.ts` normalizes REST display projections and merges pages by
 durable row IDs. Vue components handle presentation and explicit user choices.
+The presentation groups assistant text and tool results into one turn, skipping
+empty stored assistant rows. Consecutive tool results share an expandable group
+with tool names and safely rendered plain-text output. Grouping preserves order
+and user-turn boundaries without changing the underlying transcript or row IDs.
 The URL carries the durable stored ID; prompts, interrupts, and approvals use
 the separate resumed runtime ID. REST-returned compression descendant IDs and
 profile identity are preserved.
+
+Sidebar running indicators use the read-only `session.active_list` registry,
+matching runtime `session_key` to the stored conversation ID in the requested
+profile. `working` shows a spinner and `waiting` shows an input-needed dot;
+`starting` alone is not proof that a turn is running. Resume and live events
+update the selected conversation immediately. Background status refreshes every
+five seconds while connected and on session-list refresh. The registry covers
+the connected gateway process, not every agent on the installation. Older
+gateways without this method still show the selected conversation's known state.
 
 Recovery reads a bounded REST history page, then an omitted-history resume
 snapshot. If a turn completes between those reads, the transcript is read again.
@@ -194,3 +207,29 @@ With an OIDC-enabled installation on the source baseline:
 
 Record the actual Hermes revision, public origin, provider, profile, proxy, and
 results before claiming a live-tested deployment.
+
+### Background tasks
+
+Agora displays delegated children from `subagent.*` events and the session-scoped
+`subagent.list` RPC. It reads the roster after resume and every five seconds while
+connected, including when the main turn is idle. Goals, status, model, tool counts,
+last tool, and completion summaries are shown in the conversation. Recently failed
+delegations returned by Hermes also appear. Reasoning chunks are not displayed.
+Roster replies are guarded against session changes and newer live events.
+
+Observed completions remain in memory when switching conversations; Hermes's
+stored `async_delegation_complete` and `process_complete` rows appear as expandable
+timeline notices after reload. A child disappearing from the live roster is marked
+as no longer listed, not assumed successful. Older gateways without `subagent.list`
+show a status-unavailable notice and can still display supported live events.
+`background.complete` side-agent results are also displayed when received.
+This is task visibility within chat, not a task-management interface or a global
+installation roster. It does not enumerate unrelated background shell processes
+or initiate `/background` side agents.
+
+The sidebar marks completed replies and side-agent results received for known
+conversations while another conversation is open. Opening and successfully
+recovering a conversation clears its unread marker. Markers are scoped by stored
+session ID and profile and kept only in memory; they do not represent a Hermes
+account-level read receipt or survive reloading Agora. Interrupted or failed turns
+do not create unread-response markers.

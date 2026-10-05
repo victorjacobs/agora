@@ -6,12 +6,20 @@ export interface SessionRow {
   profile?: string
 }
 
+export interface ActiveSession {
+  id: string
+  session_key: string
+  status: 'working' | 'waiting' | 'starting' | 'idle'
+}
+
 export interface Message {
   key: string
   role: string
   text: string
   rowId?: number
   kind?: string
+  name?: string
+  metadata?: Record<string, unknown>
 }
 
 export interface HistoryPage {
@@ -19,7 +27,7 @@ export interface HistoryPage {
   profile?: string
   messages: Array<{
     id?: number; row_id?: number; role: string; content?: unknown; text?: string
-    display_content?: string; display_kind?: string; name?: string
+    display_content?: string; display_kind?: string; display_metadata?: Record<string, unknown>; name?: string; tool_name?: string
   }>
   pagination: { returned: number; offset: number; limit: number }
 }
