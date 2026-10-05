@@ -31,6 +31,55 @@ function mountApp(connection: 'ready' | 'connecting' = 'ready') {
 }
 
 describe('chat interface', () => {
+  it('switches conversations with Command/Ctrl K and restores the previous search and draft on close', async () => {
+    Object.defineProperties(HTMLDialogElement.prototype, {
+      showModal: { configurable: true, value() { this.setAttribute('open', '') } },
+      close: { configurable: true, value() { this.removeAttribute('open'); this.dispatchEvent(new Event('close')) } },
+    })
+    const { host, client } = mountApp()
+    const unmount = cleanup
+    cleanup = () => {
+      unmount()
+      Reflect.deleteProperty(HTMLDialogElement.prototype, 'showModal')
+      Reflect.deleteProperty(HTMLDialogElement.prototype, 'close')
+    }
+    client.state.sessions = [{ id: 'first', title: 'Deployment notes', profile: 'work' }, { id: 'second', title: 'Garden plans', profile: 'work' }]
+    client.state.draft = 'Unsent question'
+    client.state.searchQuery = 'deployment'
+    const search = vi.spyOn(client, 'searchConversations').mockImplementation(query => { client.state.searchQuery = query })
+    const open = vi.spyOn(client, 'open').mockResolvedValue()
+    await nextTick()
+    const composer = host.querySelector<HTMLTextAreaElement>('textarea')!
+    composer.focus()
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true, cancelable: true }))
+    await nextTick()
+    const palette = host.querySelector<HTMLDialogElement>('.conversation-switcher')!
+    const input = palette.querySelector<HTMLInputElement>('input')!
+    expect(palette.open).toBe(true)
+    expect(document.activeElement).toBe(input)
+    expect(palette.querySelectorAll('[role="option"]')).toHaveLength(2)
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }))
+    await nextTick()
+    expect(input.getAttribute('aria-activedescendant')).toBe('switcher-option-1')
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+    await nextTick()
+    expect(open).toHaveBeenCalledWith('second', 'work')
+    expect(palette.open).toBe(false)
+    expect(search).toHaveBeenLastCalledWith('deployment')
+    expect(document.activeElement).toBe(composer)
+    expect(client.state.draft).toBe('Unsent question')
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, cancelable: true }))
+    await nextTick()
+    input.value = 'garden'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    await nextTick()
+    expect(palette.querySelectorAll('[role="option"]')).toHaveLength(1)
+    expect(palette.textContent).toContain('Garden plans')
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, cancelable: true }))
+    await nextTick()
+    expect(palette.open).toBe(false)
+    expect(client.state.searchQuery).toBe('deployment')
+  })
   it('pins only running tasks and leaves finished tasks before subsequent messages', async () => {
     const { host, client } = mountApp()
     client.state.messages = [{ key: 'reply', role: 'assistant', text: 'Initial reply' }]

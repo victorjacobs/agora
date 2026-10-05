@@ -5,6 +5,7 @@ import { groupSessions } from './session-groups'
 import { conversationTimeline } from './hermes/transcript'
 import { taskRunning } from './hermes/tasks'
 import ComposerSettings from './ComposerSettings.vue'
+import ConversationSwitcher from './ConversationSwitcher.vue'
 import BackgroundTasks from './BackgroundTasks.vue'
 import ConversationTurn from './ConversationTurn.vue'
 import RequestCard from './RequestCard.vue'
@@ -20,6 +21,10 @@ const transcript = ref<HTMLElement>()
 const composer = ref<HTMLTextAreaElement>()
 const following = ref(true)
 const dialog = ref<HTMLDialogElement>()
+const switcher = ref<InstanceType<typeof ConversationSwitcher>>()
+const switcherOpen = ref(false)
+const switcherShortcut = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘K' : 'Ctrl K'
+let previousSearch = ''
 const dialogKind = ref<'rename' | 'delete'>('rename')
 const newTitle = ref('')
 const mutationPending = ref(false)
@@ -44,6 +49,27 @@ async function toggleSidebar() {
   await nextTick()
   if (sidebarOpen.value) closeMenuButton.value?.focus()
   else menuButton.value?.focus()
+}
+
+function openSwitcher() {
+  if (showSignIn.value || checkingSession.value || dialog.value?.open) return
+  if (switcherOpen.value) { switcher.value?.close(); return }
+  previousSearch = state.searchQuery
+  chat.searchConversations('')
+  switcherOpen.value = true
+  void switcher.value?.open()
+}
+
+function closeSwitcher() {
+  switcherOpen.value = false
+  chat.searchConversations(previousSearch)
+}
+
+function globalKey(event: KeyboardEvent) {
+  if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLowerCase() === 'k' && !event.isComposing && !showSignIn.value && !checkingSession.value) {
+    event.preventDefault()
+    if (!event.repeat) openSwitcher()
+  }
 }
 
 function selectSession(session: SessionRow) {
@@ -132,12 +158,21 @@ watch(() => state.tasks.map(task => [task.key, task.status]), () => {
   if (following.value) void scrollToLatest(false)
 }, { flush: 'post' })
 watch([() => state.draft, composer], resizeComposer, { flush: 'post' })
+watch(showSignIn, value => {
+  if (value && switcherOpen.value) {
+    switcher.value?.close()
+    switcherOpen.value = false
+    previousSearch = ''
+    chat.searchConversations('')
+  }
+})
 onMounted(() => {
   void chat.start(import.meta.env.VITE_HERMES_PROFILE)
   dateTimer = setInterval(() => { currentDate.value = new Date() }, 60_000)
   window.addEventListener('resize', resizeComposer)
+  window.addEventListener('keydown', globalKey)
 })
-onBeforeUnmount(() => { clearInterval(dateTimer); window.removeEventListener('resize', resizeComposer); chat.dispose() })
+onBeforeUnmount(() => { clearInterval(dateTimer); window.removeEventListener('resize', resizeComposer); window.removeEventListener('keydown', globalKey); chat.dispose() })
 </script>
 
 <template>
@@ -158,6 +193,7 @@ onBeforeUnmount(() => { clearInterval(dateTimer); window.removeEventListener('re
       <div class="chat-search">
         <input type="search" aria-label="Search chats" placeholder="Search chats" :value="state.searchQuery" @input="chat.searchConversations(($event.target as HTMLInputElement).value)" @keydown.esc.stop="chat.searchConversations('')" />
         <button v-if="state.searchQuery" class="text-button" aria-label="Clear search" @click="chat.searchConversations('')">×</button>
+        <button v-else class="text-button switcher-shortcut" aria-label="Switch conversation" aria-keyshortcuts="Meta+K Control+K" @click="openSwitcher">{{ switcherShortcut }}</button>
       </div>
       <nav class="session-list" aria-label="Session history">
         <template v-if="searching">
@@ -240,6 +276,7 @@ onBeforeUnmount(() => { clearInterval(dateTimer); window.removeEventListener('re
       </footer>
     </main>
 
+    <ConversationSwitcher ref="switcher" :sessions="visibleSessions" :query="state.searchQuery" :loading="searching ? state.searchLoading : state.listLoading" :error="state.searchError || state.listError" :selected="state.selected" :limited="searching && state.searchResults.length >= 100" :has-more="state.sessions.length < state.total" :more-loading="state.listLoading" @search="chat.searchConversations($event)" @select="selectSession" @close="closeSwitcher" @retry="searching ? chat.searchConversations(state.searchQuery) : chat.refreshSessions()" @more="chat.refreshSessions(true)" />
     <dialog ref="dialog" @cancel="mutationPending && $event.preventDefault()">
       <form @submit.prevent="mutate">
         <h2>{{ dialogKind === 'rename' ? 'Rename conversation' : 'Delete conversation?' }}</h2>

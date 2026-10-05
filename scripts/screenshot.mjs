@@ -33,6 +33,7 @@ const server = await createServer({
 })
 let browser
 let liveSocket
+let changelogFinished = false
 try {
   await server.listen()
   const origin = `http://127.0.0.1:${server.httpServer.address().port}`
@@ -47,6 +48,7 @@ try {
     else if (url.pathname === '/api/status') result = { auth_required: true }
     else if (url.pathname === '/api/auth/me') result = { display_name: 'Demo operator' }
     else if (url.pathname === '/api/sessions') result = { sessions, total: sessions.length }
+    else if (url.pathname === '/api/sessions/search') result = { results: [] }
     else if (url.pathname === '/api/sessions/release/messages') result = { session_id: 'release', profile: 'default', messages, pagination: { returned: messages.length, offset: 0, limit: 50 } }
     else if (url.pathname === '/api/auth/ws-ticket') result = { ticket: 'demo-ticket' }
     else throw new Error(`Unmocked screenshot API: ${url.pathname}`)
@@ -63,7 +65,7 @@ try {
       else if (request.method === 'session.active_list') result = { sessions: [{ id: 'runtime-interface', session_key: 'interface', status: 'working' }] }
       else if (request.method === 'session.resume') result = { session_id: 'runtime-release', stored_session_id: 'release', info: { title: 'Release checklist', profile_name: 'default', running: false } }
       else if (request.method === 'approval.pending') result = { approvals: [] }
-      else if (request.method === 'subagent.list') result = { subagents: [{ subagent_id: 'changelog', goal: 'Review the changelog and check that the release notes cover the recent changes.', status: 'running', tool_count: 4, last_tool: 'read_file' }] }
+      else if (request.method === 'subagent.list') result = { subagents: [{ subagent_id: 'changelog', goal: 'Review the changelog and check that the release notes cover the recent changes.', status: changelogFinished ? 'completed' : 'running', tool_count: 4, last_tool: 'read_file' }] }
       socket.send(JSON.stringify({ jsonrpc: '2.0', id: request.id, result }))
     })
   })
@@ -100,6 +102,24 @@ try {
   await page.screenshot({ path: `${output}/chat-light.png` })
   await page.emulateMedia({ colorScheme: 'dark' })
   await page.screenshot({ path: `${output}/chat-dark.png` })
+  await composer.focus()
+  await page.keyboard.press('Meta+k')
+  const switcher = page.getByRole('dialog', { name: 'Switch conversation' })
+  await switcher.waitFor()
+  const switcherInput = page.getByRole('combobox', { name: 'Find a conversation' })
+  assert.ok(await switcherInput.evaluate(element => element === document.activeElement))
+  await page.keyboard.press('ArrowDown')
+  assert.equal(await switcherInput.getAttribute('aria-activedescendant'), 'switcher-option-1')
+  await switcherInput.fill('Release')
+  await page.waitForFunction(() => document.querySelectorAll('.conversation-switcher [role="option"]').length === 1)
+  await page.keyboard.press('Enter')
+  await switcher.waitFor({ state: 'hidden' })
+  await page.keyboard.press('Control+k')
+  await switcher.waitFor()
+  await page.keyboard.press('Escape')
+  await switcher.waitFor({ state: 'hidden' })
+  assert.ok(await composer.evaluate(element => element === document.activeElement))
+  await page.locator('select[aria-label="Model"]:not([disabled])').waitFor()
   const pinned = page.locator('.pinned-tasks')
   const pinnedTop = await pinned.evaluate(element => element.getBoundingClientRect().top)
   await page.locator('.transcript').evaluate(element => { element.scrollTop = 0 })
@@ -113,6 +133,7 @@ try {
     })
   })
   assert.ok(controlsFit, 'Composer controls must fit a narrow screen.')
+  changelogFinished = true
   liveSocket.send(JSON.stringify({ jsonrpc: '2.0', method: 'event', params: { type: 'subagent.complete', session_id: 'runtime-release', payload: { subagent_id: 'changelog', status: 'completed', summary: 'Changelog checked.' } } }))
   await pinned.waitFor({ state: 'detached' })
   await page.locator('.transcript .background-tasks').waitFor()

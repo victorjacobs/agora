@@ -8,6 +8,8 @@ sign-in. Agora provides the chat interface.
 - Streamed replies, Markdown, code, and inline generated images.
 - A compact chat list grouped by date, with running and unread-reply indicators.
   Search loaded titles and stored message text; cron-job conversations are excluded.
+- A conversation switcher on **⌘K / Ctrl+K**. Type to search, use ↑/↓ to choose,
+  Enter to open, and Escape to close.
 - Expandable tool activity and background-task progress, results, and errors.
   Running tasks stay above the composer; finished tasks remain in the transcript.
 - Model and reasoning-effort choices scoped to each conversation.
