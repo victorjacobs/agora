@@ -68,6 +68,14 @@ try {
     })
   })
   await page.goto(`${origin}/agora/?session=release`)
+  const iconUrls = await page.locator('link[rel="icon"], link[rel="apple-touch-icon"]').evaluateAll(links => links.map(link => link.href))
+  assert.equal(iconUrls.length, 4)
+  for (const url of iconUrls) {
+    assert.match(new URL(url).pathname, /^\/agora\/[^/]+\.(png|ico)$/)
+    const response = await page.request.get(url)
+    assert.ok(response.ok(), `Icon failed to load: ${url}`)
+    assert.match(response.headers()['content-type'], /^image\//, `Icon URL did not serve an image: ${url}`)
+  }
   await page.getByRole('heading', { name: 'Release checklist', exact: true }).waitFor()
   await page.getByText('Review the changelog and check that the release notes cover the recent changes.', { exact: true }).waitFor()
   await page.locator('textarea:not([disabled])').waitFor()
