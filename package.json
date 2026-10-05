@@ -9,7 +9,8 @@
     "test": "vitest run",
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
-    "start": "node server/run.ts"
+    "start": "node server/run.ts",
+    "screenshot": "node scripts/screenshot.mjs"
   },
   "dependencies": {
     "dompurify": "3.4.16",
@@ -24,6 +25,7 @@
     "@types/ws": "8.18.1",
     "@vitejs/plugin-vue": "6.0.1",
     "jsdom": "26.1.0",
+    "playwright-core": "1.63.0",
     "typescript": "5.9.2",
     "vite": "7.3.6",
     "vitest": "4.1.11",

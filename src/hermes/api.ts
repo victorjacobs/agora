@@ -40,6 +40,12 @@ export class HermesApi {
     )
   }
 
+  searchSessions(query: string, profile?: string) {
+    return this.request<{ results: SessionRow[] }>(`/api/sessions/search?${this.query({
+      q: query, profile, limit: 100, exclude_sources: 'cron',
+    })}`)
+  }
+
   history(id: string, profile: string | undefined, offset = 0) {
     return this.request<HistoryPage>(`/api/sessions/${encodeURIComponent(id)}/messages?${this.query({
       profile, offset, limit: 50, order: 'latest', inline_images: 'true',

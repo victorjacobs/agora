@@ -13,6 +13,10 @@ export function initialState() {
     identity: '',
     error: '',
     listError: '',
+    searchQuery: '',
+    searchResults: [] as SessionRow[],
+    searchLoading: false,
+    searchError: '',
     sessions: [] as SessionRow[],
     activeSessions: [] as Array<ActiveSession & { profile?: string }>,
     unreadReplies: [] as Array<{ id: string; profile?: string }>,
@@ -50,6 +54,8 @@ export interface ChatLocation {
 export class ChatClient {
   private selectionGeneration = 0
   private connectionGeneration = 0
+  private searchTimer?: ReturnType<typeof setTimeout>
+  private searchGeneration = 0
   private retryTimer?: ReturnType<typeof setTimeout>
   private activeTimer?: ReturnType<typeof setInterval>
   private activeRequestGeneration?: number
@@ -121,6 +127,8 @@ export class ChatClient {
     this.connectionGeneration++
     this.selectionGeneration++
     clearTimeout(this.retryTimer)
+    clearTimeout(this.searchTimer)
+    this.searchGeneration++
     clearInterval(this.activeTimer)
     this.gateway.close()
   }
@@ -162,6 +170,7 @@ export class ChatClient {
       if (connectionGeneration !== this.connectionGeneration || this.state.connection !== 'ready') return
       this.activeTimer = setInterval(() => { void this.refreshActiveSessions(); void this.refreshTasks() }, 5000)
       this.attempts = 0
+      if (this.state.searchQuery.trim()) this.searchConversations(this.state.searchQuery)
     } catch (error) {
       if (connectionGeneration !== this.connectionGeneration || this.stopped) return
       if (this.handleAuth(error)) return
@@ -208,6 +217,46 @@ export class ChatClient {
       if (this.stopped || connectionGeneration !== this.connectionGeneration) return
       if (!this.handleAuth(error)) this.state.listError = errorMessage(error)
     } finally { this.state.listLoading = false }
+  }
+
+  visibleSessions(): SessionRow[] {
+    const query = this.state.searchQuery.trim().toLocaleLowerCase()
+    if (!query) return this.state.sessions
+    const titleMatches = this.state.sessions.filter(session =>
+      (session.title || '').toLocaleLowerCase().includes(query) || session.id.toLocaleLowerCase().includes(query))
+    const seen = new Set<string>()
+    return [...titleMatches, ...this.state.searchResults].filter(session => {
+      const key = JSON.stringify([session.profile, session.id])
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+  }
+
+  searchConversations(query: string) {
+    clearTimeout(this.searchTimer)
+    const generation = ++this.searchGeneration
+    this.state.searchQuery = query
+    this.state.searchResults = []
+    this.state.searchError = ''
+    this.state.searchLoading = Boolean(query.trim())
+    if (!query.trim() || this.stopped) return
+    this.searchTimer = setTimeout(() => { void this.fetchSearch(query.trim(), generation) }, 250)
+  }
+
+  private async fetchSearch(query: string, generation: number) {
+    const connection = this.connectionGeneration
+    try {
+      const result = await this.api.searchSessions(query, this.configuredProfile)
+      if (this.stopped || generation !== this.searchGeneration || connection !== this.connectionGeneration) return
+      this.state.searchResults = result.results
+    } catch (error) {
+      if (!this.stopped && generation === this.searchGeneration && connection === this.connectionGeneration && !this.handleAuth(error)) {
+        this.state.searchError = errorMessage(error)
+      }
+    } finally {
+      if (!this.stopped && generation === this.searchGeneration) this.state.searchLoading = false
+    }
   }
 
   hasUnreadReply(row: SessionRow) {

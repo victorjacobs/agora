@@ -47,6 +47,71 @@ function setup(selected = '') {
 afterEach(() => vi.useRealTimers())
 
 describe('chat recovery and session ownership', () => {
+  it('debounces search, combines title and server matches, and preserves the current chat', async () => {
+    vi.useFakeTimers()
+    const { state, api, chat } = setup('a')
+    await chat.start('work')
+    state.sessions = [{ id: 'a', title: 'Local title', profile: 'work' }]
+    const search = vi.spyOn(api, 'searchSessions').mockResolvedValue({ results: [
+      { id: 'a', title: 'Local title', profile: 'work' }, { id: 'old', title: 'Older chat', profile: 'work' },
+    ] })
+    chat.searchConversations('loc')
+    chat.searchConversations('local')
+    expect(state.searchLoading).toBe(true)
+    expect(chat.visibleSessions().map(session => session.id)).toEqual(['a'])
+    await vi.advanceTimersByTimeAsync(250)
+    expect(search).toHaveBeenCalledExactlyOnceWith('local', 'work')
+    expect(chat.visibleSessions().map(session => session.id)).toEqual(['a', 'old'])
+    expect(state.selected).toBe('a')
+    expect(state.runtime).toBe('runtime-a')
+    chat.searchConversations('')
+    expect(chat.visibleSessions()).toBe(state.sessions)
+    expect(state.searchResults).toEqual([])
+    expect(state.searchLoading).toBe(false)
+    chat.dispose()
+  })
+
+  it('discards obsolete search responses after a newer query, clearing, or disposal', async () => {
+    vi.useFakeTimers()
+    const { state, api, chat } = setup()
+    const first = deferred<{ results: [] }>()
+    const second = deferred<{ results: [] }>()
+    vi.spyOn(api, 'searchSessions').mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise)
+    chat.searchConversations('first')
+    await vi.advanceTimersByTimeAsync(250)
+    chat.searchConversations('second')
+    await vi.advanceTimersByTimeAsync(250)
+    first.resolve({ results: [] })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(state.searchLoading).toBe(true)
+    chat.searchConversations('')
+    second.resolve({ results: [] })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(state.searchQuery).toBe('')
+    expect(state.searchResults).toEqual([])
+    chat.searchConversations('third')
+    chat.dispose()
+    await vi.advanceTimersByTimeAsync(250)
+    expect(api.searchSessions).toHaveBeenCalledTimes(2)
+  })
+
+  it('reports search failures and handles expired login without changing the regular list', async () => {
+    vi.useFakeTimers()
+    const { state, api, chat } = setup('a')
+    await chat.start('work')
+    const sessions = state.sessions
+    vi.spyOn(api, 'searchSessions').mockRejectedValueOnce(new HttpError(503, 'Search unavailable')).mockRejectedValueOnce(new HttpError(401, 'Session expired'))
+    chat.searchConversations('logs')
+    await vi.advanceTimersByTimeAsync(250)
+    expect(state.searchError).toBe('Search unavailable')
+    expect(state.searchLoading).toBe(false)
+    expect(state.sessions).toBe(sessions)
+    chat.searchConversations('logs')
+    await vi.advanceTimersByTimeAsync(250)
+    expect(state.connection).toBe('expired')
+    chat.dispose()
+  })
+
   it('marks offscreen completed replies unread and clears them after successful recovery', async () => {
     const { state, gateway, chat } = setup('a')
     await chat.start('work')

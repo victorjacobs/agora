@@ -71,7 +71,7 @@ function safeNext(value: string | null) {
 function allowedRoute(path: string, method: string) {
   if (method === 'GET' && ['/api/status', '/api/auth/providers', '/api/auth/me', '/api/agora/connection', '/api/media', '/api/media/proxy'].includes(path)) return true
   if (method === 'POST' && path === '/api/auth/ws-ticket') return true
-  if (method === 'GET' && path === '/api/sessions') return true
+  if (method === 'GET' && ['/api/sessions', '/api/sessions/search'].includes(path)) return true
   if (method === 'GET' && /^\/api\/sessions\/[^/]+\/messages$/.test(path)) return true
   return ['PATCH', 'DELETE'].includes(method) && /^\/api\/sessions\/[^/]+$/.test(path)
 }

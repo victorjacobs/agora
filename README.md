@@ -7,11 +7,18 @@ sign-in. Agora provides the chat interface.
 
 - Streamed replies, Markdown, code, and inline generated images.
 - A compact chat list grouped by date, with running and unread-reply indicators.
-  Cron-job conversations are excluded.
+  Search loaded titles and stored message text; cron-job conversations are excluded.
 - Expandable tool activity and background-task progress, results, and errors.
 - Tool approvals and clarification questions.
 - New chats, history, rename, delete, and stop controls.
 - Automatic light/dark appearance and a layout that works on desktop and mobile.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/chat-dark.png">
+  <img src="docs/screenshots/chat-light.png" alt="Agora showing a conversation, chat search, tool activity, and a background task" width="1280">
+</picture>
+
+*The application with sample conversation data. The screenshot follows your light or dark appearance.*
 
 ## Run on your laptop
 
@@ -94,6 +101,7 @@ After `direnv allow` and `npm ci`:
 | `npm test` | Run the Vitest suite. |
 | `npm run build` | Build the UI into `dist/`. |
 | `agora-start` | Serve a built UI with the local Hermes connection service. |
+| `agora-screenshot` | Regenerate the README screenshots using sample data. |
 
 Without direnv, use the same Nix environment explicitly:
 
@@ -112,6 +120,12 @@ nix flake check path:. --no-build
 Commit changes to `package-lock.json` or `flake.lock` when changing dependencies
 or Nix inputs. Dependencies (`node_modules/`), build output (`dist/`), and local
 configuration are ignored by Git.
+
+To regenerate the screenshots, run `agora-screenshot`. It uses Playwright with
+an installed Chrome/Chromium browser, automatically finding Chrome on macOS.
+Set `AGORA_BROWSER_PATH` if your browser executable is elsewhere. The command
+starts its own temporary server and mocks Hermes responses; it does not access
+your server or include your conversation history.
 
 ### Code layout
 

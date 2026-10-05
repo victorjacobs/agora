@@ -31,6 +31,26 @@ function mountApp(connection: 'ready' | 'connecting' = 'ready') {
 }
 
 describe('chat interface', () => {
+  it('filters chat titles, opens search results, and clears search on Escape', async () => {
+    const { host, client } = mountApp()
+    client.state.sessions = [{ id: 'one', title: 'Deployment notes', profile: 'work' }, { id: 'two', title: 'Garden plans', profile: 'work' }]
+    const search = vi.spyOn(client, 'searchConversations').mockImplementation(query => { client.state.searchQuery = query })
+    const open = vi.spyOn(client, 'open').mockResolvedValue()
+    await nextTick()
+    const input = host.querySelector<HTMLInputElement>('[aria-label="Search chats"]')!
+    input.value = 'deploy'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    await nextTick()
+    expect(search).toHaveBeenCalledWith('deploy')
+    expect([...host.querySelectorAll('.session-title')].map(element => element.textContent)).toEqual(['Deployment notes'])
+    host.querySelector<HTMLButtonElement>('.session')!.click()
+    expect(open).toHaveBeenCalledWith('one', 'work')
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await nextTick()
+    expect(search).toHaveBeenLastCalledWith('')
+    expect(host.querySelectorAll('.session')).toHaveLength(2)
+  })
+
   it('shows an accessible unread-response indicator in the conversation list', async () => {
     const { host, client } = mountApp()
     client.state.sessions = [{ id: 'other', title: 'Other conversation', profile: 'work' }]

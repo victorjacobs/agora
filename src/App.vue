@@ -23,7 +23,9 @@ const newTitle = ref('')
 const mutationPending = ref(false)
 const currentDate = ref(new Date())
 let dateTimer: ReturnType<typeof setInterval> | undefined
-const sessionGroups = computed(() => groupSessions(state.sessions, currentDate.value))
+const searching = computed(() => Boolean(state.searchQuery.trim()))
+const visibleSessions = computed(() => chat.visibleSessions())
+const sessionGroups = computed(() => groupSessions(visibleSessions.value, currentDate.value))
 const displayedRequests = computed(() => state.requests)
 const displayedTurns = computed(() => conversationTurns(state.messages, state.running && !state.activity))
 const displayedApprovals = computed(() => state.approvals.filter(approval =>
@@ -138,10 +140,21 @@ onBeforeUnmount(() => { clearInterval(dateTimer); chat.dispose() })
         <button ref="closeMenuButton" class="mobile-close text-button" aria-label="Close conversations" @click="toggleSidebar()">×</button>
         <button class="new-chat text-button" :disabled="actionsDisabled" aria-label="New chat" title="New chat" @click="sidebarOpen = false; following = true; chat.newChat()"><span aria-hidden="true">＋</span></button>
       </div>
+      <div class="chat-search">
+        <input type="search" aria-label="Search chats" placeholder="Search chats" :value="state.searchQuery" @input="chat.searchConversations(($event.target as HTMLInputElement).value)" @keydown.esc.stop="chat.searchConversations('')" />
+        <button v-if="state.searchQuery" class="text-button" aria-label="Clear search" @click="chat.searchConversations('')">×</button>
+      </div>
       <nav class="session-list" aria-label="Session history">
-        <p v-if="state.listLoading && !state.sessions.length" class="muted">Loading conversations…</p>
-        <div v-if="state.listError" class="list-error" role="alert"><p>{{ state.listError }}</p><button @click="chat.refreshSessions()">Try again</button></div>
-        <p v-else-if="!state.listLoading && !state.sessions.length" class="muted">Your conversations will appear here.</p>
+        <template v-if="searching">
+          <p v-if="state.searchLoading" class="muted" role="status">Searching…</p>
+          <div v-else-if="state.searchError" class="list-error" role="alert"><p>{{ state.searchError }}</p><button @click="chat.searchConversations(state.searchQuery)">Try again</button></div>
+          <p v-else-if="!visibleSessions.length" class="muted" role="status">No matching chats.</p>
+        </template>
+        <template v-else>
+          <p v-if="state.listLoading && !state.sessions.length" class="muted">Loading conversations…</p>
+          <div v-if="state.listError" class="list-error" role="alert"><p>{{ state.listError }}</p><button @click="chat.refreshSessions()">Try again</button></div>
+          <p v-else-if="!state.listLoading && !state.sessions.length" class="muted">Your conversations will appear here.</p>
+        </template>
         <section v-for="group in sessionGroups" :key="group.label" class="session-group" :aria-label="group.label">
           <h2 class="session-group-heading">{{ group.label }}</h2>
           <button v-for="session in group.sessions" :key="session.id" class="session" :class="{ selected: session.id === state.selected }" :aria-current="session.id === state.selected ? 'page' : undefined" :disabled="['connecting', 'reconnecting', 'expired', 'closed'].includes(state.connection)" @click="selectSession(session)">
@@ -152,7 +165,8 @@ onBeforeUnmount(() => { clearInterval(dateTimer); chat.dispose() })
             </span>
           </button>
         </section>
-        <button v-if="state.sessions.length < state.total" class="load-more" :disabled="state.listLoading" @click="chat.refreshSessions(true)">{{ state.listLoading ? 'Loading…' : 'Load more conversations' }}</button>
+        <button v-if="!searching && state.sessions.length < state.total" class="load-more" :disabled="state.listLoading" @click="chat.refreshSessions(true)">{{ state.listLoading ? 'Loading…' : 'Load more conversations' }}</button>
+        <p v-if="searching && state.searchResults.length === 100" class="search-limit">Showing up to 100 matches. Refine your search for more.</p>
       </nav>
       <div v-if="state.authRequired && state.identity" class="sidebar-footer">
         <form method="post" action="/auth/logout" @submit="logout"><button class="text-button">Sign out</button></form>

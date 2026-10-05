@@ -250,3 +250,13 @@ show an unavailable notice. Viewing a chat never reads Hermes files directly.
 
 The sidebar requests sessions with `exclude_sources=cron`, so scheduled-job
 conversations are excluded by Hermes before pagination and counting.
+
+### Conversation search
+
+Sidebar search combines title/ID matches from loaded chats with Hermes’s
+`GET /api/sessions/search` results for stored message text and session IDs.
+Queries are debounced, profile-scoped, and exclude cron sessions. Hermes returns
+up to 100 matches; its endpoint does not support search pagination or title
+search across unloaded conversations. Stale responses are discarded when the
+query changes, clears, or the client disconnects. Queries and results remain
+in memory. Clearing search restores the paginated conversation list.

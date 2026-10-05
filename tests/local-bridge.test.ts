@@ -59,6 +59,7 @@ async function fixture() {
     }
     if (request.headers.authorization !== `Bearer ${token}`) return send({ detail: 'Unauthorized' }, 401)
     if (['/api/media', '/api/media/proxy'].includes(url.pathname)) return send({ data_url: 'data:image/png;base64,aGVsbG8=' })
+    if (url.pathname === '/api/sessions/search') return send({ results: [{ id: 'old', title: 'Older chat' }] })
     if (url.pathname === '/api/auth/me') return send({ display_name: 'Synthetic operator' })
     if (url.pathname === '/api/auth/ws-ticket') return send({ ticket: 'synthetic-ticket', ttl_seconds: 30 })
     if (url.pathname === '/api/sessions/test' && request.method === 'PATCH') {
@@ -121,6 +122,16 @@ describe('local remote-Hermes connection', () => {
     expect(test.records.findLast(record => record.path === '/api/auth/me')?.cookie).toBeUndefined()
     const config = await fetch(`${test.origin}/api/agora/connection`)
     expect((await config.json()).mode).toBe('local')
+  })
+
+  it('requires authentication for conversation search and forwards it as a read-only route', async () => {
+    const test = await fixture()
+    expect((await fetch(`${test.origin}/api/sessions/search?q=logs`)).status).toBe(401)
+    const { cookie } = await test.login()
+    const response = await fetch(`${test.origin}/api/sessions/search?q=logs&exclude_sources=cron`, { headers: { Cookie: cookie } })
+    expect(await response.json()).toEqual({ results: [{ id: 'old', title: 'Older chat' }] })
+    expect(test.records.findLast(record => record.path === '/api/sessions/search')?.authorization).toBe('Bearer access-1')
+    expect((await fetch(`${test.origin}/api/sessions/search`, { method: 'POST', headers: { Cookie: cookie, Origin: test.origin } })).status).toBe(404)
   })
 
   it('proxies media reads with server-held grants and requires a browser session', async () => {
