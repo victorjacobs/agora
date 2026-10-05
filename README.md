@@ -147,6 +147,11 @@ upstream contracts before changing request parameters or event handling.
 
 ## Host alongside Hermes
 
+Standalone Nix expressions are available in [nix/package.nix](nix/package.nix)
+and [nix/module.nix](nix/module.nix); they are not exposed through the flake.
+See [Nix packaging and NixOS](docs/nix.md) for package builds, service configuration,
+and using the packaged static files alongside Hermes.
+
 For a static deployment, omit `HERMES_ENDPOINT` when building:
 
 ```sh

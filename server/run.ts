@@ -14,7 +14,13 @@ if (!existsSync(resolve(dist, 'index.html'))) throw new Error('Run npm run build
 const port = Number(process.env.AGORA_PORT || 5173)
 if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('AGORA_PORT must be a valid TCP port.')
 const bridge = new LocalBridge(endpoint)
-const files = sirv(dist, { single: true, dev: true })
+const files = sirv(dist, {
+  single: true,
+  dev: true,
+  setHeaders: (response, path) => {
+    if (path.endsWith('.ico')) response.setHeader('Content-Type', 'image/x-icon')
+  },
+})
 const server = createServer((request, response) => {
   bridge.middleware(request, response, () => {
     if (request.url === '/' || request.url === '/agora') {
