@@ -9,7 +9,7 @@ The initial implementation includes paginated sessions and history, new/resumed
 chats, rename and confirmed delete, streamed replies, stop, tool activity,
 approvals, clarification questions, login/logout, and connection recovery.
 The layout works on desktop and mobile. Markdown is rendered with raw HTML
-disabled and sanitized; embedded images are not loaded.
+disabled and sanitized; generated images appear inline through Hermes’s authenticated media APIs.
 
 **Compatibility target:** Hermes revision
 [`e1fdf003a668f97bf5a53d7675c1e70b1dcfec34`](https://github.com/NousResearch/hermes-agent/tree/e1fdf003a668f97bf5a53d7675c1e70b1dcfec34).

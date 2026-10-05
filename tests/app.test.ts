@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createApp, nextTick } from 'vue'
 import App from '../src/App.vue'
 import { ChatClient } from '../src/hermes/chat'
+import { HermesApi } from '../src/hermes/api'
 import { Gateway } from '../src/hermes/gateway'
 
 let cleanup = () => {}
@@ -41,6 +42,19 @@ describe('chat interface', () => {
     expect(host.querySelector('.unread-reply')).toBeNull()
   })
 
+  it('renders generated tool images inline and preserves previews during streaming updates', async () => {
+    const request = vi.spyOn(HermesApi.prototype, 'request').mockResolvedValue({ data_url: 'data:image/png;base64,aGVsbG8=' })
+    const { host, client } = mountApp()
+    client.state.messages = [{ key: 'image-tool', role: 'tool', name: 'image_generate', text: JSON.stringify({ success: true, image: '/home/hermes/images/cat.png' }) }]
+    await vi.waitFor(() => expect(host.querySelector('.markdown img')?.getAttribute('src')).toBe('data:image/png;base64,aGVsbG8='))
+    expect(host.querySelector('details')?.open).toBe(false)
+    expect(host.querySelector('details img')).toBeNull()
+    client.state.messages.push({ key: 'reply', role: 'assistant', text: 'Here is the image.' })
+    await nextTick()
+    expect(host.querySelector('.markdown img')).not.toBeNull()
+    expect(request).toHaveBeenCalledTimes(1)
+  })
+
   it('shows tasks while the main turn is idle and renders task data safely', async () => {
     const { host, client } = mountApp()
     client.state.tasks = [{ key: 'child', goal: 'Check logs <img src=x>', status: 'running', model: 'Hermes model', toolCount: 2, tool: 'terminal' }]
@@ -49,12 +63,12 @@ describe('chat interface', () => {
     expect(panel.textContent).toContain('Check logs <img src=x>')
     expect(panel.textContent).toContain('2 tool calls')
     expect(panel.querySelector('img')).toBeNull()
-    expect(host.querySelector('.connection-status')?.textContent).toContain('1 background task running')
+    expect(panel.textContent).toContain('1 running')
     client.state.tasks = [{ key: 'child', goal: 'Check logs', status: 'failed', summary: '<script>danger()</script>' }]
     client.state.messages = [{ key: 'notice', role: 'user', kind: 'async_delegation_complete', text: 'Result evidence', metadata: { display_text: 'Logs checked', task_count: 1, completed_count: 0, failed_count: 1 } }]
     await nextTick()
     expect(panel.textContent).toContain('Failed')
-    expect(panel.querySelector('details')?.textContent).toContain('<script>danger()</script>')
+    expect(panel.querySelector('details:not(.task-description)')?.textContent).toContain('<script>danger()</script>')
     expect(panel.querySelector('script')).toBeNull()
     expect(host.querySelector('.message-author')).toBeNull()
     expect(host.querySelector('.task-result summary')?.textContent).toBe('Logs checked')
@@ -100,8 +114,10 @@ describe('chat interface', () => {
     vi.spyOn(Gateway.prototype, 'connect').mockResolvedValue()
     vi.spyOn(Gateway.prototype, 'request').mockResolvedValue({})
     const host = renderApp()
-    await vi.waitFor(() => expect(host.querySelector('.connection-status')?.textContent).toBe('Connected'))
-    expect(host.querySelector('.identity')?.textContent).toContain('Synthetic operator')
+    await vi.waitFor(() => expect(host.querySelector('.session-title')?.textContent).toBe('Synthetic conversation'))
+    expect(host.querySelector('.connection-status')).toBeNull()
+    expect(host.textContent).not.toContain('Synthetic operator')
+    expect(host.textContent).not.toContain('https://remote-hermes.test')
     expect(host.querySelector('.session-title')?.textContent).toBe('Synthetic conversation')
     expect(host.querySelector('.sign-in-page')).toBeNull()
     expect(host.querySelector('form[action="/auth/logout"]')).not.toBeNull()
@@ -129,7 +145,7 @@ describe('chat interface', () => {
     const login = () => host.querySelector<HTMLAnchorElement>('.sign-in-button')
     expect(login()).toBeNull()
     expect(host.querySelector('.sign-in-page')).toBeNull()
-    expect(host.querySelector('.startup-page [role="status"]')?.textContent).toContain('Connecting to Hermes')
+    expect(host.querySelector('.startup-page [role="status"]')?.textContent).toContain('Loading…')
     expect(host.querySelector('textarea')).toBeNull()
     expect(host.querySelector('.sidebar')).toBeNull()
     client.state.endpoint = 'https://remote-hermes.test'
@@ -140,7 +156,7 @@ describe('chat interface', () => {
     expect(login()?.textContent).toContain('Sign in with Hermes')
     expect(new URL(login()!.href).searchParams.get('next')).toBe(window.location.pathname + window.location.search)
     expect(host.querySelector('.startup-page')).toBeNull()
-    expect(host.querySelector('.server-address')?.textContent).toBe('https://remote-hermes.test')
+    expect(host.textContent).not.toContain('https://remote-hermes.test')
     expect(host.querySelector('[role="alert"]')?.textContent).toContain('Synthetic connection failure')
     const retry = vi.spyOn(client, 'connect').mockResolvedValue()
     host.querySelector<HTMLButtonElement>('.sign-in-error button')!.click()

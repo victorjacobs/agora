@@ -1,9 +1,10 @@
+import { imageSource } from './media'
 import type { HistoryPage, Message, Snapshot } from './types'
 
 export function contentText(content: unknown): string {
   if (typeof content === 'string') return content
   if (!Array.isArray(content)) return ''
-  return content.map(part => typeof part?.text === 'string' ? part.text : part?.type === 'image_url' ? '[image]' : '').join('\n')
+  return content.map(part => typeof part?.text === 'string' ? part.text : part?.type === 'image_url' && imageSource(part.image_url?.url || '') ? `![Image](<${imageSource(part.image_url.url)}>)` : '').join('\n')
 }
 
 export function historyMessages(page: HistoryPage): Message[] {

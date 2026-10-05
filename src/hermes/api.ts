@@ -42,7 +42,7 @@ export class HermesApi {
 
   history(id: string, profile: string | undefined, offset = 0) {
     return this.request<HistoryPage>(`/api/sessions/${encodeURIComponent(id)}/messages?${this.query({
-      profile, offset, limit: 50, order: 'latest', inline_images: 'false',
+      profile, offset, limit: 50, order: 'latest', inline_images: 'true',
     })}`)
   }
 

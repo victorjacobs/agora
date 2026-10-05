@@ -233,3 +233,17 @@ recovering a conversation clears its unread marker. Markers are scoped by stored
 session ID and profile and kept only in memory; they do not represent a Hermes
 account-level read receipt or survive reloading Agora. Interrupted or failed turns
 do not create unread-response markers.
+
+### Inline generated images
+
+Assistant Markdown images and image `MEDIA:` markers render inline. Successful
+`image_generate` tool results (`success` and `image`) also show previews outside
+the collapsed tool details. History requests preserve structured `image_url`
+content rather than replacing it with `[image]`.
+
+Server-local paths are resolved by Hermes’s authenticated `GET /api/media?path=…`;
+remote URLs use `GET /api/media/proxy?url=…`, subject to Hermes’s CDN allowlist.
+The loopback bridge forwards these read-only routes with its server-held grants.
+Images are rendered from validated image data URLs, kept only in component memory.
+Raw HTML images and unsupported URL schemes remain blocked. Failed image requests
+show an unavailable notice. Viewing a chat never reads Hermes files directly.

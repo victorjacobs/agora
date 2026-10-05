@@ -58,6 +58,7 @@ async function fixture() {
       return send({ access_token: token, refresh_token: 'refresh-1', provider: 'self-hosted', expires_at: Date.now() / 1000 + 3600 })
     }
     if (request.headers.authorization !== `Bearer ${token}`) return send({ detail: 'Unauthorized' }, 401)
+    if (['/api/media', '/api/media/proxy'].includes(url.pathname)) return send({ data_url: 'data:image/png;base64,aGVsbG8=' })
     if (url.pathname === '/api/auth/me') return send({ display_name: 'Synthetic operator' })
     if (url.pathname === '/api/auth/ws-ticket') return send({ ticket: 'synthetic-ticket', ttl_seconds: 30 })
     if (url.pathname === '/api/sessions/test' && request.method === 'PATCH') {
@@ -120,6 +121,20 @@ describe('local remote-Hermes connection', () => {
     expect(test.records.findLast(record => record.path === '/api/auth/me')?.cookie).toBeUndefined()
     const config = await fetch(`${test.origin}/api/agora/connection`)
     expect((await config.json()).mode).toBe('local')
+  })
+
+  it('proxies media reads with server-held grants and requires a browser session', async () => {
+    const test = await fixture()
+    expect((await fetch(`${test.origin}/api/media?path=/images/cat.png`)).status).toBe(401)
+    const { cookie } = await test.login()
+    for (const route of ['/api/media?path=/images/cat.png', '/api/media/proxy?url=https%3A%2F%2Ffal.media%2Fcat.png']) {
+      const response = await fetch(`${test.origin}${route}`, { headers: { Cookie: cookie } })
+      expect(await response.json()).toEqual({ data_url: 'data:image/png;base64,aGVsbG8=' })
+      expect(response.headers.get('cache-control')).toBe('no-store')
+    }
+    expect(test.records.findLast(record => record.path === '/api/media')?.authorization).toBe('Bearer access-1')
+    expect(test.records.findLast(record => record.path === '/api/media/proxy')?.cookie).toBeUndefined()
+    expect((await fetch(`${test.origin}/api/media`, { method: 'POST', headers: { Cookie: cookie, Origin: test.origin } })).status).toBe(404)
   })
 
   it('rejects callbacks with incorrect state, missing browser binding, or replayed codes', async () => {

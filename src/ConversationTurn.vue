@@ -1,28 +1,35 @@
 <script setup lang="ts">
 import type { ConversationTurn } from './hermes/transcript'
-import { renderMarkdown } from './markdown'
+import MarkdownMessage from './MarkdownMessage.vue'
+import { generatedImage } from './hermes/media'
 
 defineProps<{ turn: ConversationTurn; thinking: boolean }>()
+defineEmits<{ imageLoad: [] }>()
 </script>
 
 <template>
   <article class="message" :class="turn.role">
     <div v-if="turn.role !== 'other'" class="message-author"><span class="avatar" aria-hidden="true">{{ turn.role === 'user' ? 'Y' : 'a' }}</span>{{ turn.role === 'user' ? 'You' : 'Hermes' }}</div>
     <div v-for="block in turn.blocks" :key="block.key" class="message-block">
-      <details v-if="block.kind === 'tools'" class="tool-group">
-        <summary>
-          <svg class="tool-chevron" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m6 4 4 4-4 4" /></svg>
-          <span>{{ block.messages.length }} tool {{ block.messages.length === 1 ? 'call' : 'calls' }}</span>
-          <span class="tool-names">{{ [...new Set(block.messages.map(message => message.name).filter(Boolean))].join(', ') }}</span>
-        </summary>
-        <div class="tool-outputs">
-          <section v-for="tool in block.messages" :key="tool.key" class="tool-output">
-            <h3>{{ tool.name || 'Tool output' }}</h3>
-            <pre v-if="tool.text.trim()">{{ tool.text }}</pre>
-            <p v-else class="tool-no-output">No output.</p>
-          </section>
-        </div>
-      </details>
+      <template v-if="block.kind === 'tools'">
+        <template v-for="tool in block.messages" :key="`image-${tool.key}`">
+          <MarkdownMessage v-if="generatedImage(tool.text, tool.name)" :text="`![Generated image](<${generatedImage(tool.text, tool.name)}>)`" @image-load="$emit('imageLoad')" />
+        </template>
+        <details class="tool-group">
+          <summary>
+            <svg class="tool-chevron" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m6 4 4 4-4 4" /></svg>
+            <span>{{ block.messages.length }} tool {{ block.messages.length === 1 ? 'call' : 'calls' }}</span>
+            <span class="tool-names">{{ [...new Set(block.messages.map(message => message.name).filter(Boolean))].join(', ') }}</span>
+          </summary>
+          <div class="tool-outputs">
+            <section v-for="tool in block.messages" :key="tool.key" class="tool-output">
+              <h3>{{ tool.name || 'Tool output' }}</h3>
+              <pre v-if="tool.text.trim()">{{ tool.text }}</pre>
+              <p v-else class="tool-no-output">No output.</p>
+            </section>
+          </div>
+        </details>
+      </template>
       <details v-else-if="['async_delegation_complete', 'process_complete'].includes(block.message.kind || '')" class="tool-group task-result">
         <summary>{{ block.message.metadata?.display_text || (block.message.kind === 'process_complete' ? 'Background process finished' : 'Background tasks finished') }}</summary>
         <div class="tool-outputs">
@@ -32,7 +39,7 @@ defineProps<{ turn: ConversationTurn; thinking: boolean }>()
       </details>
       <template v-else>
         <span v-if="block.message.kind" class="message-kind">{{ block.message.kind.replaceAll('_', ' ') }}</span>
-        <div v-if="turn.role === 'assistant' && block.message.text.trim()" class="markdown" v-html="renderMarkdown(block.message.text)"></div>
+        <MarkdownMessage v-if="turn.role === 'assistant' && block.message.text.trim()" :text="block.message.text" @image-load="$emit('imageLoad')" />
         <div v-else-if="turn.role !== 'assistant'" :class="turn.role === 'user' ? 'user-text' : 'muted'">{{ block.message.text }}</div>
         <span v-else-if="thinking" class="thinking">Thinking…</span>
       </template>
