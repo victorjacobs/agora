@@ -1,54 +1,74 @@
 # Agora
 
-A minimal Vue chat interface for Hermes Agent, using the built-in Hermes
-manage/dashboard APIs. Hermes remains responsible for running the agent,
-persisting conversations, and authenticating users through OIDC.
+A small Vue chat client for the built-in Hermes dashboard. Hermes runs the agent,
+keeps conversations, and authenticates users through its browser OIDC flow.
+Agora is a static application; it needs no backend, database, or Hermes home mount.
 
-**Status:** planning and development-shell scaffold only. The UI is not implemented.
+The initial implementation includes paginated sessions and history, new/resumed
+chats, rename and confirmed delete, streamed replies, stop, tool activity,
+approvals, clarification questions, login/logout, and connection recovery.
+The layout works on desktop and mobile. Markdown is rendered with raw HTML
+disabled and sanitized; embedded images are not loaded.
 
-The first version covers new chats, session history, resuming conversations,
-renaming/deleting sessions, streaming replies, stopping a turn, and responding to
-agent requests for approval or clarification. It should work on desktop and mobile.
+**Compatibility target:** Hermes revision
+[`e1fdf003a668f97bf5a53d7675c1e70b1dcfec34`](https://github.com/NousResearch/hermes-agent/tree/e1fdf003a668f97bf5a53d7675c1e70b1dcfec34).
+This is a source-verified integration target, not a live-tested compatibility claim.
+A real gated Hermes/OIDC deployment is still needed for acceptance testing.
 
-[hermes-webui](https://github.com/nesquena/hermes-webui) is a product reference;
-[Hermes Conduit](https://github.com/kaishi00/hermes-conduit) is a reference for
-connecting directly to Hermes. Agora will not require either application or access
-Hermes's SQLite store. No separate Agora backend or database is planned.
+## Development
 
-## Development environment
-
-With Nix flakes and direnv's Nix integration installed:
+With Nix flakes and direnv’s Nix integration installed:
 
 ```sh
 direnv allow
+npm ci
+agora-dev
 ```
 
-The shell provides Node.js 24 (including npm), Git, and ripgrep. Alternatively:
+Open `http://localhost:5173/agora/`. The development proxy defaults to
+`http://127.0.0.1:8080`. Copy `.env.example` to `.env.local` to change
+`HERMES_TARGET` or set `VITE_HERMES_PROFILE`. Omit the profile to use the server’s
+launch profile. OIDC credentials belong in Hermes configuration, never in Vite.
+
+The proxy preserves browser Host and Origin. Hermes must accept the development
+origin; Agora does not disable its checks. Production uses a shared public origin.
+A development proxy does not establish production OIDC compatibility.
+
+The shell provides Node.js 24/npm, Git, ripgrep, `agora-dev`, and `agora-check`.
+Without direnv:
 
 ```sh
-nix develop path:.
+nix develop path:. --command npm ci
+nix develop path:. --command agora-dev
+nix develop path:. --command agora-check
 nix flake check path:. --no-build
 ```
 
-The explicit `path:.` reference includes this initial scaffold before its files
-are tracked by Git. Dependencies, app commands, and a production package will be
-added during implementation. There is no application to start yet.
+Individual checks are `npm run typecheck`, `npm test`, and `npm run build`.
+The build produces `dist/`. `npm run preview` previews those static assets;
+it does not proxy Hermes APIs.
 
-## Intended integration
+## Deployment
 
-Suggested deployment: static Agora assets at `/agora/` and the existing Hermes
-dashboard on the same public HTTPS origin. A reverse proxy serves Agora assets
-and forwards Hermes routes, including authentication and WebSocket upgrades.
-Hermes handles the OIDC callback; the browser returns to Agora after login.
+Serve `dist/` at `/agora/` on the same HTTPS origin as Hermes. Preserve `/api/*`,
+`/login`, `/auth/*`, and the existing dashboard, including WebSocket upgrades.
+SPA fallback belongs only under `/agora/`. Selected conversations use
+`/agora/?session=<stored-id>`, so reload and login return preserve the selection.
 
-An existing Hermes installation with a working dashboard and OIDC provider is
-required for end-to-end testing. The exact supported Hermes revision is still to
-be established; the handoff records the upstream revision inspected.
+See [integration and deployment](docs/integration.md) for routing, protocol
+behavior, and the live acceptance checklist. Dashboard access is access to the
+operator’s Hermes installation; Agora does not promise per-user session isolation.
+
+Drafts, tickets, and transcripts stay in memory and are not written to browser
+storage. A disconnected socket does not imply the agent stopped. Recovery reads
+server history and resumes the runtime before enabling actions. An ambiguous
+send is never retried automatically; its draft is retained until the user checks
+the recovered conversation and explicitly chooses to keep editing.
+
+## Project documentation
 
 - [Product scope](docs/product.md)
-- [Implementation handoff and API research](docs/implementation-handoff.md)
+- [Implementation handoff and upstream research](docs/implementation-handoff.md)
+- [Integration, architecture, and validation](docs/integration.md)
 - [Agent instructions](AGENTS.md)
-
-Development conventions take inspiration from `~/dev/tob`: Vue/TypeScript/Vite,
-locked dependencies, Nix/direnv, and a shared browser origin. Its Go/PostgreSQL
-backend and application-owned authentication are not needed here.
+- [Upstream attribution](THIRD_PARTY_NOTICES.md)

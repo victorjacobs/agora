@@ -1,0 +1,137 @@
+# Integration and validation
+
+## Supported source baseline
+
+The initial client targets Hermes Agent revision
+`e1fdf003a668f97bf5a53d7675c1e70b1dcfec34`, inspected on 2026-10-05.
+The [handoff](implementation-handoff.md) links the authoritative session routes,
+authentication handlers, gateway contracts, and reusable TypeScript client.
+The implementation also checks `tui_gateway/methods_session.py`,
+`tui_gateway/methods_prompt.py`, and `apps/shared/src/json-rpc-channel.ts` at
+that revision. The shared code is MIT licensed. Its desktop client includes
+registry, replay, and renderer integration that Agora does not need; Agora uses
+a small independent browser transport and narrowed contract types, with upstream
+attribution in `THIRD_PARTY_NOTICES.md`.
+
+No deployed Hermes revision, OIDC provider, credentials, or proxy configuration
+was supplied. Source inspection and synthetic tests do not establish successful
+live login, cookie, Origin/Host, or WebSocket interoperability. Recheck these
+contracts before deploying against another revision.
+
+## Browser and server boundary
+
+`src/hermes/api.ts` owns cookie-authenticated HTTP requests and profile-aware
+session operations. `gateway.ts` handles JSON-RPC correlation, coalesced
+newline-delimited notifications, server requests, timeouts, and the advertised
+15-second heartbeat with a 45-second liveness deadline. It waits for
+`gateway.ready` before accepting calls. Each authenticated connection gets a
+fresh single-use ticket through `/api/auth/ws-ticket`, sent in the supported
+WebSocket subprotocol, never in a URL or browser storage.
+
+`chat.ts` owns selection, reconnect backoff, pending interactions, and action
+state. `transcript.ts` normalizes REST display projections and merges pages by
+durable row IDs. Vue components handle presentation and explicit user choices.
+The URL carries the durable stored ID; prompts, interrupts, and approvals use
+the separate resumed runtime ID. REST-returned compression descendant IDs and
+profile identity are preserved.
+
+Recovery reads a bounded REST history page, then an omitted-history resume
+snapshot. If a turn completes between those reads, the transcript is read again.
+The snapshot restores running/inflight state and pending requests. Activity that
+arrives after the snapshot is applied after recovery. Selection generations keep
+late results from replacing a different conversation. Normal completion reloads
+the authoritative history rather than appending another copy of the final reply.
+An empty Hermes draft may have a stored key before its first persisted row.
+A history 404 therefore attempts resume of that exact key; missing history is
+accepted only when Hermes confirms a lazy, empty draft. A failed resume remains
+a failure. Older history is fetched in pages of 50; sessions in pages of 20.
+
+Sending is disabled during a known active turn. Hermes can still return queued,
+steered, redirected, or busy behavior if another client changes the runtime
+between checks; Agora displays the accepted status or error and does not retry.
+No queue or steering controls are implemented. Uncertain send outcomes retain
+an in-memory draft and block another send until the user acknowledges the warning.
+A failed resume never creates a replacement conversation.
+
+Approval responses use the server’s offered choices and original request IDs.
+Clarification supports free text, single and multiple choices, locked answers,
+and explicit skip. Unsupported requests remain visibly pending with a dashboard
+link; the user can stop the turn. Request cancellations and expired/already
+answered results are displayed. Agora never silently approves or answers a request.
+
+Login is full browser navigation to `/login?next=<same-origin Agora path>`.
+Hermes chooses the provider and owns callback, cookie refresh, and logout.
+A 401 pauses the client for sign-in; a 403 or WebSocket policy rejection is shown
+as a separate failure. There are no client OIDC tokens or automatic login redirects.
+Logout submits Hermes’s `/auth/logout` form and closes the local gateway.
+
+## Same-origin routing example
+
+Copy the production `dist/` contents to `/srv/www/agora/`. An example Nginx
+routing fragment, inside an existing HTTPS server block:
+
+```nginx
+root /srv/www;
+
+location = /agora { return 308 /agora/; }
+location /agora/ {
+    try_files $uri $uri/ /agora/index.html;
+}
+
+location = /api/ws {
+    proxy_pass http://127.0.0.1:8080;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host $http_host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_read_timeout 90s;
+}
+
+location / {
+    proxy_pass http://127.0.0.1:8080;
+    proxy_set_header Host $http_host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+```
+
+Keep Hermes’s backend port restricted. Configure its public URL as the HTTPS
+origin, and the OIDC callback as `<origin>/auth/callback`, not `/agora/`.
+Use the gated Hermes configuration and verify `/api/status` reports
+`auth_required: true`: loopback mode alone can be ungated even behind a proxy.
+Do not replace Host/Origin checks with an unconditional allow rule.
+
+## Validation performed
+
+Automated tests use synthetic data. They cover RPC readiness/correlation/framing,
+ticket subprotocols, connection loss, heartbeat expiry, stale socket retirement,
+RPC errors, 401 versus 403, stored/runtime IDs and profile propagation, delayed
+selection results, reconnect ticket renewal without prompt resend, pending
+approval/clarification recovery, live events after snapshots, sequence duplicates,
+completion during recovery, exact unpersisted draft recovery, compression descendant URLs, draft retention,
+upstream mutation failures, safe Markdown, and explicit interaction controls.
+Type checking and production build are part of `agora-check`.
+
+Firefox desktop and a 320 × 480 responsive viewport were inspected with the
+backend unavailable. Empty/reconnecting state, composer sizing, and mobile
+navigation were checked. This is layout validation, not a live Hermes chat test.
+
+## Live acceptance checklist
+
+With an OIDC-enabled installation on the source baseline:
+
+- Confirm authenticated status, provider selection, callback, cookies, return to
+  an Agora session URL, cookie refresh, expired login, and logout.
+- Create/send/stream/stop; resume after reload; rename; confirm delete and verify
+  upstream refusal during active writes. Check history and session pagination.
+- Exercise approval and clarification, including multiple pending requests,
+  cancellation, an expired request, and recovery of a question after reconnect.
+- Disconnect during streaming and while a submit reply is outstanding; verify
+  the run resumes and Agora never resends the prompt automatically.
+- Switch sessions quickly; open a running session started elsewhere; follow a
+  compression descendant; read older history without being scrolled to the end.
+- Check keyboard controls, mobile viewport and on-screen keyboard, code blocks,
+  and the static proxy’s deep-link and WebSocket behavior.
+
+Record the actual Hermes revision, public origin, provider, profile, proxy, and
+results before claiming a live-tested deployment.

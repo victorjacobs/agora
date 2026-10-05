@@ -1,0 +1,27 @@
+{
+  "name": "agora",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host localhost",
+    "typecheck": "vue-tsc --noEmit",
+    "test": "vitest run",
+    "build": "vue-tsc --noEmit && vite build",
+    "preview": "vite preview --host localhost"
+  },
+  "dependencies": {
+    "dompurify": "3.4.16",
+    "markdown-it": "14.3.2",
+    "vue": "3.5.18"
+  },
+  "devDependencies": {
+    "@types/markdown-it": "14.1.2",
+    "@vitejs/plugin-vue": "6.0.1",
+    "jsdom": "26.1.0",
+    "typescript": "5.9.2",
+    "vite": "7.3.6",
+    "vitest": "4.1.11",
+    "vue-tsc": "3.1.0"
+  }
+}

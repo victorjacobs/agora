@@ -14,7 +14,11 @@
         in
         {
           default = pkgs.mkShell {
-            packages = with pkgs; [ nodejs_24 git ripgrep ];
+            packages = with pkgs; [
+              nodejs_24 git ripgrep
+              (writeShellScriptBin "agora-dev" "exec npm run dev -- \"$@\"")
+              (writeShellScriptBin "agora-check" "npm run typecheck && npm test && npm run build")
+            ];
           };
         });
     };

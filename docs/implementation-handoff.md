@@ -1,5 +1,9 @@
 # Implementation handoff
 
+The initial client is now implemented. See [integration.md](integration.md) for
+implementation behavior and validation limits. This document retains the original
+research baseline and planning observations.
+
 ## Objective and fixed decisions
 
 **Required:** implement the small chat client described in [product.md](product.md).
