@@ -2,7 +2,7 @@
 import { computed, reactive, watch } from 'vue'
 import type { Approval, ServerRequest } from './hermes/types'
 
-const props = defineProps<{ request: ServerRequest; disabled: boolean }>()
+const props = defineProps<{ request: ServerRequest; disabled: boolean; dashboardUrl?: string }>()
 const emit = defineEmits<{ answer: [result: Record<string, unknown>] }>()
 const answers = reactive<Record<string, string>>({})
 const selected = reactive<Record<string, string[]>>({})
@@ -69,7 +69,7 @@ function submit() {
     <template v-else>
       <h3>Unsupported request: {{ request.method }}</h3>
       <p>This request needs a compatible Hermes client. You can open the dashboard or stop the turn here.</p>
-      <a href="/" target="_blank" rel="noopener">Open Hermes dashboard ↗</a>
+      <a :href="dashboardUrl || '/'" target="_blank" rel="noopener">Open Hermes dashboard ↗</a>
     </template>
   </section>
 </template>

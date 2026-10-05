@@ -4,7 +4,9 @@
 
 A user signs in through the Hermes dashboard's OIDC flow, opens or creates a
 session, sends a message, sees the reply arrive, and returns later to continue
-the same conversation. Hermes is the source of truth throughout.
+the same conversation. Hermes is the source of truth throughout. Agora can run
+on a laptop and connect to a remote Hermes endpoint configured in `.env.local`;
+Hermes does not need to host the UI. Native desktop packaging is deferred.
 
 ## Core interface
 

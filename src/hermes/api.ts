@@ -5,7 +5,7 @@ export class HttpError extends Error {
 }
 
 export class HermesApi {
-  constructor(private fetcher: typeof fetch = fetch) {}
+  constructor(private fetcher: typeof fetch = globalThis.fetch.bind(globalThis)) {}
 
   async request<T>(path: string, options: RequestInit = {}): Promise<T> {
     const response = await this.fetcher(path, {

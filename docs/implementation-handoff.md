@@ -2,7 +2,10 @@
 
 The initial client is now implemented. See [integration.md](integration.md) for
 implementation behavior and validation limits. This document retains the original
-research baseline and planning observations.
+research baseline and planning observations. The original same-origin suggestion
+is now optional: the owner requested standalone laptop use with a configurable
+endpoint. See [integration.md](integration.md#laptop-connection) for the implemented
+loopback PKCE service; native desktop packaging remains deferred.
 
 ## Objective and fixed decisions
 
@@ -56,8 +59,9 @@ Paths below are relative to the pinned Hermes Agent tree above:
 
 In Conduit, inspect `Conduit/Services/HermesClient.swift`,
 `PersistedTranscriptWindow.swift`, and `ChatResumePolicy.swift` for recovery
-behavior. `NativeAuthClient.swift` is useful background, but browser cookie login
-is the appropriate flow here; native loopback authorization is not a SPA callback.
+behavior. `NativeAuthClient.swift` documents the native PKCE protocol now used
+by Agora’s local Node service. The callback terminates in that service, not in
+the SPA; hosted static mode continues to use browser cookie login.
 
 ## Observed HTTP and WebSocket surface
 
@@ -95,7 +99,7 @@ session ID), and `session.interrupt`. Create returns both `session_id` and
 `approval.pending`, `approval.respond`, `request.answer`, and server-to-client
 request contracts rather than inventing a generic approval payload.
 
-## Suggested browser/deployment arrangement
+## Original suggested browser/deployment arrangement (hosted mode)
 
 Use one public origin, for example `https://hermes.example.com`:
 
@@ -116,7 +120,8 @@ Hermes performs the provider exchange at `/auth/callback`, sets HttpOnly cookies
 and returns to Agora. Probe `/api/auth/me`, then mint the socket ticket. On auth
 expiry, pause actions and offer sign-in again; distinguish 401 from network/403
 errors and avoid redirect loops. Logout must reach Hermes and clear local chat
-state/close sockets. Do not implement token refresh in JavaScript; Hermes owns it.
+state/close sockets. Hosted browser mode leaves refresh to Hermes. Laptop mode
+instead performs native-token refresh in the local service, outside the browser.
 
 Configure OIDC on Hermes, not in Vite environment variables. Relevant operator
 settings are `HERMES_DASHBOARD_OIDC_ISSUER`, `HERMES_DASHBOARD_OIDC_CLIENT_ID`, and
@@ -153,9 +158,11 @@ deployment. A real login/callback test must exercise that configuration.
 
 ## Open questions for implementation
 
-**Unknown:** the owner's deployed Hermes revision, public URL, OIDC provider,
-profile, and reverse-proxy setup. No live server or credentials were supplied.
-Confirm these before claiming compatibility. The inspected HEAD is a research
+**Original unknowns:** the deployed Hermes revision, public URL, OIDC provider,
+profile, and reverse-proxy setup. The owner subsequently supplied
+`https://hermes-manage.vjcbs.be`; its public status advertises cookie and native
+PKCE authentication through a self-hosted provider. Its exact revision remains
+unverified. Confirm live authenticated behavior before claiming compatibility. The inspected HEAD is a research
 baseline, not a minimum supported release or proof of successful integration.
 
 **Unknown:** which upstream client/types can be consumed cleanly as a dependency

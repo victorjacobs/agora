@@ -2,28 +2,72 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createApp, nextTick } from 'vue'
 import App from '../src/App.vue'
 import { ChatClient } from '../src/hermes/chat'
+import { Gateway } from '../src/hermes/gateway'
 
 let cleanup = () => {}
-afterEach(() => { cleanup(); document.body.innerHTML = '' })
+afterEach(() => { cleanup(); document.body.innerHTML = ''; vi.unstubAllGlobals() })
 
-function mountApp() {
-  let client!: ChatClient
-  vi.spyOn(ChatClient.prototype, 'start').mockImplementation(async function (this: ChatClient) {
-    client = this
-    Object.assign(this.state, {
-      connection: 'ready', selected: 'stored', runtime: 'runtime',
-      title: 'Synthetic conversation', profile: 'work',
-    })
-  })
+function renderApp() {
   const host = document.createElement('div')
   document.body.append(host)
   const app = createApp(App)
   app.mount(host)
   cleanup = () => app.unmount()
+  return host
+}
+
+function mountApp(connection: 'ready' | 'connecting' = 'ready') {
+  let client!: ChatClient
+  vi.spyOn(ChatClient.prototype, 'start').mockImplementation(async function (this: ChatClient) {
+    client = this
+    Object.assign(this.state, {
+      connection, selected: 'stored', runtime: 'runtime',
+      title: 'Synthetic conversation', profile: 'work',
+    })
+  })
+  const host = renderApp()
   return { host, client }
 }
 
 describe('chat interface', () => {
+  it('connects and loads conversations after login using the real client startup', async () => {
+    vi.stubGlobal('fetch', vi.fn(function (this: unknown, path: string) {
+      if (this !== globalThis) throw new TypeError('Illegal invocation')
+      let result: unknown
+      if (path === '/api/agora/connection') result = { mode: 'local', endpoint: 'https://remote-hermes.test' }
+      else if (path === '/api/status') result = { auth_required: true }
+      else if (path === '/api/auth/me') result = { display_name: 'Synthetic operator' }
+      else if (path.startsWith('/api/sessions?')) result = { sessions: [{ id: 'stored', title: 'Synthetic conversation' }], total: 1 }
+      else throw new Error(`Unexpected API request: ${path}`)
+      return Promise.resolve(new Response(JSON.stringify(result)))
+    }))
+    vi.spyOn(Gateway.prototype, 'connect').mockResolvedValue()
+    vi.spyOn(Gateway.prototype, 'request').mockResolvedValue({})
+    const host = renderApp()
+    await vi.waitFor(() => expect(host.querySelector('.connection-status')?.textContent).toBe('Connected'))
+    expect(host.querySelector('.identity')?.textContent).toContain('Synthetic operator')
+    expect(host.querySelector('.session-title')?.textContent).toBe('Synthetic conversation')
+    expect(host.querySelector('.conversation-header a[href^="/login?"]')).toBeNull()
+    expect(host.querySelector('form[action="/auth/logout"]')).not.toBeNull()
+  })
+
+  it('offers sign-in before the server responds and during connection failures', async () => {
+    const { host, client } = mountApp('connecting')
+    await nextTick()
+    const login = () => host.querySelector<HTMLAnchorElement>('.conversation-header a[href^="/login?"]')
+    expect(login()?.textContent).toBe('Sign in with Hermes')
+    expect(new URL(login()!.href).searchParams.get('next')).toBe(window.location.pathname + window.location.search)
+    client.state.authRequired = true
+    client.state.connection = 'failed'
+    await nextTick()
+    expect(login()).not.toBeNull()
+    expect(host.querySelector('form[action="/auth/logout"]')).toBeNull()
+    client.state.identity = 'Synthetic operator'
+    await nextTick()
+    expect(login()).toBeNull()
+    expect(host.querySelector('form[action="/auth/logout"]')).not.toBeNull()
+  })
+
   it('sends on Enter, preserves Shift+Enter, and does not submit while running', async () => {
     const { host, client } = mountApp()
     const send = vi.spyOn(client, 'send').mockResolvedValue()

@@ -45,6 +45,40 @@ function setup(selected = '') {
 afterEach(() => vi.useRealTimers())
 
 describe('chat recovery and session ownership', () => {
+  it('shows request failures while retrying instead of leaving an unexplained empty UI', async () => {
+    vi.useFakeTimers()
+    const { state, api, chat } = setup()
+    vi.mocked(api.request).mockRejectedValue(new TypeError('Failed to fetch'))
+    await chat.start()
+    expect(state.connection).toBe('reconnecting')
+    expect(state.error).toBe('Failed to fetch')
+    vi.mocked(api.request).mockResolvedValue({ auth_required: false })
+    await chat.connect()
+    expect(state.connection).toBe('ready')
+    expect(state.error).toBe('')
+    expect(state.activity).toBe('')
+    chat.dispose()
+  })
+
+  it('uses the local service for remote authentication and ticket renewal', async () => {
+    const { state, api, gateway, chat } = setup()
+    vi.mocked(api.request).mockImplementation(async path => {
+      if (path === '/api/agora/connection') return { mode: 'local', endpoint: 'https://remote-hermes.test' }
+      if (path === '/api/status') return { auth_required: true }
+      if (path === '/api/auth/me') return { display_name: 'Operator' }
+      throw new Error(`Unexpected browser request: ${path}`)
+    })
+    await chat.start('work')
+    expect(state.connection).toBe('ready')
+    expect(state.localMode).toBe(true)
+    expect(state.endpoint).toBe('https://remote-hermes.test')
+    expect(gateway.connect).toHaveBeenCalledWith('wss://hermes.test/api/ws', undefined)
+    await chat.connect()
+    expect(gateway.connect).toHaveBeenCalledTimes(2)
+    expect(api.request).not.toHaveBeenCalledWith('/api/auth/ws-ticket', expect.anything())
+    chat.dispose()
+  })
+
   it('uses REST stored IDs and profile for resume, runtime IDs for actions', async () => {
     const { state, api, gateway, chat } = setup('a')
     await chat.start('work')
@@ -129,6 +163,7 @@ describe('chat recovery and session ownership', () => {
     const { state, api, gateway, chat } = setup('a')
     let tickets = 0
     vi.mocked(api.request).mockImplementation(async path => {
+      if (path === '/api/agora/connection') return {}
       if (path === '/api/status') return { auth_required: true }
       if (path === '/api/auth/me') return { display_name: 'Operator' }
       return { ticket: `ticket-${++tickets}` }

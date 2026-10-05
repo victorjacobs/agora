@@ -133,8 +133,9 @@ onBeforeUnmount(() => chat.dispose())
       </nav>
       <div class="sidebar-footer">
         <div class="identity"><span class="status-dot" :class="state.connection"></span><span>{{ state.identity || 'Hermes dashboard' }}</span></div>
-        <form v-if="state.authRequired && state.connection !== 'expired'" method="post" action="/auth/logout" @submit="logout"><button class="text-button">Sign out</button></form>
-        <a href="/" target="_blank" rel="noopener">Dashboard ↗</a>
+        <form v-if="state.authRequired && state.identity" method="post" action="/auth/logout" @submit="logout"><button class="text-button">Sign out</button></form>
+        <a :href="state.endpoint || '/'" target="_blank" rel="noopener">Dashboard ↗</a>
+        <span v-if="state.localMode" class="endpoint-label" :title="state.endpoint">{{ state.endpoint }}</span>
       </div>
     </aside>
 
@@ -142,6 +143,7 @@ onBeforeUnmount(() => chat.dispose())
       <header class="conversation-header">
         <button ref="menuButton" class="mobile-menu" aria-label="Open conversations" :aria-expanded="sidebarOpen" @click="toggleSidebar()">☰</button>
         <div class="conversation-heading"><h1>{{ state.title }}</h1><p class="connection-status" role="status"><span class="status-dot" :class="state.connection"></span>{{ status }}<span v-if="!state.authRequired && state.connection === 'ready'"> · authentication disabled</span></p></div>
+        <a v-if="!state.identity && state.connection !== 'ready'" class="button primary" :href="loginUrl">Sign in with Hermes</a>
         <div v-if="state.selected" class="header-actions">
           <button :disabled="actionsDisabled" @click="showDialog('rename')">Rename</button>
           <button :disabled="actionsDisabled || state.running || state.sending" @click="showDialog('delete')">Delete</button>
@@ -173,7 +175,7 @@ onBeforeUnmount(() => chat.dispose())
             <div v-else-if="message.role !== 'system'" class="muted">{{ message.text }}</div>
           </template>
           <div v-if="state.activity" class="activity" role="status"><span v-if="state.running" class="pulse" aria-hidden="true"></span>{{ state.activity }}</div>
-          <RequestCard v-for="request in displayedRequests" :key="request.id" :request="request" :disabled="actionsDisabled" @answer="chat.answer(request, $event)" />
+          <RequestCard v-for="request in displayedRequests" :key="request.id" :request="request" :disabled="actionsDisabled" :dashboard-url="state.endpoint || '/'" @answer="chat.answer(request, $event)" />
           <section v-for="approval in displayedApprovals" :key="approval.request_id || 'pending'" class="request-card">
             <h3>Approval required</h3><p>{{ approval.description }}</p><pre v-if="approval.command">{{ approval.command }}</pre>
             <div class="button-row"><button v-for="choice in approvalChoices(approval)" :key="choice" :disabled="actionsDisabled" @click="chat.approve(approval, choice)">{{ approvalLabels[choice] || choice }}</button></div>

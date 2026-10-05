@@ -4,19 +4,24 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite --host localhost",
+    "dev": "vite",
     "typecheck": "vue-tsc --noEmit",
     "test": "vitest run",
     "build": "vue-tsc --noEmit && vite build",
-    "preview": "vite preview --host localhost"
+    "preview": "vite preview",
+    "start": "node server/run.ts"
   },
   "dependencies": {
     "dompurify": "3.4.16",
     "markdown-it": "14.3.2",
-    "vue": "3.5.18"
+    "sirv": "3.0.2",
+    "vue": "3.5.18",
+    "ws": "8.22.0"
   },
   "devDependencies": {
     "@types/markdown-it": "14.1.2",
+    "@types/node": "24.10.1",
+    "@types/ws": "8.18.1",
     "@vitejs/plugin-vue": "6.0.1",
     "jsdom": "26.1.0",
     "typescript": "5.9.2",

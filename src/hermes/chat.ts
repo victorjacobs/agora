@@ -7,6 +7,8 @@ export function initialState() {
   return {
     connection: 'connecting' as Connection,
     authRequired: false,
+    localMode: false,
+    endpoint: '',
     identity: '',
     error: '',
     listError: '',
@@ -92,7 +94,12 @@ export class ChatClient {
     this.configuredProfile = profile || undefined
     this.state.profile = this.configuredProfile
     this.state.selected = this.location.selected()
-    await this.connect()
+    try {
+      const configuration = await this.api.request<{ mode?: string; endpoint?: string }>('/api/agora/connection')
+      this.state.localMode = configuration.mode === 'local'
+      this.state.endpoint = configuration.endpoint || ''
+    } catch { /* Same-origin Hermes installations do not have a local connection service. */ }
+    if (!this.stopped) await this.connect()
   }
 
   dispose() {
@@ -120,8 +127,8 @@ export class ChatClient {
       if (status.auth_required) {
         const identity = await this.api.request<{ display_name?: string; email?: string }>('/api/auth/me')
         this.state.identity = identity.display_name || identity.email || 'Signed in'
-        ticket = (await this.api.request<{ ticket: string }>('/api/auth/ws-ticket', { method: 'POST' })).ticket
-      } else this.state.identity = 'Local dashboard'
+        if (!this.state.localMode) ticket = (await this.api.request<{ ticket: string }>('/api/auth/ws-ticket', { method: 'POST' })).ticket
+      } else this.state.identity = 'Hermes dashboard'
       if (connectionGeneration !== this.connectionGeneration) return
 
       const url = new URL('/api/ws', this.location.origin)
@@ -134,7 +141,7 @@ export class ChatClient {
       await this.refreshSessions()
       if (connectionGeneration !== this.connectionGeneration) return
       if (this.state.selected) await this.open(this.state.selected, this.state.profile)
-      else this.state.connection = 'ready'
+      else { this.state.connection = 'ready'; this.state.activity = '' }
       this.attempts = 0
     } catch (error) {
       if (connectionGeneration !== this.connectionGeneration || this.stopped) return
@@ -142,7 +149,7 @@ export class ChatClient {
       if (error instanceof HttpError || !(error instanceof ConnectionLost || error instanceof TypeError)) {
         this.state.connection = 'failed'
         this.state.error = errorMessage(error)
-      } else this.scheduleReconnect()
+      } else this.scheduleReconnect(error)
     }
   }
 
@@ -155,9 +162,11 @@ export class ChatClient {
     }
   }
 
-  private scheduleReconnect() {
+  private scheduleReconnect(error?: unknown) {
     if (this.stopped) return
     this.state.connection = 'reconnecting'
+    if (error) this.state.error = errorMessage(error)
+    else if (!this.state.error) this.state.error = 'Unable to connect to Hermes. Retrying…'
     this.state.activity = 'Connection lost. Hermes may still be running.'
     clearTimeout(this.retryTimer)
     const delay = Math.min(1000 * 2 ** this.attempts++, 30_000)

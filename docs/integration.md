@@ -13,19 +13,61 @@ registry, replay, and renderer integration that Agora does not need; Agora uses
 a small independent browser transport and narrowed contract types, with upstream
 attribution in `THIRD_PARTY_NOTICES.md`.
 
-No deployed Hermes revision, OIDC provider, credentials, or proxy configuration
-was supplied. Source inspection and synthetic tests do not establish successful
-live login, cookie, Origin/Host, or WebSocket interoperability. Recheck these
-contracts before deploying against another revision.
+The supplied endpoint is `https://hermes-manage.vjcbs.be`. Its public status was
+checked on 2026-10-05: authentication is required, cookie and `native_pkce` flows
+are advertised, and the provider is self-hosted OIDC. Its exact Hermes revision
+is unverified. Source inspection and synthetic tests do not establish successful
+authenticated live login or chat. Recheck contracts against another revision.
+
+## Laptop connection
+
+Set `HERMES_ENDPOINT` in `.env.local`, then run `agora-dev` or build and run
+`agora-start`. The local URL is `http://127.0.0.1:5173/agora/`. The endpoint is a
+runtime setting for `agora-start`, so changing servers does not require rebuilding
+assets. Restart the process to apply it. Remote endpoints require HTTPS; HTTP is
+allowed for loopback Hermes test installations. URL path prefixes are preserved.
+
+`server/native-session.ts` implements the upstream native PKCE contract verified
+in `hermes_cli/dashboard_auth/routes.py`. `/login` creates a fresh S256 verifier
+and state, then navigates the browser to Hermes’s `/auth/native/authorize`.
+Hermes owns provider selection and OIDC. Its loopback callback returns a one-time
+code; the local service validates state, browser binding, origin, and expiry,
+then exchanges it at `/auth/native/token`. The browser receives only an opaque
+HttpOnly, SameSite=Lax session cookie. Tokens remain in process memory and are
+rotated through `/auth/native/refresh`; concurrent refreshes share one request.
+
+`server/bridge.ts` forwards only the chat client’s status, identity, session, and
+history APIs. It replaces browser credentials with the native bearer token,
+rejects upstream redirects, and never forwards upstream cookies. Each WebSocket
+attempt mints a fresh ticket and connects using the documented subprotocols.
+The upstream socket is a native connection without a browser Origin, matching
+Hermes’s native-client policy; TLS verification remains enabled. Frames are
+forwarded unchanged, including readiness, requests, and replies.
+
+The service binds loopback and validates Host and Origin to prevent foreign
+websites from using its authenticated connection. Mutations and WebSocket
+upgrades require the local Origin. The callback instead requires the pending
+browser cookie and unpredictable state. No permissive CORS headers are added.
+Only GETs and ticket minting can retry after a definitive HTTP 401; session
+mutations and chat frames are never replayed automatically.
+
+Local logout drops the memory-held grant and closes both ends of its sockets.
+Hermes exposes no native-token logout endpoint in the inspected contract; this
+does not revoke provider SSO or log out the remote dashboard. Restarting the
+local service requires signing in again. Tokens are not saved to disk or browser
+storage. This service is a transport/auth adapter, with no agent runner,
+transcript database, or Hermes filesystem access. A future desktop shell can
+replace the loopback transport without changing the chat state machine.
 
 ## Browser and server boundary
 
-`src/hermes/api.ts` owns cookie-authenticated HTTP requests and profile-aware
+`src/hermes/api.ts` owns same-origin cookie-authenticated HTTP requests and profile-aware
 session operations. `gateway.ts` handles JSON-RPC correlation, coalesced
 newline-delimited notifications, server requests, timeouts, and the advertised
 15-second heartbeat with a 45-second liveness deadline. It waits for
 `gateway.ready` before accepting calls. Each authenticated connection gets a
-fresh single-use ticket through `/api/auth/ws-ticket`, sent in the supported
+fresh single-use ticket through `/api/auth/ws-ticket` (by the local service in
+laptop mode), sent in the supported
 WebSocket subprotocol, never in a URL or browser storage.
 
 `chat.ts` owns selection, reconnect backoff, pending interactions, and action
@@ -59,7 +101,7 @@ and explicit skip. Unsupported requests remain visibly pending with a dashboard
 link; the user can stop the turn. Request cancellations and expired/already
 answered results are displayed. Agora never silently approves or answers a request.
 
-Login is full browser navigation to `/login?next=<same-origin Agora path>`.
+In hosted mode, login is full browser navigation to `/login?next=<same-origin Agora path>`.
 Hermes chooses the provider and owns callback, cookie refresh, and logout.
 A 401 pauses the client for sign-in; a 403 or WebSocket policy rejection is shown
 as a separate failure. There are no client OIDC tokens or automatic login redirects.
@@ -110,11 +152,28 @@ selection results, reconnect ticket renewal without prompt resend, pending
 approval/clarification recovery, live events after snapshots, sequence duplicates,
 completion during recovery, exact unpersisted draft recovery, compression descendant URLs, draft retention,
 upstream mutation failures, safe Markdown, and explicit interaction controls.
-Type checking and production build are part of `agora-check`.
+Local-service integration tests also cover PKCE verification, callback binding
+and replay rejection, token privacy, concurrent refresh, expired grants, session
+separation, mutation non-replay, Host/Origin rejection, gateway readiness, frame
+forwarding, and logout socket closure. Type checking and production build are
+part of `agora-check`.
+
+Browser transport tests model the native `fetch` receiver check, which Node’s
+fetch does not enforce. Component coverage exercises the real client startup
+after login through identity, gateway initialization, and session loading.
+Transient connection failures are shown while reconnecting rather than leaving
+the interface without an error.
 
 Firefox desktop and a 320 × 480 responsive viewport were inspected with the
 backend unavailable. Empty/reconnecting state, composer sizing, and mobile
 navigation were checked. This is layout validation, not a live Hermes chat test.
+
+The built local server was started with the supplied endpoint: assets and local
+connection metadata returned 200, remote status was reachable, unauthenticated
+identity returned 401, and login redirected to Hermes with S256 PKCE and the
+loopback callback. Hermes accepted that authorization request and redirected to
+`https://auth.vjcbs.be/api/oidc/authorization`. Browser automation could not start,
+so authenticated callback, live gateway, and chat acceptance remain unverified.
 
 ## Live acceptance checklist
 

@@ -13,8 +13,10 @@ suggestions and unresolved details. Recheck them against the target Hermes versi
   Hermes owns agent execution, sessions, history, configuration, and authentication.
 - Never read or write Hermes SQLite, session files, or other internal storage.
   Do not depend on hermes-webui or create a second agent backend or database.
-- Use Hermes's browser OIDC login flow and session cookies. Do not implement an
-  Agora identity store, OIDC token exchange, or native-app authentication flow.
+- Hosted mode uses Hermes's browser OIDC flow and session cookies. Laptop mode
+  uses Hermes's native PKCE flow through a loopback-only local service configured
+  by HERMES_ENDPOINT. Keep native tokens in server memory, outside the browser.
+  Do not create an Agora identity store or independent authentication provider.
 - Keep v1 focused on chat and sessions. Do not reproduce the management dashboard.
 - Treat dashboard access as access to the operator's Hermes installation; do not
   claim per-user isolation that the upstream APIs do not guarantee.
