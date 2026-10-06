@@ -19,6 +19,7 @@ function toolContext(messages: Message[]) {
 <template>
   <article class="message" :class="[turn.role, { 'completion-notice': completionNotice }]" :aria-label="turn.role === 'user' ? 'You' : turn.role === 'assistant' ? 'Hermes' : undefined">
     <div v-for="block in turn.blocks" :key="block.key" class="message-block">
+      <div v-if="block.kind === 'text' && block.message.images?.length" class="user-images"><MarkdownMessage v-for="(source, index) in block.message.images" :key="index" :profile="profile" :text="`![Attached image](<${source}>)`" @image-load="$emit('imageLoad')" /></div>
       <ThinkingTrace v-if="block.kind === 'text' && (block.message.reasoning?.text || turn.role === 'assistant' && !block.message.text.trim() && thinking)" :text="block.message.reasoning?.text || ''" :active="block.message.reasoning?.active ?? thinking" />
       <template v-if="block.kind === 'tools'">
         <template v-for="tool in block.messages" :key="`image-${tool.key}`">
@@ -67,6 +68,8 @@ function toolContext(messages: Message[]) {
 </template>
 
 <style scoped>
+.user-images { display: flex; flex-wrap: wrap; gap: 8px; }
+.user-images :deep(img) { max-width: 240px; max-height: 240px; }
 .command-output { border: 1px solid var(--border); border-radius: 9px; padding: 12px; background: var(--panel); }
 .command-output h3 { margin: 0 0 8px; font: 550 12px ui-monospace, monospace; color: var(--muted); }
 .command-output pre { margin: 0; border: 0; padding: 0; background: transparent; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow: auto; font-size: 12px; }

@@ -38,6 +38,8 @@ const memoryAnswers = []
 const commandDecisions = []
 const memoryReads = []
 const memoryMutations = []
+const imageUploads = []
+const imagePrompts = []
 let editedMemory = ''
 let memoryDeleted = false
 try {
@@ -62,6 +64,7 @@ try {
       result = { ok: true }
     }
     else if (url.pathname === '/api/learning/node') { memoryReads.push(url.searchParams.get('id')); result = { ok: true, kind: 'memory', id: url.searchParams.get('id'), content: editedMemory || 'Run the project checks before publishing a release.\n\nRecord the result of each check, then verify login and a chat against the real Hermes server.' } }
+    else if (url.pathname === '/api/fs/read-data-url') result = { dataUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aZ5sAAAAASUVORK5CYII=' }
     else if (url.pathname === '/api/status') result = { auth_required: true }
     else if (url.pathname === '/api/auth/me') result = { display_name: 'Demo operator' }
     else if (url.pathname === '/api/sessions') result = { sessions, total: sessions.length }
@@ -89,6 +92,8 @@ try {
       if (request.method === 'model.options') result = { model: 'gpt-6.1-sol', provider: 'openai-codex', providers: [{ slug: 'openai-codex', name: 'OpenAI Codex', models: ['gpt-6.1-sol'], capabilities: { 'gpt-6.1-sol': { reasoning: true } } }, { slug: 'anthropic', name: 'Anthropic', models: ['claude-sonnet'] }] }
       else if (request.method === 'cli.exec') result = { blocked: false, code: 0, output: JSON.stringify({ provider: 'openai-codex', plan: 'Plus', windows: [{ label: 'Session', used_percent: request.params.argv.includes('anthropic') ? 40 : 24 }, { label: 'Weekly', used_percent: 39 }], details: [] }) }
       else if (request.method === 'commands.catalog') result = { pairs: [['/help', 'Show available commands'], ['/context', 'Show context usage'], ['/memory', 'Review memory writes'], ['/plan', 'Plan a task']] }
+      else if (request.method === 'image.attach_bytes') { imageUploads.push(request.params); result = { attached: true, path: '/uploads/screenshot.png' } }
+      else if (request.method === 'prompt.submit') { imagePrompts.push(request.params); result = { status: 'streaming' } }
       else if (request.method === 'slash.exec') result = { output: 'Available commands:\n/help — Show available commands\n/context — Show context usage' }
       else if (request.method === 'command.dispatch') result = { type: 'exec', output: 'Pending memory writes (1):\n  abcdef01 [auto]  add to memory: Prefers concise release notes…\n\nApply: /memory approve <id>   Reject: /memory reject <id>' }
       else if (request.method === 'approval.respond') { commandDecisions.push(request.params); result = { resolved: 1 } }
@@ -331,6 +336,39 @@ try {
   await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
   await page.screenshot({ path: '/tmp/agora-soul-mobile-dark.png' })
   assert.ok(await soulView.evaluate(element => element.scrollWidth <= element.clientWidth), 'Soul inspection must fit on mobile.')
+  await page.getByRole('button', { name: 'Chat', exact: true }).click()
+  await page.setViewportSize({ width: 1280, height: 960 })
+  await page.emulateMedia({ colorScheme: 'light' })
+  const imageBytes = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aZ5sAAAAASUVORK5CYII=', 'base64')
+  const uploadInput = page.getByLabel('Choose images')
+  await uploadInput.setInputFiles({ name: 'screenshot.png', mimeType: 'image/png', buffer: imageBytes })
+  await page.locator('.attachment-preview img').waitFor()
+  assert.equal(imageUploads.length, 0, 'Selecting an image must not upload before Send.')
+  await page.getByRole('button', { name: 'Remove screenshot.png' }).click()
+  await page.locator('.attachment-preview').waitFor({ state: 'detached' })
+  await uploadInput.setInputFiles({ name: 'screenshot.png', mimeType: 'image/png', buffer: imageBytes })
+  await page.locator('.attachment-preview img').waitFor()
+  await composer.fill('What is in this image?')
+  await page.screenshot({ path: '/tmp/agora-image-attachment-light.png' })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await page.screenshot({ path: '/tmp/agora-image-attachment-mobile-dark.png' })
+  await page.getByRole('button', { name: 'Send ↑', exact: true }).click()
+  await page.locator('.user-images img').waitFor()
+  assert.equal(imageUploads.length, 1)
+  assert.equal(imageUploads[0].content_base64, imageBytes.toString('base64'))
+  assert.equal(imageUploads[0].session_id, 'runtime-release')
+  assert.equal(imagePrompts.at(-1).text, 'What is in this image?')
+  await page.locator('.attachment-preview').waitFor({ state: 'detached' })
+  messages.push({ id: 6, role: 'user', content: 'What is in this image?\n@image:/uploads/screenshot.png\n[screenshot]' })
+  liveSocket.send(JSON.stringify({ jsonrpc: '2.0', method: 'event', params: { type: 'message.complete', session_id: 'runtime-release', payload: {} } }))
+  await page.locator('select[aria-label="Model"]:not([disabled])').waitFor()
+  await page.locator('.user-images img').waitFor()
+  const recoveredBubble = page.locator('.message.user').last()
+  assert.ok((await recoveredBubble.innerText()).includes('What is in this image?'))
+  assert.ok(!(await recoveredBubble.innerText()).includes('@image:'))
+  assert.ok(!(await recoveredBubble.innerText()).includes('[screenshot]'))
+  await page.screenshot({ path: '/tmp/agora-recovered-image-mobile-dark.png' })
   if (errors.length) throw new Error(errors.join('\n'))
   console.info('Saved docs/screenshots/chat-light.png and chat-dark.png (sample data).')
 } finally {

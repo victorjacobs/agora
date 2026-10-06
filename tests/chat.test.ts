@@ -49,6 +49,91 @@ function setup(selected = '') {
 afterEach(() => vi.useRealTimers())
 
 describe('chat recovery and session ownership', () => {
+  it('uploads image bytes before submitting an image-only prompt and shows the image in the user message', async () => {
+    const { state, gateway, chat } = setup('a')
+    await chat.start('work')
+    const ordinary = vi.mocked(gateway.request).getMockImplementation()!
+    vi.mocked(gateway.request).mockImplementation((method, params, timeout) => method === 'image.attach_bytes'
+      ? Promise.resolve({ attached: true, path: '/uploads/one.png' }) : ordinary(method, params, timeout))
+    state.images = [{ id: 'one', name: 'one.png', dataUrl: 'data:image/png;base64,aGVsbG8=' }]
+    expect(chat.canSend()).toBe(true)
+    await chat.send()
+    expect(gateway.request).toHaveBeenCalledWith('image.attach_bytes', { session_id: 'runtime-a', profile: 'work', filename: 'one.png', content_base64: 'aGVsbG8=' }, 60_000)
+    expect(gateway.request).toHaveBeenCalledWith('prompt.submit', { session_id: 'runtime-a', profile: 'work', text: '' })
+    const calls = vi.mocked(gateway.request).mock.calls.map(([method]) => method)
+    expect(calls.indexOf('image.attach_bytes')).toBeLessThan(calls.indexOf('prompt.submit'))
+    expect(state.messages.at(-1)?.images).toEqual(['data:image/png;base64,aGVsbG8='])
+    expect(state.images).toEqual([])
+    chat.dispose()
+  })
+
+  it('cleans up partially uploaded images after a known failure without sending the prompt', async () => {
+    const { state, gateway, chat } = setup('a')
+    await chat.start('work')
+    const ordinary = vi.mocked(gateway.request).getMockImplementation()!
+    let uploads = 0
+    vi.mocked(gateway.request).mockImplementation((method, params, timeout) => {
+      if (method === 'image.attach_bytes') return ++uploads === 1 ? Promise.resolve({ attached: true, path: '/uploads/one.png' }) : Promise.reject(new RpcError(4016, 'Unsupported image'))
+      return ordinary(method, params, timeout)
+    })
+    state.images = ['one', 'two'].map(id => ({ id, name: id + '.png', dataUrl: 'data:image/png;base64,aGVsbG8=' }))
+    state.draft = 'Inspect these'
+    await chat.send()
+    expect(gateway.request).toHaveBeenCalledWith('image.detach', { session_id: 'runtime-a', profile: 'work', path: '/uploads/one.png' })
+    expect(vi.mocked(gateway.request).mock.calls.some(([method]) => method === 'prompt.submit')).toBe(false)
+    expect(state.images).toHaveLength(2)
+    expect(state.draft).toBe('Inspect these')
+    expect(state.error).toBe('Unsupported image')
+    expect(state.sending).toBe(false)
+    chat.dispose()
+  })
+
+  it('does not send an uploaded image after switching chats and keeps local image drafts separate', async () => {
+    const { state, gateway, chat } = setup('a')
+    await chat.start('work')
+    const slow = deferred<unknown>()
+    const ordinary = vi.mocked(gateway.request).getMockImplementation()!
+    vi.mocked(gateway.request).mockImplementation((method, params, timeout) => method === 'image.attach_bytes' ? slow.promise : ordinary(method, params, timeout))
+    state.images = [{ id: 'one', name: 'one.png', dataUrl: 'data:image/png;base64,aGVsbG8=' }]
+    const sending = chat.send()
+    await chat.open('b', 'work')
+    expect(state.images).toEqual([])
+    slow.resolve({ attached: true, path: '/uploads/one.png' })
+    await sending
+    expect(vi.mocked(gateway.request).mock.calls.some(([method]) => method === 'prompt.submit')).toBe(false)
+    expect(gateway.request).toHaveBeenCalledWith('image.detach', { session_id: 'runtime-a', profile: 'work', path: '/uploads/one.png' })
+    await chat.open('a', 'work')
+    expect(state.images).toHaveLength(1)
+    chat.dispose()
+  })
+
+  it('blocks sending when an image upload response cannot identify its queued path', async () => {
+    const { state, gateway, chat } = setup('a')
+    await chat.start('work')
+    const ordinary = vi.mocked(gateway.request).getMockImplementation()!
+    vi.mocked(gateway.request).mockImplementation((method, params, timeout) => method === 'image.attach_bytes' ? Promise.resolve({ attached: true }) : ordinary(method, params, timeout))
+    state.images = [{ id: 'one', name: 'one.png', dataUrl: 'data:image/png;base64,aGVsbG8=' }]
+    await chat.send()
+    expect(state.uncertain).toBe(true)
+    expect(chat.canSend()).toBe(false)
+    expect(state.error).toContain('did not confirm')
+    expect(vi.mocked(gateway.request).mock.calls.some(([method]) => method === 'prompt.submit')).toBe(false)
+    chat.dispose()
+  })
+
+  it('blocks resending after an ambiguous image upload and never submits a prompt silently', async () => {
+    const { state, gateway, chat } = setup('a')
+    await chat.start('work')
+    const ordinary = vi.mocked(gateway.request).getMockImplementation()!
+    vi.mocked(gateway.request).mockImplementation((method, params, timeout) => method === 'image.attach_bytes' ? Promise.reject(new ConnectionLost()) : ordinary(method, params, timeout))
+    state.images = [{ id: 'one', name: 'one.png', dataUrl: 'data:image/png;base64,aGVsbG8=' }]
+    await chat.send()
+    expect(state.uncertain).toBe(true)
+    expect(chat.canSend()).toBe(false)
+    expect(vi.mocked(gateway.request).mock.calls.some(([method]) => method === 'prompt.submit')).toBe(false)
+    chat.dispose()
+  })
+
   it('streams reasoning separately from replies and keeps it through completion recovery and session switches', async () => {
     const { state, gateway, chat } = setup('a')
     await chat.start('work')

@@ -483,3 +483,31 @@ Sources: [reasoning callbacks](https://github.com/NousResearch/hermes-agent/blob
 [reasoning events](https://github.com/NousResearch/hermes-agent/blob/main/tui_gateway/contracts/events.py),
 [readable reasoning details](https://github.com/NousResearch/hermes-agent/blob/main/agent/reasoning_summaries.py),
 and [history fields](https://github.com/NousResearch/hermes-agent/blob/main/hermes_state_messages.py).
+
+### Images attached to prompts
+
+The composer accepts PNG, JPEG, WebP, and GIF files through a picker, clipboard
+paste, or drop. Limits are 8 images and 10 MB each. Local data-URL previews and
+image drafts stay in tab memory, scoped by stored session and profile.
+
+Send uploads each image with `image.attach_bytes`, using
+`{session_id, profile, filename, content_base64}`, checks `attached: true` and
+the returned `path`, then calls the existing `prompt.submit` with text. Hermes
+owns its attachment queue and image routing; image-only prompts send empty text.
+Known upload failures detach confirmed queued paths through
+`image.detach {session_id, profile, path}`. Conversation switches stop before
+submitting a prompt and clean up confirmed uploads in the original runtime.
+Ambiguous connection failures block resend rather than retrying uploads or prompts.
+Slash commands with images are rejected explicitly.
+
+Sent images appear in user messages. History's `image_url` content parts and trailing `@image:` references render
+as images separately from the user caption. References support quoted paths, and
+trailing `[screenshot]` placeholders are removed when references identify the
+attachments. Images are fetched through the existing profile-scoped media API.
+When both forms are present, references take precedence to avoid duplicate images. Restoring older sessions relies on
+the image references Hermes actually returns; the client does not read its
+private session/image storage. No Hermes API changes are required.
+
+Sources: [attachment handlers](https://github.com/NousResearch/hermes-agent/blob/main/tui_gateway/methods_prompt.py),
+[attachment contracts](https://github.com/NousResearch/hermes-agent/blob/main/tui_gateway/contracts/prompt_voice.py),
+and [image routing](https://github.com/NousResearch/hermes-agent/blob/main/tui_gateway/prompt_turn.py).

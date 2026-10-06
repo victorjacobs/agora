@@ -6,6 +6,9 @@ the Hermes dashboard. Hermes runs the agent, stores conversations, and handles
 sign-in. Agora provides the chat interface.
 
 - Streamed replies, Markdown, code, and inline generated images.
+- Attach images with the paperclip, paste from your clipboard, or drop files onto
+  the composer. Review/remove previews before sending; image-only messages work.
+  Supports PNG, JPEG, WebP, and GIF, up to 8 images of 10 MB each.
 - Memory view with saved notes, user preferences, soul and custom instructions,
   provider status, readable inline approvals, and staged-write previews.
 - On-demand provider quota and credit balances, with a picker for multiple providers.

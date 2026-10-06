@@ -22,6 +22,7 @@ export interface Message {
   kind?: string
   name?: string
   metadata?: Record<string, unknown>
+  images?: string[]
   reasoning?: { text: string; active: boolean }
   tool?: {
     id: string

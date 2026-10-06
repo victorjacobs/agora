@@ -1,3 +1,4 @@
+import type { ImageAttachment } from './attachments'
 import { appendReasoning, excludeReplyFromReasoning, finishReasoning, restoreReasoning } from './reasoning'
 import { compressionStatus } from './compression'
 import { approvalChoices, eventApproval } from './approvals'
@@ -51,6 +52,8 @@ export function initialState() {
     hasOlder: false,
     olderLoading: false,
     draft: '',
+    images: [] as ImageAttachment[],
+    readingImages: false,
     running: false,
     sending: false,
     actionPending: false,
@@ -95,6 +98,7 @@ export class ChatClient {
   private bufferedRequests: ServerRequest[] = []
   private sequence = new Map<string, number>()
   private drafts = new Map<string, string>()
+  private imageDrafts = new Map<string, ImageAttachment[]>()
   private reasoningCache = new Map<string, Message[]>()
   private commandOutputs = new Map<string, Array<{ message: Message; after?: Message }>>()
   private uncertain = new Set<string>()
@@ -563,6 +567,7 @@ export class ChatClient {
     this.rememberReasoning()
     this.clearCompression()
     this.drafts.set(this.state.selected, this.state.draft)
+    this.imageDrafts.set(JSON.stringify([this.state.selected, this.state.profile]), this.state.images)
     const generation = ++this.selectionGeneration
     const previousId = this.state.selected
     this.state.selected = id
@@ -639,6 +644,7 @@ export class ChatClient {
       this.state.selected = stored
       this.state.runtime = snapshot.session_id
       this.state.profile = page.profile || profile
+      this.state.images = this.imageDrafts.get(JSON.stringify([stored, this.state.profile])) || []
       this.applyModelInfo(snapshot.info)
       this.state.title = snapshot.info.title || this.state.title
       this.state.messages = this.restoreCommandOutputs(restoreReasoning(restoreInflight(historyMessages(page), snapshot), this.reasoningCache.get(JSON.stringify([stored, this.state.profile])) || []), stored, this.state.profile)
@@ -701,6 +707,7 @@ export class ChatClient {
     this.rememberReasoning()
     this.clearCompression()
     this.drafts.set(this.state.selected, this.state.draft)
+    this.imageDrafts.set(JSON.stringify([this.state.selected, this.state.profile]), this.state.images)
     const generation = ++this.selectionGeneration
     this.state.connection = 'recovering'
     try {
@@ -723,6 +730,7 @@ export class ChatClient {
       this.state.requests = []
       this.state.title = 'New conversation'
       this.state.draft = ''
+      this.state.images = []
       this.state.running = false
       this.state.uncertain = false
       this.state.error = ''
@@ -826,7 +834,10 @@ export class ChatClient {
   async send() {
     if (!this.canSend()) return
     const text = this.state.draft.trim()
-    if (slashCommand(text)) { await this.sendCommand(text); return }
+    if (slashCommand(text)) {
+      if (this.state.images.length) { this.state.error = 'Send images with a message rather than a slash command.'; return }
+      await this.sendCommand(text); return
+    }
     await this.submitPrompt(text)
   }
 
@@ -837,15 +848,39 @@ export class ChatClient {
     const generation = this.selectionGeneration
     this.state.sending = true
     this.state.error = ''
-    this.state.running = true
-    this.state.messages.push({ key: `submitted-${crypto.randomUUID()}`, role: 'user', text: display })
+    const images = [...this.state.images]
+    const paths: string[] = []
+    let submitted = false
     try {
+      for (const image of images) {
+        const result = await this.gateway.request<{ attached?: boolean; path?: string }>('image.attach_bytes', {
+          session_id: runtime, profile, filename: image.name, content_base64: image.dataUrl.slice(image.dataUrl.indexOf(',') + 1),
+        }, 60_000)
+        if (result.attached !== true || typeof result.path !== 'string' || !result.path) {
+          this.uncertain.add(selected)
+          throw new Error('Hermes did not confirm the image upload. Check the conversation before trying again.')
+        }
+        paths.push(result.path)
+        if (generation !== this.selectionGeneration) throw new Error('Conversation changed before the images were sent.')
+      }
+      if (generation !== this.selectionGeneration) throw new Error('Conversation changed before the message was sent.')
+      this.state.running = true
+      this.state.messages.push({ key: `submitted-${crypto.randomUUID()}`, role: 'user', text: display, ...(images.length ? { images: images.map(image => image.dataUrl) } : {}) })
+      submitted = true
       const result = await this.gateway.request<{ status?: string }>('prompt.submit', { session_id: runtime, profile, text })
       this.drafts.set(selected, '')
+      this.imageDrafts.delete(JSON.stringify([selected, profile]))
+      if (this.state.selected === selected && this.state.profile === profile) this.state.images = this.state.images.filter(image => !images.some(sent => sent.id === image.id))
       if (this.state.selected === selected && this.state.draft.trim() === draft) this.state.draft = ''
       if (generation !== this.selectionGeneration) return
       if (result.status && result.status !== 'streaming') this.state.activity = `Hermes accepted the prompt (${result.status}).`
     } catch (error) {
+      if (!(error instanceof ConnectionLost)) {
+        for (const path of paths) {
+          try { await this.gateway.request('image.detach', { session_id: runtime, profile, path }) }
+          catch { this.uncertain.add(selected) }
+        }
+      }
       if (error instanceof ConnectionLost) {
         this.uncertain.add(selected)
         this.drafts.set(selected, draft)
@@ -854,7 +889,7 @@ export class ChatClient {
       this.state.uncertain = this.uncertain.has(selected)
       this.state.error = errorMessage(error)
       if (error instanceof ConnectionLost) this.scheduleReconnect()
-      else {
+      else if (submitted) {
         await this.open(selected, profile)
         if (this.state.selected === selected) this.state.error = errorMessage(error)
       }
@@ -864,8 +899,8 @@ export class ChatClient {
   }
 
   canSend() {
-    return this.state.connection === 'ready' && Boolean(this.state.runtime && this.state.draft.trim()) &&
-      !this.state.running && !this.state.compressing && !this.state.sending && !this.state.actionPending && !this.state.settingsPending && !this.state.modelConfirmation && !this.state.uncertain &&
+    return this.state.connection === 'ready' && Boolean(this.state.runtime && (this.state.draft.trim() || this.state.images.length)) &&
+      !this.state.running && !this.state.compressing && !this.state.readingImages && !this.state.sending && !this.state.actionPending && !this.state.settingsPending && !this.state.modelConfirmation && !this.state.uncertain &&
       !this.state.approvals.length && !this.state.requests.length
   }
 

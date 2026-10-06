@@ -3,6 +3,34 @@ import { conversationTimeline, conversationTurns, historyMessages, mergeHistory,
 import { renderMarkdown } from '../src/markdown'
 
 describe('transcripts', () => {
+  it('keeps image previews after completion restores Hermes text-reference history', () => {
+    const caption = 'Here is a screenshot can you read it?'
+    const messages = historyMessages({ session_id: 'a', pagination: { returned: 1, offset: 0, limit: 50 }, messages: [
+      { id: 1, role: 'user', content: caption + '\n@image:/var/lib/hermes/images/upload.png\n[screenshot]' },
+    ] })
+    expect(messages[0]?.text).toBe(caption)
+    expect(messages[0]?.images).toEqual(['/var/lib/hermes/images/upload.png'])
+    const native = historyMessages({ session_id: 'a', pagination: { returned: 1, offset: 0, limit: 50 }, messages: [
+      { id: 1, role: 'user', display_content: caption + '\n@image:/images/upload.png', content: [
+        { type: 'text', text: caption }, { type: 'image_url', image_url: { url: 'data:image/png;base64,aGVsbG8=' } },
+      ] },
+    ] })
+    expect(native[0]?.images).toEqual(['/images/upload.png'])
+    expect(native[0]?.text).toBe(caption)
+  })
+
+  it('restores user image parts separately from the plain user caption', () => {
+    const messages = historyMessages({ session_id: 'a', pagination: { returned: 1, offset: 0, limit: 50 }, messages: [
+      { id: 1, role: 'user', content: [{ type: 'text', text: 'Inspect this' }, { type: 'image_url', image_url: { url: 'data:image/png;base64,aGVsbG8=' } }] },
+    ] })
+    expect(messages[0]?.text).toBe('Inspect this')
+    expect(messages[0]?.images).toEqual(['data:image/png;base64,aGVsbG8='])
+    const projected = historyMessages({ session_id: 'a', pagination: { returned: 1, offset: 0, limit: 50 }, messages: [
+      { id: 1, role: 'user', display_content: 'Original caption', content: [{ type: 'text', text: 'Model-only scaffold' }, { type: 'image_url', image_url: { url: 'data:image/png;base64,aGVsbG8=' } }] },
+    ] })
+    expect(projected[0]?.text).toBe('Original caption')
+  })
+
   it('keeps task completions between assistant blocks and recovers their place after streaming IDs change', () => {
     const anchor = { key: 'live-reply', role: 'assistant', text: 'First reply' }
     const tasks = [{ key: 'child', goal: 'Check logs', status: 'failed', completedAfter: anchor }]

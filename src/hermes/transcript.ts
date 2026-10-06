@@ -1,3 +1,4 @@
+import { extractImageReferences } from './attachments'
 import { reasoningText } from './reasoning'
 import { imageSource } from './media'
 import type { HistoryPage, Message, Snapshot } from './types'
@@ -12,13 +13,18 @@ export function contentText(content: unknown): string {
 export function historyMessages(page: HistoryPage): Message[] {
   return page.messages.filter(row => row.display_kind !== 'hidden').map((row, index) => {
     const rowId = row.id ?? row.row_id
-    const text = row.display_content ?? row.text ?? contentText(row.content)
+    const parts = row.role === 'user' && Array.isArray(row.content) ? row.content.flatMap(part => part?.type === 'image_url' && imageSource(part.image_url?.url || '') ? [imageSource(part.image_url.url)!] : []) : []
+    const caption = row.display_content ?? row.text ?? contentText(parts.length && Array.isArray(row.content) ? row.content.filter(part => part?.type !== 'image_url') : row.content)
+    const references = row.role === 'user' ? extractImageReferences(caption) : { text: caption, images: [] }
+    const images = references.images.length ? references.images : parts
+    const text = references.text
     const reasoning = row.role === 'assistant' ? reasoningText(row, text) : ''
     return {
       key: rowId === undefined ? `history-${page.pagination.offset}-${index}` : `row-${rowId}`,
       rowId,
       role: row.role,
       text,
+      ...(images.length ? { images } : {}),
       kind: row.display_kind,
       metadata: row.display_metadata,
       name: row.tool_name || row.name,

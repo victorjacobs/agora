@@ -45,7 +45,7 @@ states returned by Hermes, including work started from another client.
 ## Deferred
 
 Multiple-server/profile management, global model/provider settings, prompt editing or
-branching, attachments, voice, terminal/file browser, tasks/boards, cron, skills,
+branching, non-image attachments, voice, terminal/file browser, tasks/boards, cron, skills,
 MCP management, analytics, notifications, offline mode, and custom account
 management. No feature parity with Hermes's dashboard, Conduit, or hermes-webui.
 

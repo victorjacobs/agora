@@ -4,6 +4,7 @@ import { ChatClient, initialState } from './hermes/chat'
 import { groupSessions } from './session-groups'
 import { conversationTimeline } from './hermes/transcript'
 import { taskRunning } from './hermes/tasks'
+import ImageAttachments from './ImageAttachments.vue'
 import SlashCommands from './SlashCommands.vue'
 import ComposerSettings from './ComposerSettings.vue'
 import ConversationSwitcher from './ConversationSwitcher.vue'
@@ -116,11 +117,14 @@ async function loadOlder() {
   if (element) element.scrollTop = top + element.scrollHeight - height
 }
 
+const attachments = ref<InstanceType<typeof ImageAttachments>>()
 async function send() {
-  if (!state.runtime && state.connection === 'ready' && state.draft.trim()) {
+  if (!state.runtime && state.connection === 'ready' && (state.draft.trim() || state.images.length)) {
+    const images = state.images
     const draft = state.draft
     await chat.newChat()
     state.draft = draft
+    state.images = images
   }
   if (!chat.canSend()) return
   following.value = true
@@ -285,14 +289,15 @@ onBeforeUnmount(() => { clearInterval(dateTimer); window.removeEventListener('re
         <div v-if="runningTasks.length" class="pinned-tasks conversation-width">
           <BackgroundTasks :tasks="runningTasks" :error="state.taskError" :connected="state.connection === 'ready'" />
         </div>
-        <form class="composer conversation-width" style="position: relative" @submit.prevent="send">
+        <form class="composer conversation-width" style="position: relative" @submit.prevent="send" @paste="attachments?.paste($event)" @dragover.prevent @drop="attachments?.drop($event)">
+          <ImageAttachments ref="attachments" :images="state.images" :scope="JSON.stringify([state.selected, state.profile])" :disabled="state.sending || state.readingImages || state.running || state.compressing || state.connection !== 'ready'" @add="state.images.push($event)" @remove="state.images = state.images.filter(image => image.id !== $event)" @error="state.error = $event" @busy="state.readingImages = $event" />
           <SlashCommands ref="slashPicker" :draft="state.draft" :scope="JSON.stringify([state.runtime, state.profile])" :connected="state.connection === 'ready'" :load="() => chat.commands()" @select="state.draft = $event; composer?.focus()" />
           <label class="sr-only" for="prompt">Message Hermes</label>
           <textarea id="prompt" ref="composer" v-model="state.draft" :role="slashPicker?.visible ? 'combobox' : undefined" :aria-expanded="slashPicker?.visible ? true : undefined" :aria-controls="slashPicker?.visible ? 'slash-options' : undefined" :aria-activedescendant="slashPicker?.activeId" :aria-autocomplete="slashPicker?.visible ? 'list' : undefined" rows="2" placeholder="Message Hermes…" title="Enter to send · Shift + Enter for a new line" :disabled="state.connection === 'expired' || state.connection === 'closed'" @keydown="composerKey"></textarea>
           <div class="composer-bottom">
             <div class="composer-options"><ComposerSettings :state="state" @model="chat.chooseModel($event)" @reasoning="chat.chooseReasoning($event)" @confirm="state.modelConfirmation && chat.chooseModel(state.modelConfirmation, true)" @cancel="state.modelConfirmation = undefined" @retry="chat.refreshSettings()" /></div>
             <button v-if="state.running" type="button" class="stop" :disabled="actionsDisabled" @click="chat.stop()">■ Stop</button>
-            <button v-else class="primary send" :disabled="state.runtime ? !chat.canSend() : state.connection !== 'ready' || state.settingsPending || !state.draft.trim()" type="submit">{{ state.sending ? 'Sending…' : 'Send ↑' }}</button>
+            <button v-else class="primary send" :disabled="state.runtime ? !chat.canSend() : state.connection !== 'ready' || state.settingsPending || state.readingImages || (!state.draft.trim() && !state.images.length)" type="submit">{{ state.sending ? 'Sending…' : 'Send ↑' }}</button>
           </div>
         </form>
       </footer>
