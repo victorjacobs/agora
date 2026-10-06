@@ -24,6 +24,8 @@ desktop packaging is deferred.
 - Memory workspace with pending-update review, inspection and explicit editing/deletion
   of saved notes and user-profile entries, and read-only soul/instructions and
   memory-provider status exposed by Hermes.
+- Cron workspace for creating/editing jobs, pause/resume, confirmed manual runs
+  and deletion, and read-only recent run history through the dashboard APIs.
 - Explicit controls for agent approval/clarification requests needed to finish
   an ordinary chat. Show unsupported requests clearly; never silently accept them.
 - Login/logout and a clear expired-session state. Preserve the selected
@@ -48,7 +50,7 @@ states returned by Hermes, including work started from another client.
 ## Deferred
 
 Multiple-server/profile management, global model/provider settings, prompt editing or
-branching, non-image attachments, voice, terminal/file browser, tasks/boards, cron, skills,
+branching, non-image attachments, voice, terminal/file browser, tasks/boards, skills,
 MCP management, analytics, notifications, offline mode, and custom account
 management. No feature parity with Hermes's dashboard, Conduit, or hermes-webui.
 

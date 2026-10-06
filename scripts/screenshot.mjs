@@ -20,6 +20,7 @@ const sessions = [
   { id: 'weekend', title: 'Weekend plans', last_active: now - 86400 * 3, profile: 'default' },
   { id: 'ideas', title: 'A few ideas for the garden', last_active: now - 86400 * 10, profile: 'default' },
 ]
+const cronJob = { id: 'briefing', name: 'Daily briefing', profile: 'default', prompt: 'Summarize the latest project changes.', schedule: { kind: 'cron', expr: '0 9 * * *' }, schedule_display: '0 9 * * *', enabled: true, state: 'scheduled', deliver: 'local', last_status: 'success', next_run_at: new Date(Date.now() + 3600000).toISOString() }
 const messages = [
   { id: 1, role: 'user', content: 'Help me prepare the next release. Check the project and put together a short checklist.' },
   { id: 2, role: 'assistant', reasoning_content: 'Check the project commands first, then verify the release steps against the recent changes.', content: 'I’ll check the project commands and recent changes.' },
@@ -53,6 +54,10 @@ try {
     const url = new URL(route.request().url())
     let result
     if (url.pathname === '/api/agora/connection') result = { mode: 'local', endpoint: 'https://hermes.example.com' }
+    else if (url.pathname === '/api/cron/jobs') result = [cronJob]
+    else if (url.pathname === '/api/cron/jobs/briefing/runs') result = { runs: [{ id: 'release', title: 'Daily briefing', profile: 'default', started_at: now - 3600, ended_at: now - 3500, message_count: 5, input_tokens: 1200, output_tokens: 320 }], limit: 20 }
+    else if (url.pathname === '/api/cron/jobs/briefing/pause') { cronJob.enabled = false; result = cronJob }
+    else if (url.pathname === '/api/cron/jobs/briefing' && route.request().method() === 'PUT') { Object.assign(cronJob, route.request().postDataJSON().updates); result = cronJob }
     else if (url.pathname === '/api/profiles/active') result = { active: 'other', current: 'default' }
     else if (url.pathname === '/api/memory') result = { active: '', builtin_files: { memory: 840, user: 215 }, providers: [{ name: 'honcho', description: 'External memory provider', status: 'not_configured', available: true, configured: false }] }
     else if (url.pathname === '/api/learning/graph') result = { nodes: [{ id: 'memory:memory:0:abcdef', kind: 'memory', memorySource: 'memory', label: 'Project release process' }, { id: 'memory:profile:1:123abc', kind: 'memory', memorySource: 'profile', label: 'Communication preferences' }], memory: [{ source: 'memory', fingerprint: 'abcdef', body: 'Run the project checks before publishing a release.' }, { source: 'profile', fingerprint: '123abc', body: 'Prefers concise answers and clear verification results.' }] }
@@ -374,6 +379,15 @@ try {
   const imageViewer = page.getByRole('dialog', { name: 'Enlarged image' })
   await imageViewer.waitFor()
   assert.equal(await imageViewer.locator('img').getAttribute('src'), await thumbnail.getAttribute('src'))
+  const downloading = page.waitForEvent('download')
+  await imageViewer.getByRole('button', { name: 'Download image' }).click()
+  const downloaded = await downloading
+  assert.equal(downloaded.suggestedFilename(), 'image.png')
+  const downloadedBytes = []
+  for await (const chunk of await downloaded.createReadStream()) downloadedBytes.push(chunk)
+  assert.deepEqual(Buffer.concat(downloadedBytes), imageBytes)
+  assert.equal(await imageViewer.count(), 1, 'Downloading must keep the image viewer open.')
+  await imageViewer.getByRole('button', { name: 'Close image' }).focus()
   assert.ok(await imageViewer.getByRole('button', { name: 'Close image' }).evaluate(element => element === document.activeElement), 'Image viewer must receive focus.')
   await imageViewer.locator('img').click()
   assert.equal(await imageViewer.count(), 1, 'Clicking the enlarged image must not dismiss it.')
@@ -401,6 +415,44 @@ try {
   await imageViewer.getByRole('button', { name: 'Close image' }).click()
   await imageViewer.waitFor({ state: 'detached' })
 
+  if (errors.length) throw new Error(errors.join('\n'))
+
+  await page.getByRole('button', { name: 'Cron jobs', exact: true }).click()
+  await page.getByRole('heading', { name: 'Daily briefing', exact: true }).waitFor()
+  await page.getByRole('button', { name: 'View conversation' }).click()
+  await page.getByRole('dialog', { name: 'Run conversation' }).getByText('The project checks pass.', { exact: false }).waitFor()
+  const runDialog = page.getByRole('dialog', { name: 'Run conversation' })
+  assert.ok(await runDialog.getByRole('button', { name: 'Close', exact: true }).evaluate(element => element === document.activeElement), 'Run dialog should receive focus immediately.')
+  assert.ok(await runDialog.evaluate(element => { const bounds = element.getBoundingClientRect(); return bounds.top >= 0 && bounds.bottom <= innerHeight }), 'Run conversation must be immediately visible.')
+  await page.screenshot({ path: '/tmp/agora-cron-light.png' })
+  await page.getByRole('button', { name: 'Close', exact: true }).click()
+  assert.ok(await page.getByRole('button', { name: 'View conversation' }).evaluate(element => element === document.activeElement), 'Closing must return focus to the run.')
+  await page.getByRole('button', { name: 'View conversation' }).click()
+  await runDialog.waitFor()
+  await page.keyboard.press('Escape')
+  await runDialog.waitFor({ state: 'detached' })
+  await page.getByRole('button', { name: 'Edit', exact: true }).click()
+  await page.getByLabel('Name', { exact: true }).fill('Morning briefing')
+  await page.getByRole('button', { name: 'Save job' }).click()
+  await page.getByRole('heading', { name: 'Morning briefing', exact: true }).waitFor()
+  assert.equal(cronJob.schedule.expr, '0 9 * * *', 'Editing the name must preserve the stored schedule.')
+  await page.getByRole('button', { name: 'Pause', exact: true }).click()
+  await page.getByRole('button', { name: 'Resume', exact: true }).waitFor()
+  await page.getByRole('button', { name: 'New cron job' }).click()
+  await page.getByRole('heading', { name: 'New job', exact: true }).waitFor()
+  await page.getByRole('textbox', { name: /^Schedule/ }).fill('every 30m')
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await page.locator('.sidebar').getByRole('button', { name: 'Morning briefing', exact: false }).click()
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.getByRole('heading', { name: 'Morning briefing', exact: true }).waitFor()
+  assert.ok(await page.locator('.cron-view').evaluate(element => element.scrollWidth <= element.clientWidth), 'Cron view must fit a mobile viewport.')
+  await page.screenshot({ path: '/tmp/agora-cron-mobile-dark.png' })
+  await page.getByRole('button', { name: 'View conversation' }).click()
+  await runDialog.waitFor()
+  assert.ok(await runDialog.evaluate(element => { const bounds = element.getBoundingClientRect(); return bounds.left >= 0 && bounds.right <= innerWidth && bounds.top >= 0 && bounds.bottom <= innerHeight }), 'Run dialog must fit mobile.')
+  await page.screenshot({ path: '/tmp/agora-cron-run-mobile-dark.png' })
+  await runDialog.getByRole('button', { name: 'Close', exact: true }).click()
   if (errors.length) throw new Error(errors.join('\n'))
   console.info('Saved docs/screenshots/chat-light.png and chat-dark.png (sample data).')
 } finally {

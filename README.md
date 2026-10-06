@@ -18,10 +18,12 @@ sign-in. Agora provides the chat interface.
 - Attach images with the paperclip, paste from your clipboard, or drop files onto
   the composer. Review/remove previews before sending; image-only messages work.
   Supports PNG, JPEG, WebP, and GIF, up to 8 images of 10 MB each.
-  Click any chat image to enlarge it; close with Escape, the close button, or
+  Click any chat image to enlarge it and download it from the viewer; close with Escape, the close button, or
   a click outside the image viewer.
 - Memory view with saved notes, user preferences, soul and custom instructions,
   provider status, readable inline approvals, and staged-write previews.
+- Cron workspace to create/edit scheduled jobs, pause/resume, run now, delete,
+  and inspect recent runs and their conversations.
 - On-demand provider quota and credit balances, with a picker for multiple providers.
 - A compact chat list grouped by date, with running and unread-reply indicators.
   Search loaded titles and stored message text; cron-job conversations are excluded.
@@ -339,3 +341,25 @@ polling or browser persistence.
 - [Implementation handoff and upstream research](docs/implementation-handoff.md)
 - [Contributor/agent instructions](AGENTS.md)
 - [Upstream attribution](THIRD_PARTY_NOTICES.md)
+
+## Cron jobs
+
+Open **Cron jobs** in the left rail. Jobs belong to the current chat's Hermes
+profile, or Hermes's active profile before a chat is selected. Use **+** to create
+one; schedules accept cron expressions, intervals (for example `every 30m`), or
+one-time dates. Hermes validates and executes the schedule. Optional execution
+settings include model/provider, skills, an existing server-side script, and a
+working directory. Editing preserves settings that Agora does not expose.
+
+The pane refreshes every 15 seconds while visible, except during editing or
+confirmation. **Run now** and **Delete** require confirmation. Triggering a paused
+job also resumes it in Hermes. Failed writes are never automatically retried;
+refresh before repeating an action if its outcome is uncertain.
+
+Recent runs show Hermes's status and usage data. **View conversation** loads a
+read-only transcript in a focused dialog; close it with **Close**, Escape, or a
+click outside to return to the job. It does not resume or interrupt scheduler-owned
+sessions. Refresh an open transcript to see newer messages. Script-only runs show
+the output preview returned by Hermes, which may be truncated. The run list is
+limited to the latest 100 runs supported by the API. This requires Hermes's
+built-in `/api/cron/jobs` endpoints; Agora does not patch Hermes or read its files.

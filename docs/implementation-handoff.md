@@ -192,3 +192,29 @@ mid-stream; confirm resumption without restarting the prompt. Check desktop/mobi
 layout, keyboard use, Markdown safety, and deep-link reloads. Record the tested
 Hermes revision and deployment arrangement. Mock-only tests do not establish
 OIDC, cookie, Origin, or proxy compatibility.
+
+## Cron workspace contract
+
+The Cron workspace uses dashboard HTTP APIs, checked against Hermes revision
+`e1fdf003a668f97bf5a53d7675c1e70b1dcfec34` in
+[`web_routers/cron.py`](https://github.com/NousResearch/hermes-agent/blob/e1fdf003a668f97bf5a53d7675c1e70b1dcfec34/hermes_cli/web_routers/cron.py)
+and [`web_models.py`](https://github.com/NousResearch/hermes-agent/blob/e1fdf003a668f97bf5a53d7675c1e70b1dcfec34/hermes_cli/web_models.py).
+This is source verification and mock coverage, not live authenticated validation.
+
+- List: `GET /api/cron/jobs?profile=<name>` returns a job array.
+- Create: `POST /api/cron/jobs?profile=<name>` accepts the creation fields directly.
+- Edit: `PUT /api/cron/jobs/<id>?profile=<name>` accepts `{updates: {...}}`.
+  Send only changed fields to preserve schedules and unexposed settings.
+- Pause/resume/trigger: `POST /api/cron/jobs/<id>/<action>?profile=<name>`.
+  Triggering a paused job also resumes it. Do not automatically retry writes.
+- Delete: `DELETE /api/cron/jobs/<id>?profile=<name>`.
+- Runs: `GET /api/cron/jobs/<id>/runs?profile=<name>&limit=<n>` returns
+  `{runs, limit}`, capped at 100, with no offset pagination.
+
+Resolve an explicit profile from the current conversation or
+`GET /api/profiles/active` before listing or mutating jobs. Run conversations use
+ordinary session-message history, read-only; never resume scheduler-owned
+sessions through the chat WebSocket. Script-only `source: cron_output` rows expose
+previews rather than full session history. Do not fetch their internal output
+paths. The bridge permits only the listed cron route/method families, with its
+existing authentication and Origin checks.

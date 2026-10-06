@@ -71,6 +71,10 @@ function safeNext(value: string | null) {
 }
 
 function allowedRoute(path: string, method: string) {
+  if (path === '/api/cron/jobs') return ['GET', 'POST'].includes(method)
+  if (/^\/api\/cron\/jobs\/[^/]+$/.test(path)) return ['GET', 'PUT', 'DELETE'].includes(method)
+  if (/^\/api\/cron\/jobs\/[^/]+\/runs$/.test(path)) return method === 'GET'
+  if (/^\/api\/cron\/jobs\/[^/]+\/(pause|resume|trigger)$/.test(path)) return method === 'POST'
   if (method === 'GET' && ['/api/status', '/api/auth/providers', '/api/auth/me', '/api/agora/connection', '/api/media', '/api/media/proxy', '/api/fs/read-data-url'].includes(path)) return true
   if (method === 'POST' && path === '/api/auth/ws-ticket') return true
   if (['PUT', 'DELETE'].includes(method) && path === '/api/learning/node') return true

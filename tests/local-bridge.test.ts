@@ -58,6 +58,7 @@ async function fixture(publicOrigin?: string) {
       return send({ access_token: token, refresh_token: 'refresh-1', provider: 'self-hosted', expires_at: Date.now() / 1000 + 3600 })
     }
     if (request.headers.authorization !== `Bearer ${token}`) return send({ detail: 'Unauthorized' }, 401)
+    if (url.pathname.startsWith('/api/cron/jobs')) return send({ ok: true, method: request.method })
     if (url.pathname === '/api/learning/node' && ['PUT', 'DELETE'].includes(request.method || '')) return send({ ok: true, value: await body() })
     if (['/api/profiles/active', '/api/memory', '/api/learning/graph', '/api/learning/node'].includes(url.pathname)) return send({ inspected: true })
     if (url.pathname === '/api/fs/read-data-url') return send({ dataUrl: 'data:image/png;base64,aGVsbG8=' })
@@ -137,6 +138,20 @@ async function fixture(publicOrigin?: string) {
 }
 
 describe('local remote-Hermes connection', () => {
+  it('forwards authenticated cron operations and blocks foreign origins and unrelated cron routes', async () => {
+    const test = await fixture()
+    const { cookie } = await test.login()
+    for (const [path, method] of [['/api/cron/jobs', 'GET'], ['/api/cron/jobs', 'POST'], ['/api/cron/jobs/job', 'PUT'], ['/api/cron/jobs/job', 'DELETE'], ['/api/cron/jobs/job/runs', 'GET'], ['/api/cron/jobs/job/pause', 'POST'], ['/api/cron/jobs/job/resume', 'POST'], ['/api/cron/jobs/job/trigger', 'POST']]) {
+      const response = await fetch(`${test.origin}${path}?profile=work`, { method, headers: { Cookie: cookie, Origin: test.origin } })
+      expect(response.status).toBe(200)
+      expect(test.records.at(-1)?.authorization).toBe('Bearer access-1')
+    }
+    const before = test.records.length
+    expect((await fetch(`${test.origin}/api/cron/jobs/job/trigger`, { method: 'POST', headers: { Cookie: cookie, Origin: 'https://foreign.test' } })).ok).toBe(false)
+    expect((await fetch(`${test.origin}/api/cron/fire/job`, { method: 'POST', headers: { Cookie: cookie, Origin: test.origin } })).ok).toBe(false)
+    expect(test.records).toHaveLength(before)
+  })
+
   it('forwards authenticated memory inspection and rejects unsupported writes', async () => {
     const test = await fixture()
     const { cookie } = await test.login()

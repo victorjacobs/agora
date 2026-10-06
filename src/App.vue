@@ -12,6 +12,8 @@ import BackgroundTasks from './BackgroundTasks.vue'
 import ProviderQuota from './ProviderQuota.vue'
 import MemoryStateView from './MemoryStateView.vue'
 import { memorySections, type MemorySection } from './hermes/memory-state'
+import CronView from './CronView.vue'
+import type { CronJob } from './hermes/cron'
 import MemoryView from './MemoryView.vue'
 import CommandApprovalCard from './CommandApprovalCard.vue'
 import MemoryApprovalCard from './MemoryApprovalCard.vue'
@@ -24,7 +26,9 @@ import type { SessionRow } from './hermes/types'
 const state = reactive(initialState())
 const chat = new ChatClient(state)
 const sidebarOpen = ref(false)
-const view = ref<'chat' | 'memory'>('chat')
+const view = ref<'chat' | 'memory' | 'cron'>('chat')
+const cronView = ref<InstanceType<typeof CronView>>()
+const cronJobs = ref<CronJob[]>([])
 const memorySection = ref<MemorySection>('pending')
 const memoryTitle = computed(() => memorySections.find(section => section.id === memorySection.value)?.title || 'Memory')
 const memoryRequests = computed(() => memoryApprovals(state.approvals, state.requests))
@@ -203,12 +207,14 @@ onBeforeUnmount(() => { clearInterval(dateTimer); window.removeEventListener('re
     <nav class="app-rail" aria-label="Application views">
       <button :class="{ active: view === 'chat' }" :aria-current="view === 'chat' ? 'page' : undefined" aria-label="Chat" title="Chat" @click="view = 'chat'; sidebarOpen = false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M5 4h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-6 4V6a2 2 0 0 1 2-2Z" /></svg></button>
       <button :class="{ active: view === 'memory' }" :aria-current="view === 'memory' ? 'page' : undefined" aria-label="Memory" title="Memory" @click="view = 'memory'; sidebarOpen = false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M12 5c-3-4-8-1-7 3-4 1-4 7 0 8-1 4 5 6 7 2V5Zm0 0c3-4 8-1 7 3 4 1 4 7 0 8 1 4-5 6-7 2V5ZM5 8l3 2m-3 6 3-2m11-6-3 2m3 6-3-2" /></svg><span v-if="memoryRequests.length" class="rail-badge">{{ memoryRequests.length }}</span></button>
+      <button :class="{ active: view === 'cron' }" :aria-current="view === 'cron' ? 'page' : undefined" aria-label="Cron jobs" title="Cron jobs" @click="view = 'cron'; sidebarOpen = false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 6v6l4 2" /></svg></button>
     </nav>
-    <aside class="sidebar" :class="{ open: sidebarOpen }" :aria-label="view === 'chat' ? 'Conversations' : 'Memory navigation'">
+    <aside class="sidebar" :class="{ open: sidebarOpen }" :aria-label="view === 'chat' ? 'Conversations' : view === 'memory' ? 'Memory navigation' : 'Cron navigation'">
       <div class="sidebar-heading">
-        <h2>{{ view === 'chat' ? 'Chats' : 'Memory' }}</h2>
-        <button ref="closeMenuButton" class="mobile-close text-button" :aria-label="view === 'chat' ? 'Close conversations' : 'Close memory navigation'" @click="toggleSidebar()">×</button>
+        <h2>{{ view === 'chat' ? 'Chats' : view === 'memory' ? 'Memory' : 'Cron' }}</h2>
+        <button ref="closeMenuButton" class="mobile-close text-button" :aria-label="view === 'chat' ? 'Close conversations' : view === 'memory' ? 'Close memory navigation' : 'Close cron navigation'" @click="toggleSidebar()">×</button>
         <button v-if="view === 'chat'" class="new-chat text-button" :disabled="actionsDisabled" aria-label="New chat" title="New chat" @click="view = 'chat'; sidebarOpen = false; following = true; chat.newChat()"><span aria-hidden="true">＋</span></button>
+        <button v-if="view === 'cron'" class="new-chat text-button" :disabled="!cronView?.ready || cronView?.busy" aria-label="New cron job" title="New cron job" @click="cronView?.newJob(); sidebarOpen = false"><span aria-hidden="true">＋</span></button>
       </div>
       <div v-if="view === 'chat'" class="chat-search">
         <input type="search" aria-label="Search chats" placeholder="Search chats" :value="state.searchQuery" @input="chat.searchConversations(($event.target as HTMLInputElement).value)" @keydown.esc.stop="chat.searchConversations('')" />
@@ -239,9 +245,10 @@ onBeforeUnmount(() => { clearInterval(dateTimer); window.removeEventListener('re
         <button v-if="!searching && state.sessions.length < state.total" class="load-more" :disabled="state.listLoading" @click="chat.refreshSessions(true)">{{ state.listLoading ? 'Loading…' : 'Load more conversations' }}</button>
         <p v-if="searching && state.searchResults.length === 100" class="search-limit">Showing up to 100 matches. Refine your search for more.</p>
       </nav>
-      <nav v-else class="session-list" aria-label="Memory sections">
+      <nav v-else-if="view === 'memory'" class="session-list" aria-label="Memory sections">
         <button v-for="section in memorySections" :key="section.id" class="session" :class="{ selected: memorySection === section.id }" :aria-current="memorySection === section.id ? 'page' : undefined" @click="memorySection = section.id; sidebarOpen = false"><span class="session-heading"><span class="session-title">{{ section.title }}</span><span v-if="section.id === 'pending' && memoryRequests.length" class="memory-section-count">{{ memoryRequests.length }}</span></span></button>
       </nav>
+      <nav v-else class="session-list" aria-label="Scheduled jobs"><button v-for="job in cronJobs" :key="job.id" class="session" :class="{ selected: cronView?.selected === job.id }" :disabled="cronView?.busy" @click="cronView?.select(job.id); sidebarOpen = false"><span class="session-heading"><span class="session-title">{{ job.name || job.id }}</span><span v-if="job.enabled === false || job.state === 'paused'" class="muted" aria-label="Paused">Ⅱ</span></span></button></nav>
       <div v-show="view === 'chat'" class="sidebar-footer">
         <ProviderQuota :providers="state.modelProviders" :current-provider="state.provider" :profile="state.profile" :connected="state.connection === 'ready'" :load="(provider, profile) => chat.providerQuota(provider, profile)" />
       </div>
@@ -249,8 +256,8 @@ onBeforeUnmount(() => { clearInterval(dateTimer); window.removeEventListener('re
 
     <main :inert="sidebarOpen">
       <header class="conversation-header">
-        <button ref="menuButton" class="mobile-menu" :aria-label="view === 'chat' ? 'Open conversations' : 'Open memory navigation'" :aria-expanded="sidebarOpen" @click="toggleSidebar()">☰</button>
-        <div class="conversation-heading"><h1>{{ view === 'memory' ? memoryTitle : state.title }}</h1></div>
+        <button ref="menuButton" class="mobile-menu" :aria-label="view === 'chat' ? 'Open conversations' : view === 'memory' ? 'Open memory navigation' : 'Open cron navigation'" :aria-expanded="sidebarOpen" @click="toggleSidebar()">☰</button>
+        <div class="conversation-heading"><h1>{{ view === 'memory' ? memoryTitle : view === 'cron' ? 'Cron jobs' : state.title }}</h1></div>
         <div v-if="state.selected && view === 'chat'" class="header-actions">
           <button :disabled="actionsDisabled" @click="showDialog('rename')">Rename</button>
           <button :disabled="actionsDisabled || state.running || state.sending" @click="showDialog('delete')">Delete</button>
@@ -260,6 +267,7 @@ onBeforeUnmount(() => { clearInterval(dateTimer); window.removeEventListener('re
       <div v-if="state.error" class="banner warning" role="alert"><span>{{ state.error }}</span><button v-if="state.connection === 'failed'" @click="chat.connect()">Retry connection</button><button v-else class="text-button" aria-label="Dismiss error" @click="state.error = ''">×</button></div>
       <div v-if="state.uncertain" class="banner warning" role="alert"><div>The last send may have reached Hermes. Check the recovered conversation before sending again. Your draft is retained.</div><button :disabled="state.connection !== 'ready'" @click="chat.acknowledgeUncertain()">I’ve checked; keep editing</button></div>
 
+      <CronView ref="cronView" v-show="view === 'cron'" :active="view === 'cron'" :connected="state.connection === 'ready'" :profile="state.profile" @jobs="cronJobs = $event" />
       <MemoryView v-show="view === 'memory' && memorySection === 'pending'" :active="view === 'memory' && memorySection === 'pending'" :runtime="state.runtime" :profile="state.profile" :connected="state.connection === 'ready'" :approvals="memoryRequests" :disabled="actionsDisabled" :load="(runtime, profile) => chat.pendingMemory(runtime, profile)" @decide="decideMemory" />
       <MemoryStateView v-if="memorySection !== 'pending'" v-show="view === 'memory'" :active="view === 'memory'" :section="memorySection" :runtime="state.runtime" :profile="state.profile" :connected="state.connection === 'ready'" :load="(section, profile) => chat.inspectMemory(section, profile)" :read="(id, profile) => chat.readMemoryEntry(id, profile)" :mutate="(id, profile, content) => chat.mutateMemoryEntry(id, profile, content)" />
       <div v-show="view === 'chat'" ref="transcript" class="transcript" tabindex="0" aria-label="Conversation messages" @scroll="trackScroll">
