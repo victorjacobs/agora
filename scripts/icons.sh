@@ -9,4 +9,4 @@ for size in 16 32 48 192; do
 done
 
 magick public/favicon-16.png public/favicon-32.png public/favicon-48.png public/favicon.ico
-magick docs/branding/icon.png -filter Lanczos -resize 180x180 -background '#415b3a' -alpha remove -alpha off -strip public/apple-touch-icon.png
+magick docs/branding/icon.png -filter Lanczos -resize 180x180 -background '#0d1f30' -alpha remove -alpha off -strip public/apple-touch-icon.png
