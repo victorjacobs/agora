@@ -11,6 +11,8 @@ suggestions and unresolved details. Recheck them against the target Hermes versi
 - Use Vue with TypeScript and Vite. Use Nix and direnv for development.
 - Connect directly to Hermes dashboard HTTP APIs and its chat WebSocket protocol.
   Hermes owns agent execution, sessions, history, configuration, and authentication.
+- Keep Agora standalone. Never patch Hermes APIs to enable an Agora feature;
+  use existing contracts and show unsupported capabilities as unavailable.
 - Never read or write Hermes SQLite, session files, or other internal storage.
   Do not depend on hermes-webui or create a second agent backend or database.
 - Hosted mode uses Hermes's browser OIDC flow and session cookies. Laptop mode

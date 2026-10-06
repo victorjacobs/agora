@@ -34,6 +34,7 @@ const server = await createServer({
 let browser
 let liveSocket
 let changelogFinished = false
+const memoryAnswers = []
 try {
   await server.listen()
   const origin = `http://127.0.0.1:${server.httpServer.address().port}`
@@ -62,6 +63,8 @@ try {
       let result = {}
       if (request.method === 'model.options') result = { model: 'gpt-6.1-sol', provider: 'openai-codex', providers: [{ slug: 'openai-codex', name: 'OpenAI Codex', models: ['gpt-6.1-sol'], capabilities: { 'gpt-6.1-sol': { reasoning: true } } }, { slug: 'anthropic', name: 'Anthropic', models: ['claude-sonnet'] }] }
       else if (request.method === 'cli.exec') result = { blocked: false, code: 0, output: JSON.stringify({ provider: 'openai-codex', plan: 'Plus', windows: [{ label: 'Session', used_percent: request.params.argv.includes('anthropic') ? 40 : 24 }, { label: 'Weekly', used_percent: 39 }], details: [] }) }
+      else if (request.method === 'command.dispatch') result = { type: 'exec', output: 'Pending memory writes (1):\n  abcdef01 [auto]  add to memory: Prefers concise release notes…\n\nApply: /memory approve <id>   Reject: /memory reject <id>' }
+      else if (request.method === 'request.answer') { memoryAnswers.push(request.params.result); result = { status: 'ok' } }
       else if (request.method === 'config.get') result = { value: 'medium' }
       else if (request.method === 'session.active_list') result = { sessions: [{ id: 'runtime-interface', session_key: 'interface', status: 'working' }] }
       else if (request.method === 'session.resume') result = { session_id: 'runtime-release', stored_session_id: 'release', info: { title: 'Release checklist', profile_name: 'default', running: false } }
@@ -151,6 +154,27 @@ try {
     const reply = [...document.querySelectorAll('.message')].find(element => element.textContent.includes('A follow-up reply.'))
     return Boolean(task.compareDocumentPosition(reply) & Node.DOCUMENT_POSITION_FOLLOWING)
   }), 'Completed tasks must stay before later replies.')
+  if (errors.length) throw new Error(errors.join('\n'))
+  await page.setViewportSize({ width: 1280, height: 960 })
+  liveSocket.send(JSON.stringify({ jsonrpc: '2.0', id: 'memory-review', method: 'approval', params: { request_id: 'memory-one', session_id: 'runtime-release', description: 'Save to memory: add to user profile', command: 'Prefers concise release notes, with the changes and verification results listed separately.', choices: ['once', 'deny'] } }))
+  await page.locator('.app-rail .rail-badge').waitFor()
+  await page.getByRole('button', { name: 'Memory', exact: true }).click()
+  const memoryView = page.getByRole('region', { name: 'Memory review', exact: true })
+  await memoryView.getByText('Preview only', { exact: true }).waitFor()
+  await memoryView.getByText('Prefers concise release notes, with the changes and verification results listed separately.', { exact: true }).waitFor()
+  assert.equal(memoryAnswers.length, 0, 'Opening memory must never approve a write.')
+  await page.screenshot({ path: '/tmp/agora-memory-dark.png' })
+  await page.emulateMedia({ colorScheme: 'light' })
+  await page.screenshot({ path: '/tmp/agora-memory-light.png' })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+  await page.screenshot({ path: '/tmp/agora-memory-mobile.png' })
+  assert.ok(await memoryView.evaluate(element => element.scrollWidth <= element.clientWidth), 'Memory review must fit on mobile.')
+  await memoryView.getByRole('button', { name: 'Reject', exact: true }).click()
+  await page.locator('.app-rail .rail-badge').waitFor({ state: 'detached' })
+  assert.deepEqual(memoryAnswers, [{ choice: 'deny' }])
+  await page.getByRole('button', { name: 'Chat', exact: true }).click()
+  await composer.waitFor({ state: 'visible' })
   if (errors.length) throw new Error(errors.join('\n'))
   console.info('Saved docs/screenshots/chat-light.png and chat-dark.png (sample data).')
 } finally {

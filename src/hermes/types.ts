@@ -43,6 +43,7 @@ export interface HistoryPage {
 }
 
 export interface Approval {
+  tool_name?: string
   request_id?: string | null
   command?: string | null
   description?: string | null

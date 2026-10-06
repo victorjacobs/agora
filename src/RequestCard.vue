@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed, reactive, watch } from 'vue'
+import MemoryApprovalCard from './MemoryApprovalCard.vue'
+import { isMemoryApproval } from './hermes/memory'
 import type { Approval, ServerRequest } from './hermes/types'
 
 const props = defineProps<{ request: ServerRequest; disabled: boolean; dashboardUrl?: string }>()
@@ -32,7 +34,8 @@ function submit() {
 </script>
 
 <template>
-  <section class="request-card" :aria-label="`${request.method} request`">
+  <MemoryApprovalCard v-if="request.method === 'approval' && isMemoryApproval(approval)" :approval="approval" :disabled="disabled" @decide="emit('answer', { choice: $event })" />
+  <section v-else class="request-card" :aria-label="`${request.method} request`">
     <template v-if="request.method === 'approval'">
       <h3>Approval required</h3>
       <p v-if="approval.description">{{ approval.description }}</p>

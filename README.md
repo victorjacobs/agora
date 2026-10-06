@@ -6,6 +6,7 @@ the Hermes dashboard. Hermes runs the agent, stores conversations, and handles
 sign-in. Agora provides the chat interface.
 
 - Streamed replies, Markdown, code, and inline generated images.
+- Memory review view with readable inline approvals and staged-write previews.
 - On-demand provider quota and credit balances, with a picker for multiple providers.
 - A compact chat list grouped by date, with running and unread-reply indicators.
   Search loaded titles and stored message text; cron-job conversations are excluded.
@@ -240,6 +241,13 @@ Tests use synthetic Hermes responses; full authenticated live acceptance testing
 is still pending. Check the [integration notes](docs/integration.md) when using a
 different revision. Dashboard access is access to the operator's Hermes
 installation; Agora does not provide independent per-user isolation.
+
+Memory review is available from the Memory icon in the left rail. Inline
+approval cards show the change and offer **Save this change** or **Reject**.
+The view also loads staged-write previews for the selected conversation’s profile.
+Hermes currently truncates staged proposals and does not expose a full review API,
+so Agora shows those as previews without approval buttons. No Hermes patches,
+internal-file access, or changes to the memory approval policy are required.
 
 ## Further documentation
 

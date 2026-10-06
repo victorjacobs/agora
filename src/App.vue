@@ -8,6 +8,9 @@ import ComposerSettings from './ComposerSettings.vue'
 import ConversationSwitcher from './ConversationSwitcher.vue'
 import BackgroundTasks from './BackgroundTasks.vue'
 import ProviderQuota from './ProviderQuota.vue'
+import MemoryView from './MemoryView.vue'
+import MemoryApprovalCard from './MemoryApprovalCard.vue'
+import { isMemoryApproval, memoryApprovals, type MemoryApproval } from './hermes/memory'
 import ConversationTurn from './ConversationTurn.vue'
 import RequestCard from './RequestCard.vue'
 import SignInPage from './SignInPage.vue'
@@ -16,6 +19,8 @@ import type { Approval, SessionRow } from './hermes/types'
 const state = reactive(initialState())
 const chat = new ChatClient(state)
 const sidebarOpen = ref(false)
+const view = ref<'chat' | 'memory'>('chat')
+const memoryRequests = computed(() => memoryApprovals(state.approvals, state.requests))
 const menuButton = ref<HTMLButtonElement>()
 const closeMenuButton = ref<HTMLButtonElement>()
 const transcript = ref<HTMLElement>()
@@ -54,6 +59,7 @@ async function toggleSidebar() {
 }
 
 function openSwitcher() {
+  view.value = 'chat'
   if (showSignIn.value || checkingSession.value || dialog.value?.open) return
   if (switcherOpen.value) { switcher.value?.close(); return }
   previousSearch = state.searchQuery
@@ -75,6 +81,7 @@ function globalKey(event: KeyboardEvent) {
 }
 
 function selectSession(session: SessionRow) {
+  view.value = 'chat'
   sidebarOpen.value = false
   following.value = true
   void chat.open(session.id, session.profile || import.meta.env.VITE_HERMES_PROFILE || undefined)
@@ -139,12 +146,15 @@ async function mutate() {
   dialog.value?.close()
 }
 
+function decideMemory(approval: MemoryApproval, choice: string) {
+  if (approval.request) void chat.answer(approval.request, { choice })
+  else void chat.approve(approval, choice)
+}
+
 function approvalChoices(approval: Approval) {
   return approval.choices || ['once', ...(approval.allow_session ? ['session'] : []), ...(approval.allow_permanent ? ['always'] : []), 'deny']
 }
 const approvalLabels: Record<string, string> = { once: 'Allow once', session: 'Allow for session', always: 'Always allow', deny: 'Deny' }
-
-
 
 watch(() => [state.messages.length, state.messages.at(-1)?.text], () => {
   if (following.value) void scrollToLatest(false)
@@ -179,19 +189,23 @@ onBeforeUnmount(() => { clearInterval(dateTimer); window.removeEventListener('re
   </main>
   <SignInPage v-else-if="showSignIn" :login-url="loginUrl" :connection="state.connection" :error="state.error" @retry="chat.connect()" />
   <div v-else class="shell" @keydown.esc="sidebarOpen && toggleSidebar()">
-    <button v-if="sidebarOpen" class="sidebar-backdrop" aria-label="Close conversation list" @click="toggleSidebar()"></button>
-    <aside class="sidebar" :class="{ open: sidebarOpen }" aria-label="Conversations">
+    <button v-if="sidebarOpen" class="sidebar-backdrop" aria-label="Close navigation" @click="toggleSidebar()"></button>
+    <nav class="app-rail" aria-label="Application views">
+      <button :class="{ active: view === 'chat' }" :aria-current="view === 'chat' ? 'page' : undefined" aria-label="Chat" title="Chat" @click="view = 'chat'; sidebarOpen = false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M5 4h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-6 4V6a2 2 0 0 1 2-2Z" /></svg></button>
+      <button :class="{ active: view === 'memory' }" :aria-current="view === 'memory' ? 'page' : undefined" aria-label="Memory" title="Memory" @click="view = 'memory'; sidebarOpen = false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M12 5c-3-4-8-1-7 3-4 1-4 7 0 8-1 4 5 6 7 2V5Zm0 0c3-4 8-1 7 3 4 1 4 7 0 8 1 4-5 6-7 2V5ZM5 8l3 2m-3 6 3-2m11-6-3 2m3 6-3-2" /></svg><span v-if="memoryRequests.length" class="rail-badge">{{ memoryRequests.length }}</span></button>
+    </nav>
+    <aside class="sidebar" :class="{ open: sidebarOpen }" :aria-label="view === 'chat' ? 'Conversations' : 'Memory navigation'">
       <div class="sidebar-heading">
-        <h2>Chats</h2>
-        <button ref="closeMenuButton" class="mobile-close text-button" aria-label="Close conversations" @click="toggleSidebar()">×</button>
-        <button class="new-chat text-button" :disabled="actionsDisabled" aria-label="New chat" title="New chat" @click="sidebarOpen = false; following = true; chat.newChat()"><span aria-hidden="true">＋</span></button>
+        <h2>{{ view === 'chat' ? 'Chats' : 'Memory' }}</h2>
+        <button ref="closeMenuButton" class="mobile-close text-button" :aria-label="view === 'chat' ? 'Close conversations' : 'Close memory navigation'" @click="toggleSidebar()">×</button>
+        <button v-if="view === 'chat'" class="new-chat text-button" :disabled="actionsDisabled" aria-label="New chat" title="New chat" @click="view = 'chat'; sidebarOpen = false; following = true; chat.newChat()"><span aria-hidden="true">＋</span></button>
       </div>
-      <div class="chat-search">
+      <div v-if="view === 'chat'" class="chat-search">
         <input type="search" aria-label="Search chats" placeholder="Search chats" :value="state.searchQuery" @input="chat.searchConversations(($event.target as HTMLInputElement).value)" @keydown.esc.stop="chat.searchConversations('')" />
         <button v-if="state.searchQuery" class="text-button" aria-label="Clear search" @click="chat.searchConversations('')">×</button>
         <button v-else class="text-button switcher-shortcut" aria-label="Switch conversation" aria-keyshortcuts="Meta+K Control+K" @click="openSwitcher">{{ switcherShortcut }}</button>
       </div>
-      <nav class="session-list" aria-label="Session history">
+      <nav v-if="view === 'chat'" class="session-list" aria-label="Session history">
         <template v-if="searching">
           <p v-if="state.searchLoading" class="muted" role="status">Searching…</p>
           <div v-else-if="state.searchError" class="list-error" role="alert"><p>{{ state.searchError }}</p><button @click="chat.searchConversations(state.searchQuery)">Try again</button></div>
@@ -215,16 +229,19 @@ onBeforeUnmount(() => { clearInterval(dateTimer); window.removeEventListener('re
         <button v-if="!searching && state.sessions.length < state.total" class="load-more" :disabled="state.listLoading" @click="chat.refreshSessions(true)">{{ state.listLoading ? 'Loading…' : 'Load more conversations' }}</button>
         <p v-if="searching && state.searchResults.length === 100" class="search-limit">Showing up to 100 matches. Refine your search for more.</p>
       </nav>
-      <div class="sidebar-footer">
+      <nav v-else class="session-list" aria-label="Memory sections">
+        <button class="session selected" aria-current="page" @click="sidebarOpen = false"><span class="session-heading"><span class="session-title">Pending updates</span><span v-if="memoryRequests.length" class="memory-section-count">{{ memoryRequests.length }}</span></span></button>
+      </nav>
+      <div v-show="view === 'chat'" class="sidebar-footer">
         <ProviderQuota :providers="state.modelProviders" :current-provider="state.provider" :profile="state.profile" :connected="state.connection === 'ready'" :load="(provider, profile) => chat.providerQuota(provider, profile)" />
       </div>
     </aside>
 
     <main :inert="sidebarOpen">
       <header class="conversation-header">
-        <button ref="menuButton" class="mobile-menu" aria-label="Open conversations" :aria-expanded="sidebarOpen" @click="toggleSidebar()">☰</button>
-        <div class="conversation-heading"><h1>{{ state.title }}</h1></div>
-        <div v-if="state.selected" class="header-actions">
+        <button ref="menuButton" class="mobile-menu" :aria-label="view === 'chat' ? 'Open conversations' : 'Open memory navigation'" :aria-expanded="sidebarOpen" @click="toggleSidebar()">☰</button>
+        <div class="conversation-heading"><h1>{{ view === 'memory' ? 'Pending updates' : state.title }}</h1></div>
+        <div v-if="state.selected && view === 'chat'" class="header-actions">
           <button :disabled="actionsDisabled" @click="showDialog('rename')">Rename</button>
           <button :disabled="actionsDisabled || state.running || state.sending" @click="showDialog('delete')">Delete</button>
         </div>
@@ -233,7 +250,8 @@ onBeforeUnmount(() => { clearInterval(dateTimer); window.removeEventListener('re
       <div v-if="state.error" class="banner warning" role="alert"><span>{{ state.error }}</span><button v-if="state.connection === 'failed'" @click="chat.connect()">Retry connection</button><button v-else class="text-button" aria-label="Dismiss error" @click="state.error = ''">×</button></div>
       <div v-if="state.uncertain" class="banner warning" role="alert"><div>The last send may have reached Hermes. Check the recovered conversation before sending again. Your draft is retained.</div><button :disabled="state.connection !== 'ready'" @click="chat.acknowledgeUncertain()">I’ve checked; keep editing</button></div>
 
-      <div ref="transcript" class="transcript" tabindex="0" aria-label="Conversation messages" @scroll="trackScroll">
+      <MemoryView v-show="view === 'memory'" :active="view === 'memory'" :runtime="state.runtime" :profile="state.profile" :connected="state.connection === 'ready'" :approvals="memoryRequests" :disabled="actionsDisabled" :load="(runtime, profile) => chat.pendingMemory(runtime, profile)" @decide="decideMemory" />
+      <div v-show="view === 'chat'" ref="transcript" class="transcript" tabindex="0" aria-label="Conversation messages" @scroll="trackScroll">
         <div class="conversation-width">
           <button v-if="state.hasOlder" class="older-button" :disabled="state.olderLoading || state.connection !== 'ready'" @click="loadOlder">{{ state.olderLoading ? 'Loading…' : '↑ Load older messages' }}</button>
           <div v-if="!state.messages.length && !state.running" class="empty-conversation">
@@ -247,15 +265,18 @@ onBeforeUnmount(() => { clearInterval(dateTimer); window.removeEventListener('re
           <div v-if="state.activity || state.running" class="activity" role="status"><span v-if="state.running" class="pulse" aria-hidden="true"></span>{{ state.activity || 'Working…' }}</div>
           <p v-if="state.taskError && !runningTasks.length" class="muted task-status-error" role="status">{{ state.taskError }}</p>
           <RequestCard v-for="request in displayedRequests" :key="request.id" :request="request" :disabled="actionsDisabled" :dashboard-url="state.endpoint || '/'" @answer="chat.answer(request, $event)" />
-          <section v-for="approval in displayedApprovals" :key="approval.request_id || 'pending'" class="request-card">
+          <template v-for="approval in displayedApprovals" :key="approval.request_id || 'pending'">
+          <MemoryApprovalCard v-if="isMemoryApproval(approval)" :approval="approval" :disabled="actionsDisabled" @decide="chat.approve(approval, $event)" />
+          <section v-else class="request-card">
             <h3>Approval required</h3><p>{{ approval.description }}</p><pre v-if="approval.command">{{ approval.command }}</pre>
             <div class="button-row"><button v-for="choice in approvalChoices(approval)" :key="choice" :disabled="actionsDisabled" @click="chat.approve(approval, choice)">{{ approvalLabels[choice] || choice }}</button></div>
           </section>
+          </template>
         </div>
       </div>
-      <button v-if="!following" class="jump-latest" @click="scrollToLatest()">↓ Latest messages</button>
+      <button v-if="!following && view === 'chat'" class="jump-latest" @click="scrollToLatest()">↓ Latest messages</button>
 
-      <footer class="composer-footer">
+      <footer v-show="view === 'chat'" class="composer-footer">
         <div v-if="runningTasks.length" class="pinned-tasks conversation-width">
           <BackgroundTasks :tasks="runningTasks" :error="state.taskError" :connected="state.connection === 'ready'" />
         </div>

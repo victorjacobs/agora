@@ -31,6 +31,61 @@ function mountApp(connection: 'ready' | 'connecting' = 'ready') {
 }
 
 describe('chat interface', () => {
+  it('switches to memory without losing the chat draft and reviews inline changes explicitly', async () => {
+    const pending = vi.spyOn(ChatClient.prototype, 'pendingMemory').mockResolvedValue({ previews: [{ id: 'abcdef01', summary: 'Truncated preview', background: true, targetDetails: '' }] })
+    const approve = vi.spyOn(ChatClient.prototype, 'approve').mockResolvedValue()
+    const { host, client } = mountApp()
+    client.state.draft = 'An unsent message'
+    client.state.approvals = [{ request_id: 'memory-one', description: 'Save to memory: add to user profile', command: 'I prefer concise answers.\n<img src=x onerror=alert(1)>', choices: ['once', 'deny'] }]
+    await nextTick()
+    expect(pending).not.toHaveBeenCalled()
+    expect(host.querySelector('.app-rail .rail-badge')?.textContent).toBe('1')
+    host.querySelector<HTMLButtonElement>('[aria-label="Memory"]')!.click()
+    await vi.waitFor(() => expect(host.querySelector('.memory-preview')?.textContent).toContain('Truncated preview'))
+    expect(pending).toHaveBeenCalledWith('runtime', 'work')
+    expect(host.querySelector('[aria-label="Session history"]')).toBeNull()
+    expect(host.querySelector('[aria-label="Search chats"]')).toBeNull()
+    expect(host.querySelector('[aria-label="New chat"]')).toBeNull()
+    expect(host.querySelector('[aria-label="Memory sections"]')?.textContent).toContain('Pending updates')
+    const memory = host.querySelector('.memory-view')!
+    expect(memory.querySelector('.memory-proposal')?.textContent).toContain('I prefer concise answers.')
+    expect(memory.querySelector('img')).toBeNull()
+    expect(memory.querySelector('.memory-preview button')).toBeNull()
+    expect(approve).not.toHaveBeenCalled()
+    memory.querySelector<HTMLButtonElement>('.memory-actions .primary')!.click()
+    expect(approve).toHaveBeenCalledWith(expect.objectContaining({ request_id: 'memory-one' }), 'once')
+    host.querySelector<HTMLButtonElement>('[aria-label="Chat"]')!.click()
+    await nextTick()
+    expect(client.state.draft).toBe('An unsent message')
+    expect(host.querySelector('[aria-label="Session history"]')).not.toBeNull()
+    expect(host.querySelector('[aria-label="Memory sections"]')).toBeNull()
+    expect(host.querySelector<HTMLElement>('.memory-view')?.style.display).toBe('none')
+  })
+
+  it('routes memory decisions through the original server request and drops stale profile previews', async () => {
+    let resolve!: (value: { previews: [] }) => void
+    const pending = vi.spyOn(ChatClient.prototype, 'pendingMemory').mockImplementationOnce(() => new Promise(done => { resolve = done })).mockResolvedValue({ previews: [{ id: '12345678', summary: 'Personal preview', background: false, targetDetails: '' }] })
+    const answer = vi.spyOn(ChatClient.prototype, 'answer').mockResolvedValue()
+    const approve = vi.spyOn(ChatClient.prototype, 'approve').mockResolvedValue()
+    const { host, client } = mountApp()
+    const approval = { request_id: 'memory-one', description: 'Save to memory: add to memory', command: 'Complete proposed change', choices: ['once', 'deny'] }
+    client.state.approvals = [approval]
+    client.state.requests = [{ id: 'server-request', method: 'approval', params: { ...approval, session_id: 'runtime' } }]
+    await nextTick()
+    host.querySelector<HTMLButtonElement>('[aria-label="Memory"]')!.click()
+    await nextTick()
+    expect(host.querySelectorAll('.memory-view .memory-approval')).toHaveLength(1)
+    host.querySelector<HTMLButtonElement>('.memory-view .memory-actions button')!.click()
+    expect(answer).toHaveBeenCalledWith(expect.objectContaining({ id: 'server-request' }), { choice: 'deny' })
+    expect(approve).not.toHaveBeenCalled()
+    client.state.profile = 'personal'
+    await vi.waitFor(() => expect(host.querySelector('.memory-preview')?.textContent).toContain('Personal preview'))
+    expect(pending).toHaveBeenLastCalledWith('runtime', 'personal')
+    resolve({ previews: [] })
+    await nextTick()
+    expect(host.querySelector('.memory-preview')?.textContent).toContain('Personal preview')
+  })
+
   it('shows running calls and their details in the expandable tool group', async () => {
     const { host, client } = mountApp()
     client.state.running = true

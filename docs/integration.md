@@ -312,3 +312,24 @@ scoped by profile and provider. Refresh forces a new request. Late replies are
 discarded after switching providers, profiles, disconnecting, or unmounting.
 Providers without supported account usage and old gateways fail visibly without
 blocking chat. No agent session is created or modified to fetch quota.
+
+### Memory review
+
+The left icon rail switches the whole workspace between Chat and Memory without
+unmounting the transcript or losing its draft. Chat shows conversation navigation;
+Memory replaces it with its own Pending updates navigation. Memory approvals are identified by the upstream
+`Save to memory:` description prefix or `tool_name: memory`. Both queued
+`approval.pending` and server-to-client `approval` requests use the same readable
+card. Saving sends only the offered `once` choice through the request's existing
+response transport; rejection sends `deny`. No policy toggle or automatic
+approval is exposed. All content remains safely rendered plain text in memory.
+
+Opening Memory runs the existing `command.dispatch` RPC with `name: memory`,
+`arg: pending`, and the current runtime session ID. This command binds the
+session's profile; no new session or agent prompt is created. Unknown directives
+or preview formats fail visibly. Hermes's shared
+[write approval command handler](https://github.com/NousResearch/hermes-agent/blob/main/hermes_cli/write_approval_commands.py)
+returns truncated summaries, with pinned target entries when available. These are
+labeled previews and have no approval controls. Full staged-write review and
+saved-memory browsing are unavailable through the current exposed contract;
+Agora does not patch Hermes or read its private pending/memory files.
