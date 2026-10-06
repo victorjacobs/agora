@@ -34,14 +34,11 @@ h1 { font-size: 17px; font-weight: 550; margin: 0; overflow: hidden; text-overfl
 .transcript { overflow-y: auto; flex: 1; min-height: 0; padding: 25px 32px 24px; scroll-behavior: auto; }
 .conversation-width { max-width: 790px; margin-left: auto; margin-right: auto; width: 100%; }
 .empty-conversation { text-align: center; margin: clamp(30px, 13vh, 140px) auto 25px; color: var(--muted); }
-.empty-mark { display: inline-grid; place-items: center; width: 62px; height: 62px; border-radius: 20px; background: var(--avatar); color: var(--avatar-text); font: italic 51px Georgia, serif; padding-bottom: 8px; }
 .empty-conversation h2 { font: 36px Georgia, serif; letter-spacing: -1.3px; color: var(--heading); margin: 0 0 12px; }
 .empty-conversation > p { font-size: 14px; }
-.message { margin: 0 0 28px; padding: 9px 0; overflow-wrap: anywhere; }
-.message.user { background: var(--user); border: 1px solid var(--border); padding: 17px 21px; border-radius: 12px; }
-.message-author { display: flex; align-items: center; gap: 10px; font-size: 12px; font-weight: 650; color: var(--secondary-text); margin-bottom: 12px; }
-.avatar { display: inline-grid; place-items: center; width: 23px; height: 23px; border-radius: 7px; background: var(--avatar); font: italic 21px Georgia, serif; color: var(--avatar-text); }
-.user .avatar { font: 10px ui-sans-serif, sans-serif; background: var(--avatar); color: var(--muted); }
+.message { margin: 0 0 28px; min-width: 0; overflow-wrap: anywhere; text-align: left; }
+.message.user { width: fit-content; max-width: 82%; margin-left: auto; background: var(--user); padding: 12px 17px; border-radius: 18px 18px 5px 18px; }
+.message.assistant { width: 100%; margin-right: auto; }
 .message-kind { font-size: 10px; font-weight: normal; }
 .user-text { white-space: pre-wrap; }
 .markdown > :first-child { margin-top: 0; }
@@ -111,7 +108,7 @@ dialog input { margin-top: 8px; }
   .header-actions { gap: 3px; }
   .header-actions button { font-size: 11px; padding: 6px; }
   .transcript { padding: 20px 17px; }
-  .message.user { padding: 14px 16px; }
+  .message.user { max-width: 90%; padding: 11px 14px; }
   .composer-footer { padding: 0 13px 10px; }
   .composer { padding: 12px; }
   .desktop-hint { display: none; }

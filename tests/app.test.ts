@@ -241,7 +241,7 @@ describe('chat interface', () => {
     expect(host.querySelector('.task-result')?.textContent).toContain('1 task · 0 completed · 1 failed')
   })
 
-  it('shows one assistant header and a compact expandable tool group with safe output', async () => {
+  it('labels user and assistant turns without avatars and keeps tool output grouped safely', async () => {
     const { host, client } = mountApp()
     client.state.messages = [
       { key: 'user', role: 'user', text: 'Question' },
@@ -252,7 +252,9 @@ describe('chat interface', () => {
       { key: 'answer', role: 'assistant', text: 'Answer' },
     ]
     await nextTick()
-    expect(host.querySelectorAll('.assistant .message-author')).toHaveLength(1)
+    expect(host.querySelector('.message.user')?.getAttribute('aria-label')).toBe('You')
+    expect(host.querySelector('.message.assistant')?.getAttribute('aria-label')).toBe('Hermes')
+    expect(host.querySelector('.avatar, .message-author')).toBeNull()
     const group = host.querySelector<HTMLDetailsElement>('.tool-group')!
     expect(group.open).toBe(false)
     expect(group.querySelector('summary')?.textContent).toContain('2 tool calls')

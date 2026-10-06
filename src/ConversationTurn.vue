@@ -16,8 +16,7 @@ function toolContext(messages: Message[]) {
 </script>
 
 <template>
-  <article class="message" :class="[turn.role, { 'completion-notice': completionNotice }]">
-    <div v-if="turn.role !== 'other'" class="message-author"><span class="avatar" aria-hidden="true">{{ turn.role === 'user' ? 'Y' : 'a' }}</span>{{ turn.role === 'user' ? 'You' : 'Hermes' }}</div>
+  <article class="message" :class="[turn.role, { 'completion-notice': completionNotice }]" :aria-label="turn.role === 'user' ? 'You' : turn.role === 'assistant' ? 'Hermes' : undefined">
     <div v-for="block in turn.blocks" :key="block.key" class="message-block">
       <template v-if="block.kind === 'tools'">
         <template v-for="tool in block.messages" :key="`image-${tool.key}`">

@@ -242,7 +242,6 @@ onBeforeUnmount(() => { clearInterval(dateTimer); window.removeEventListener('re
         <div class="conversation-width">
           <button v-if="state.hasOlder" class="older-button" :disabled="state.olderLoading || state.connection !== 'ready'" @click="loadOlder">{{ state.olderLoading ? 'Loading…' : '↑ Load older messages' }}</button>
           <div v-if="!state.messages.length && !state.running" class="empty-conversation">
-            <span class="empty-mark" aria-hidden="true">a</span>
             <h2>Start a conversation.</h2>
             <p>Send a message to start.</p>
           </div>
