@@ -212,13 +212,33 @@ watch(showSignIn, value => {
     chat.searchConversations('')
   }
 })
+let releaseViewport = () => {}
 onMounted(() => {
+  const viewport = window.visualViewport
+  if (viewport) {
+    const style = document.documentElement.style
+    const fitViewport = () => {
+      // Pinch zoom must pan the existing layout, not shrink/reposition the app.
+      if (viewport.scale !== 1) return
+      style.setProperty('--app-height', `${viewport.height}px`)
+      style.setProperty('--app-top', `${viewport.offsetTop}px`)
+    }
+    fitViewport()
+    viewport.addEventListener('resize', fitViewport)
+    viewport.addEventListener('scroll', fitViewport)
+    releaseViewport = () => {
+      viewport.removeEventListener('resize', fitViewport)
+      viewport.removeEventListener('scroll', fitViewport)
+      style.removeProperty('--app-height')
+      style.removeProperty('--app-top')
+    }
+  }
   void chat.start(import.meta.env.VITE_HERMES_PROFILE)
   dateTimer = setInterval(() => { currentDate.value = new Date() }, 60_000)
   window.addEventListener('resize', resizeComposer)
   window.addEventListener('keydown', globalKey)
 })
-onBeforeUnmount(() => { clearInterval(dateTimer); window.removeEventListener('resize', resizeComposer); window.removeEventListener('keydown', globalKey); notifications.dispose(); chat.dispose() })
+onBeforeUnmount(() => { releaseViewport(); clearInterval(dateTimer); window.removeEventListener('resize', resizeComposer); window.removeEventListener('keydown', globalKey); notifications.dispose(); chat.dispose() })
 </script>
 
 <template>
