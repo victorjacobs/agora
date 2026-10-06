@@ -20,10 +20,12 @@ a { color: var(--link); text-underline-offset: 3px; }
 .session-list { flex: 1; overflow-y: auto; min-height: 0; }
 .session { display: block; text-align: left; width: 100%; padding: 7px 13px; margin: 1px 0; border: 1px solid transparent; background: transparent; }
 .session-row { position: relative; }
-.session-row > .session { padding-right: 42px; }
-.session-row > .conversation-pin { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); opacity: 0; }
-.session-row:hover > .conversation-pin, .session-row:focus-within > .conversation-pin, .session-row > .conversation-pin.pinned { opacity: 1; }
-@media (hover: none) { .session-row > .conversation-pin { opacity: 1; } }
+.session-row > .conversation-pin { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); opacity: 0; pointer-events: none; background: var(--sidebar); box-shadow: -6px 0 6px var(--sidebar); }
+.session-row:has(.session.selected) > .conversation-pin { background: var(--selected); box-shadow: -6px 0 6px var(--selected); }
+.session-row:hover > .conversation-pin, .session-row:focus-within > .conversation-pin { opacity: 1; pointer-events: auto; }
+.session-row:hover > .session { background: var(--hover); border-color: var(--border-strong); }
+.session-row:hover > .conversation-pin, .session-row:has(.session.selected):hover > .conversation-pin { background: var(--hover); box-shadow: -6px 0 6px var(--hover); }
+@media (hover: none) { .session-row > .conversation-pin { opacity: 1; pointer-events: auto; } }
 .session.selected { background: var(--selected); border-color: var(--selected-border); }
 .session-heading { display: flex; align-items: center; gap: 9px; }
 .cron-paused { width: 12px; height: 12px; flex-shrink: 0; color: var(--muted); }
