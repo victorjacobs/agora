@@ -41,6 +41,7 @@ const memoryReads = []
 const memoryMutations = []
 const imageUploads = []
 const imagePrompts = []
+const steers = []
 let editedMemory = ''
 let memoryDeleted = false
 try {
@@ -111,6 +112,7 @@ try {
       else if (request.method === 'cli.exec') result = { blocked: false, code: 0, output: JSON.stringify({ provider: 'openai-codex', plan: 'Plus', windows: [{ label: 'Session', used_percent: request.params.argv.includes('anthropic') ? 40 : 24 }, { label: 'Weekly', used_percent: 39 }], details: [] }) }
       else if (request.method === 'commands.catalog') result = { pairs: [['/help', 'Show available commands'], ['/context', 'Show context usage'], ['/memory', 'Review memory writes'], ['/plan', 'Plan a task']] }
       else if (request.method === 'image.attach_bytes') { imageUploads.push(request.params); result = { attached: true, path: '/uploads/screenshot.png' } }
+      else if (request.method === 'session.steer') { steers.push(request.params); result = { status: 'queued', text: request.params.text } }
       else if (request.method === 'prompt.submit') { imagePrompts.push(request.params); result = { status: 'streaming' } }
       else if (request.method === 'slash.exec') result = { output: 'Available commands:\n/help — Show available commands\n/context — Show context usage' }
       else if (request.method === 'command.dispatch') result = { type: 'exec', output: 'Pending memory writes (1):\n  abcdef01 [auto]  add to memory: Prefers concise release notes…\n\nApply: /memory approve <id>   Reject: /memory reject <id>' }
@@ -534,6 +536,18 @@ try {
   await page.locator('.header-actions .conversation-pin:not([disabled])').waitFor()
   assert.equal(new URL(page.url()).searchParams.get('session'), 'notes', 'Notification click must open its conversation.')
   assert.equal(await page.evaluate(() => window.notificationCalls.length), 1, 'Duplicate completion must not create a second notification.')
+  liveSocket.send(JSON.stringify({ jsonrpc: '2.0', method: 'event', params: { type: 'message.delta', session_id: 'runtime-notes', seq: 901, payload: { text: 'Checking the project.' } } }))
+  await page.getByRole('button', { name: 'Steer ↑', exact: true }).waitFor()
+  await composer.fill('Check the logs first')
+  const promptsBeforeSteer = imagePrompts.length
+  await composer.press('Enter')
+  await page.getByText('Steer accepted by Hermes.', { exact: true }).waitFor()
+  assert.deepEqual(steers, [{ session_id: 'runtime-notes', profile: 'default', text: 'Check the logs first' }])
+  assert.equal(imagePrompts.length, promptsBeforeSteer, 'Steering must not submit another prompt.')
+  assert.equal(await composer.inputValue(), '')
+  assert.ok(await page.getByRole('button', { name: '■ Stop', exact: true }).isVisible(), 'Stop must remain available after steering.')
+  await page.getByText('Check the logs first', { exact: true }).waitFor()
+  await page.screenshot({ path: '/tmp/agora-steer-dark.png' })
   await page.getByRole('button', { name: 'Disable response notifications' }).click()
   await page.getByRole('button', { name: 'Enable response notifications' }).waitFor()
   await page.evaluate(() => Object.defineProperty(document, 'hasFocus', { configurable: true, value: () => true }))

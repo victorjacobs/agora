@@ -900,6 +900,43 @@ export class ChatClient {
     }
   }
 
+  canSteer() {
+    return this.state.connection === 'ready' && !!this.state.runtime && !!this.state.draft.trim() && this.state.running &&
+      !this.state.images.length && !this.state.compressing && !this.state.readingImages && !this.state.sending &&
+      !this.state.actionPending && !this.state.settingsPending && !this.state.uncertain &&
+      !this.state.approvals.length && !this.state.requests.length
+  }
+
+  async steer() {
+    if (!this.canSteer()) return
+    const selected = this.state.selected, runtime = this.state.runtime, profile = this.state.profile
+    const generation = this.selectionGeneration
+    const draft = this.state.draft, text = draft.trim()
+    this.state.sending = true
+    this.state.error = ''
+    try {
+      const result = await this.gateway.request<{ status: string; text?: string }>('session.steer', { session_id: runtime, profile, text })
+      if (result.status !== 'queued') {
+        if (generation === this.selectionGeneration) this.state.error = 'Hermes did not accept the steer. Your draft is retained; send it after the turn finishes.'
+        return
+      }
+      if (this.drafts.get(selected) === draft) this.drafts.set(selected, '')
+      if (this.state.selected === selected && this.state.profile === profile && this.state.draft === draft) this.state.draft = ''
+      if (generation !== this.selectionGeneration) return
+      this.state.messages.push({ key: `steer-${crypto.randomUUID()}`, role: 'user', kind: 'steer', text })
+      this.state.activity = 'Steer accepted by Hermes.'
+    } catch (error) {
+      if (error instanceof ConnectionLost) {
+        this.uncertain.add(selected)
+        if (!this.drafts.get(selected)) this.drafts.set(selected, draft)
+      }
+      if (generation !== this.selectionGeneration) return
+      this.state.uncertain = this.uncertain.has(selected)
+      this.state.error = errorMessage(error)
+      if (error instanceof ConnectionLost) this.scheduleReconnect()
+    } finally { if (generation === this.selectionGeneration) this.state.sending = false }
+  }
+
   canSend() {
     return this.state.connection === 'ready' && Boolean(this.state.runtime && (this.state.draft.trim() || this.state.images.length)) &&
       !this.state.running && !this.state.compressing && !this.state.readingImages && !this.state.sending && !this.state.actionPending && !this.state.settingsPending && !this.state.modelConfirmation && !this.state.uncertain &&

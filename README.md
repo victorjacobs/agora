@@ -42,6 +42,11 @@ sign-in. Agora provides the chat interface.
   Remembered approvals appear only when Hermes offers them. Clarification questions
   can be answered directly in chat.
 - New chats, history, rename, delete, and stop controls.
+- **Steer** a running turn with text from the composer, or press Enter. Hermes
+  accepts the guidance without interrupting the turn and applies it when safe;
+  a compression race can queue it for a later turn. Images and approval prompts
+  must be handled separately. Rejected steers stay in the draft; uncertain sends
+  are never automatically retried. Requires Hermes `session.steer` support.
 - Opt-in desktop notifications when a response finishes while Agora is unfocused.
   Enable **Notifications** at the bottom of the Chats sidebar and allow the browser
   permission prompt. Notifications contain no conversation title or response text;

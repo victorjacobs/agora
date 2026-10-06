@@ -510,9 +510,10 @@ describe('chat interface', () => {
     expect(host.querySelector('.session-list')).toBeNull()
   })
 
-  it('sends on Enter, preserves Shift+Enter, and does not submit while running', async () => {
+  it('sends on Enter, preserves Shift+Enter, and steers while running', async () => {
     const { host, client } = mountApp()
     const send = vi.spyOn(client, 'send').mockResolvedValue()
+    const steer = vi.spyOn(client, 'steer').mockResolvedValue()
     await nextTick()
     const input = host.querySelector<HTMLTextAreaElement>('textarea')!
     input.value = 'synthetic question'
@@ -527,6 +528,8 @@ describe('chat interface', () => {
     await nextTick()
     input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
     expect(send).toHaveBeenCalledOnce()
+    expect(steer).toHaveBeenCalledOnce()
+    expect(host.textContent).toContain('Steer ↑')
     expect(host.textContent).toContain('Stop')
     expect(host.querySelector('.session-indicator')?.getAttribute('aria-label')).toBe('Running')
     client.state.approvals = [{ request_id: 'pending' }]

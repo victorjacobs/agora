@@ -47,8 +47,9 @@ actions; losing a socket does not mean the agent stopped.
 ## Suggested defaults
 
 One configured Hermes server and one configured/default profile per deployment.
-Use Hermes's configured model and agent settings. Disable ordinary send while a
-turn is active in v1 rather than adding a queue/steering UI. Still handle busy
+Use Hermes's configured model and agent settings. While a turn is active, expose
+text-only steering through `session.steer`; keep Stop available. Do not silently
+fall back to a new prompt or retry an uncertain steer. Still handle busy
 states returned by Hermes, including work started from another client.
 
 ## Deferred

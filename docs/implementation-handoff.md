@@ -218,3 +218,20 @@ sessions through the chat WebSocket. Script-only `source: cron_output` rows expo
 previews rather than full session history. Do not fetch their internal output
 paths. The bridge permits only the listed cron route/method families, with its
 existing authentication and Origin checks.
+
+## Mid-turn steering
+
+`session.steer` is verified in Hermes's `tui_gateway/contracts/sessions.py` and
+`methods_session.py` at the cron research revision above. Send
+`{session_id: <runtime ID>, profile, text}`. Only `status: "queued"` acknowledges
+acceptance; `rejected` retains the draft. A compression race can enqueue guidance
+for a subsequent turn, so do not promise immediate application. Unsupported
+agents/methods return an RPC error. Never automatically fall back to
+`prompt.submit`, interrupt, or retry an ambiguous steering request.
+
+Agora exposes text-only steering while a turn is running, keeps Stop available,
+and blocks steering during context compression or pending approval/input. History
+already projects `display_kind: "steer"` into readable `display_content` through
+the existing session-message API. Tests cover acknowledgements, rejection,
+connection loss, stale responses after session switches, and composer submission.
+Live steering against the deployed Hermes revision remains unverified.

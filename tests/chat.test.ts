@@ -49,6 +49,72 @@ function setup(selected = '') {
 afterEach(() => vi.useRealTimers())
 
 describe('chat recovery and session ownership', () => {
+  it('steers through the dedicated RPC without interrupting or submitting another prompt', async () => {
+    const { chat, state, gateway } = setup('a')
+    await chat.start('work')
+    const ordinary = vi.mocked(gateway.request).getMockImplementation()!
+    vi.mocked(gateway.request).mockImplementation((method, params, timeout) => method === 'session.steer' ? Promise.resolve({ status: 'queued' }) : ordinary(method, params, timeout))
+    state.running = true
+    state.draft = 'Check the logs first'
+    expect(chat.canSend()).toBe(false)
+    expect(chat.canSteer()).toBe(true)
+    await chat.steer()
+    expect(gateway.request).toHaveBeenCalledWith('session.steer', { session_id: 'runtime-a', profile: 'work', text: 'Check the logs first' })
+    expect(vi.mocked(gateway.request).mock.calls.some(([method]) => ['prompt.submit', 'session.interrupt'].includes(method))).toBe(false)
+    expect(state.running).toBe(true)
+    expect(state.draft).toBe('')
+    expect(state.messages.at(-1)).toMatchObject({ role: 'user', kind: 'steer', text: 'Check the logs first' })
+    chat.dispose()
+  })
+  it('retains rejected steering and never falls back to another prompt', async () => {
+    const { chat, state, gateway } = setup('a')
+    await chat.start('work')
+    const ordinary = vi.mocked(gateway.request).getMockImplementation()!
+    vi.mocked(gateway.request).mockImplementation((method, params, timeout) => method === 'session.steer' ? Promise.resolve({ status: 'rejected' }) : ordinary(method, params, timeout))
+    state.running = true; state.draft = 'Guidance'
+    await chat.steer()
+    expect(state.draft).toBe('Guidance')
+    expect(state.error).toContain('did not accept')
+    expect(vi.mocked(gateway.request).mock.calls.some(([method]) => method === 'prompt.submit')).toBe(false)
+    state.compressing = true
+    expect(chat.canSteer()).toBe(false)
+    state.compressing = false; state.images = [{ id: 'image', name: 'image.png', dataUrl: 'data:image/png;base64,YQ==' }]
+    expect(chat.canSteer()).toBe(false)
+    chat.dispose()
+  })
+  it('does not apply a delayed steer acknowledgement to another chat or erase newer drafts', async () => {
+    const { chat, state, gateway } = setup('a')
+    await chat.start('work')
+    const slow = deferred<unknown>()
+    const ordinary = vi.mocked(gateway.request).getMockImplementation()!
+    vi.mocked(gateway.request).mockImplementation((method, params, timeout) => method === 'session.steer' ? slow.promise : ordinary(method, params, timeout))
+    state.running = true; state.draft = 'Guidance'
+    const steering = chat.steer()
+    state.draft = 'Newer draft'
+    await chat.open('b', 'work')
+    state.draft = 'Other chat draft'
+    slow.resolve({ status: 'queued' })
+    await steering
+    expect(state.draft).toBe('Other chat draft')
+    expect(state.messages.some(message => message.kind === 'steer')).toBe(false)
+    await chat.open('a', 'work')
+    expect(state.draft).toBe('Newer draft')
+    chat.dispose()
+  })
+  it('retains an uncertain steer without retrying it after reconnect', async () => {
+    const { chat, state, gateway } = setup('a')
+    await chat.start('work')
+    const ordinary = vi.mocked(gateway.request).getMockImplementation()!
+    vi.mocked(gateway.request).mockImplementation((method, params, timeout) => method === 'session.steer' ? Promise.reject(new ConnectionLost()) : ordinary(method, params, timeout))
+    state.running = true; state.draft = 'Guidance'
+    await chat.steer()
+    expect(state.uncertain).toBe(true)
+    expect(state.draft).toBe('Guidance')
+    expect(vi.mocked(gateway.request).mock.calls.filter(([method]) => method === 'session.steer')).toHaveLength(1)
+    expect(chat.canSteer()).toBe(false)
+    chat.dispose()
+  })
+
   it('reports successful completed replies once, including the selected chat, without reporting stopped turns or subagents', async () => {
     const { chat, gateway } = setup('a')
     await chat.start('work')
