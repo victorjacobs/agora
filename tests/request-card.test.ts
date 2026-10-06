@@ -20,10 +20,34 @@ describe('request controls', () => {
   it('offers only the server choices and never answers on mount', async () => {
     const { host, answers } = mountRequest({ id: 'req', method: 'approval', params: { choices: ['once', 'deny'], command: 'echo synthetic' } })
     expect(answers).toEqual([])
-    expect([...host.querySelectorAll('button')].map(button => button.textContent)).toEqual(['Allow once', 'Deny'])
-    ;(host.querySelector('button') as HTMLButtonElement).click()
+    expect([...host.querySelectorAll('button')].map(button => button.textContent)).toEqual(['Reject', 'Allow once'])
+    ;(host.querySelector('button.primary') as HTMLButtonElement).click()
     await nextTick()
     expect(answers).toEqual([{ choice: 'once' }])
+  })
+
+  it('shows command text safely and separates remembered approval choices', async () => {
+    const { host, answers } = mountRequest({ id: 'req', method: 'approval', params: {
+      choices: ['once', 'session', 'always', 'deny'], description: 'Deletes project files',
+      command: 'rm -rf build\n<img src=x onerror=alert(1)>',
+    } })
+    expect(host.querySelector('pre')?.textContent).toContain('<img src=x onerror=alert(1)>')
+    expect(host.querySelector('img')).toBeNull()
+    expect(host.querySelector('details')?.textContent).toContain('Remember approval for matching commands')
+    expect(answers).toEqual([])
+    const session = [...host.querySelectorAll('details button')].find(button => button.textContent === 'Allow for this conversation') as HTMLButtonElement
+    session.click()
+    await nextTick()
+    expect(answers).toEqual([{ choice: 'session' }])
+  })
+
+  it('does not allow a command with no reviewable text or invent remembered choices', () => {
+    const { host, answers } = mountRequest({ id: 'req', method: 'approval', params: { description: 'A command needs approval' } })
+    expect(host.querySelector<HTMLButtonElement>('button.primary')?.disabled).toBe(true)
+    expect(host.querySelector('details')).toBeNull()
+    expect(answers).toEqual([])
+    host.querySelector<HTMLButtonElement>('button')!.click()
+    expect(answers).toEqual([{ choice: 'deny' }])
   })
 
   it('sends multi-select and free-text clarification answers with original qids', async () => {

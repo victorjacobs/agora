@@ -51,6 +51,9 @@ function toolContext(messages: Message[]) {
           <pre>{{ block.message.text }}</pre>
         </div>
       </details>
+      <section v-else-if="block.message.kind === 'slash_command'" class="command-output">
+        <h3>{{ block.message.name }}</h3><pre>{{ block.message.text }}</pre>
+      </section>
       <template v-else>
         <span v-if="block.message.kind" class="message-kind">{{ block.message.kind.replaceAll('_', ' ') }}</span>
         <MarkdownMessage :profile="profile" v-if="turn.role === 'assistant' && block.message.text.trim()" :text="block.message.text" @image-load="$emit('imageLoad')" />
@@ -62,6 +65,9 @@ function toolContext(messages: Message[]) {
 </template>
 
 <style scoped>
+.command-output { border: 1px solid var(--border); border-radius: 9px; padding: 12px; background: var(--panel); }
+.command-output h3 { margin: 0 0 8px; font: 550 12px ui-monospace, monospace; color: var(--muted); }
+.command-output pre { margin: 0; border: 0; padding: 0; background: transparent; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow: auto; font-size: 12px; }
 .task-result pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 240px; overflow: auto; font-size: 12px; }
 .message-block + .message-block { margin-top: 16px; }
 .message-kind { display: inline-block; color: var(--muted); margin-bottom: 8px; }

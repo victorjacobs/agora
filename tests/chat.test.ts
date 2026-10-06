@@ -49,6 +49,163 @@ function setup(selected = '') {
 afterEach(() => vi.useRealTimers())
 
 describe('chat recovery and session ownership', () => {
+  it('runs commands without an agent turn and shows escaped output in the transcript', async () => {
+    const { state, gateway, chat } = setup('a')
+    await chat.start('work')
+    const ordinary = vi.mocked(gateway.request).getMockImplementation()!
+    vi.mocked(gateway.request).mockImplementation((method, params, timeout) => method === 'slash.exec'
+      ? Promise.resolve({ output: '<img src=x> Help text' }) : ordinary(method, params, timeout))
+    state.draft = '/help'
+    await chat.send()
+    expect(gateway.request).toHaveBeenCalledWith('slash.exec', { session_id: 'runtime-a', profile: 'work', command: 'help' }, 300_000)
+    expect(vi.mocked(gateway.request).mock.calls.some(([method]) => method === 'prompt.submit')).toBe(false)
+    expect(state.messages.at(-1)).toMatchObject({ kind: 'slash_command', name: '/help', text: '<img src=x> Help text' })
+    expect(state.draft).toBe('')
+    expect(state.running).toBe(false)
+    await chat.open('b', 'work')
+    expect(state.messages.some(row => row.kind === 'slash_command')).toBe(false)
+    await chat.open('a', 'work')
+    expect(state.messages.at(-1)?.kind).toBe('slash_command')
+    chat.dispose()
+  })
+
+  it('submits command prompts once, hides expanded scaffolding, and prefills undo without submitting', async () => {
+    const { state, gateway, chat } = setup('a')
+    await chat.start('work')
+    const ordinary = vi.mocked(gateway.request).getMockImplementation()!
+    let result = { type: 'skill', message: 'Private expanded skill instructions' }
+    vi.mocked(gateway.request).mockImplementation((method, params, timeout) => method === 'slash.exec'
+      ? Promise.resolve(result) : ordinary(method, params, timeout))
+    state.draft = '/my-skill fix things'
+    await chat.send()
+    expect(gateway.request).toHaveBeenCalledWith('prompt.submit', { session_id: 'runtime-a', profile: 'work', text: 'Private expanded skill instructions' })
+    expect(state.messages.at(-1)?.text).toBe('/my-skill fix things')
+    expect(state.draft).toBe('')
+    state.running = false
+    result = { type: 'prefill', message: 'Previous editable prompt' }
+    state.draft = '/undo'
+    await chat.send()
+    expect(state.draft).toBe('Previous editable prompt')
+    expect(vi.mocked(gateway.request).mock.calls.filter(([method]) => method === 'prompt.submit')).toHaveLength(1)
+    chat.dispose()
+  })
+
+  it('keeps failed commands out of ordinary prompts and blocks retries after an ambiguous failure', async () => {
+    const { state, gateway, chat } = setup('a')
+    await chat.start('work')
+    const ordinary = vi.mocked(gateway.request).getMockImplementation()!
+    let error: Error = new RpcError(4011, 'Unknown command')
+    vi.mocked(gateway.request).mockImplementation((method, params, timeout) => method === 'slash.exec'
+      ? Promise.reject(error) : ordinary(method, params, timeout))
+    state.draft = '/missing'
+    await chat.send()
+    expect(state.error).toBe('Unknown command')
+    expect(state.draft).toBe('/missing')
+    expect(state.running).toBe(false)
+    error = new ConnectionLost()
+    await chat.send()
+    expect(state.uncertain).toBe(true)
+    expect(chat.canSend()).toBe(false)
+    expect(vi.mocked(gateway.request).mock.calls.some(([method]) => method === 'command.dispatch' || method === 'prompt.submit')).toBe(false)
+    chat.dispose()
+  })
+
+  it('does not apply a delayed command directive to a different conversation', async () => {
+    const { state, gateway, chat } = setup('a')
+    await chat.start('work')
+    const slow = deferred<unknown>()
+    const ordinary = vi.mocked(gateway.request).getMockImplementation()!
+    vi.mocked(gateway.request).mockImplementation((method, params, timeout) => method === 'slash.exec' ? slow.promise : ordinary(method, params, timeout))
+    state.draft = '/plan changes'
+    const sending = chat.send()
+    await chat.open('b', 'work')
+    state.draft = 'Draft in B'
+    slow.resolve({ type: 'send', message: 'Wrong conversation' })
+    await sending
+    expect(state.draft).toBe('Draft in B')
+    expect(vi.mocked(gateway.request).mock.calls.some(([method]) => method === 'prompt.submit')).toBe(false)
+    chat.dispose()
+  })
+
+  it('keeps a newer draft when a prefill response arrives', async () => {
+    const { state, gateway, chat } = setup('a')
+    await chat.start('work')
+    const slow = deferred<unknown>()
+    const ordinary = vi.mocked(gateway.request).getMockImplementation()!
+    vi.mocked(gateway.request).mockImplementation((method, params, timeout) => method === 'slash.exec' ? slow.promise : ordinary(method, params, timeout))
+    state.draft = '/undo'
+    const sending = chat.send()
+    state.draft = 'Newer draft'
+    slow.resolve({ type: 'prefill', message: 'Old text to edit' })
+    await sending
+    expect(state.draft).toBe('Newer draft')
+    expect(state.messages.at(-1)?.text).toContain('Old text to edit')
+    chat.dispose()
+  })
+
+  it('receives live approval events, isolates sessions, and answers the exact queue entry', async () => {
+    const { state, gateway, chat } = setup('a')
+    await chat.start('work')
+    const approval = { request_id: 'command-one', command: 'rm -rf build', description: 'Deletes files', choices: ['once', 'deny'] }
+    gateway.onEvent({ type: 'approval.request', session_id: 'runtime-b', payload: approval })
+    expect(state.approvals).toEqual([])
+    gateway.onEvent({ type: 'approval.request', session_id: 'runtime-a', payload: approval })
+    gateway.onEvent({ type: 'approval.request', session_id: 'runtime-a', payload: approval })
+    expect(state.approvals).toHaveLength(1)
+    state.draft = 'Another question'
+    expect(chat.canSend()).toBe(false)
+    expect(vi.mocked(gateway.request).mock.calls.some(([method]) => method === 'approval.respond')).toBe(false)
+    await chat.approve(state.approvals[0]!, 'always')
+    expect(vi.mocked(gateway.request).mock.calls.some(([method]) => method === 'approval.respond')).toBe(false)
+    const ordinary = vi.mocked(gateway.request).getMockImplementation()!
+    vi.mocked(gateway.request).mockImplementation((method, params, timeout) => method === 'approval.respond' ? Promise.resolve({ resolved: 1 }) : ordinary(method, params, timeout))
+    await chat.approve(state.approvals[0]!, 'once')
+    expect(gateway.request).toHaveBeenCalledWith('approval.respond', { session_id: 'runtime-a', profile: 'work', request_id: 'command-one', choice: 'once' }, 300_000)
+    expect(state.approvals).toEqual([])
+    chat.dispose()
+  })
+
+  it('withdraws duplicate queue cards on request cancellation and preserves unrelated approvals', async () => {
+    const { state, gateway, chat } = setup('a')
+    await chat.start('work')
+    const first = { request_id: 'one', command: 'First', choices: ['once', 'deny'] }
+    const second = { request_id: 'two', command: 'Second', choices: ['once', 'deny'] }
+    state.approvals = [first, second]
+    gateway.onRequest({ id: 'server-one', method: 'approval', params: { ...first, session_id: 'runtime-a' } })
+    gateway.onRequest({ id: 'server-two', method: 'approval', params: { ...second, session_id: 'runtime-a' } })
+    gateway.onEvent({ type: 'request.cancel', session_id: 'runtime-a', payload: { id: 'server-one', reason: 'resolved' } })
+    expect(state.approvals.map(entry => entry.request_id)).toEqual(['two'])
+    expect(state.requests.map(entry => entry.id)).toEqual(['server-two'])
+    await chat.approve(first, 'once')
+    await chat.answer({ id: 'server-one', method: 'approval', params: first }, { choice: 'once' })
+    expect(vi.mocked(gateway.request).mock.calls.some(([method]) => method === 'approval.respond' || method === 'request.answer')).toBe(false)
+    gateway.onEvent({ type: 'approval.cancelled', session_id: 'runtime-a', payload: { request_ids: ['one'] } })
+    expect(state.approvals).toHaveLength(1)
+    gateway.onEvent({ type: 'approval.cancelled', session_id: 'runtime-a', payload: { request_ids: ['two'] } })
+    expect(state.approvals).toEqual([])
+    expect(state.requests).toEqual([])
+    chat.dispose()
+  })
+
+  it('keeps an approval card after a failed decision and removes it only after a successful answer', async () => {
+    const { state, gateway, chat } = setup('a')
+    await chat.start('work')
+    const request = { id: 'command-request', method: 'approval', params: { session_id: 'runtime-a', request_id: 'command', command: 'Command text', choices: ['once', 'deny'] } }
+    gateway.onRequest(request)
+    const ordinary = vi.mocked(gateway.request).getMockImplementation()!
+    let failed = true
+    vi.mocked(gateway.request).mockImplementation((method, params, timeout) => method === 'request.answer' && failed ? Promise.reject(new RpcError(5030, 'Decision failed')) : ordinary(method, params, timeout))
+    await chat.answer(request, { choice: 'deny' })
+    expect(state.error).toBe('Decision failed')
+    expect(state.requests).toHaveLength(1)
+    expect(state.actionPending).toBe(false)
+    failed = false
+    await chat.answer(request, { choice: 'deny' })
+    expect(gateway.request).toHaveBeenCalledWith('request.answer', { session_id: 'runtime-a', profile: 'work', id: 'command-request', result: { choice: 'deny' } }, 300_000)
+    expect(state.requests).toEqual([])
+    chat.dispose()
+  })
+
   it('keeps concurrent live tool calls in the transcript and matches completions by ID', async () => {
     const { state, gateway, chat } = setup('a')
     await chat.start('work')

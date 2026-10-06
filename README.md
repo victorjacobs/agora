@@ -15,7 +15,11 @@ sign-in. Agora provides the chat interface.
 - Expandable tool activity and background-task progress, results, and errors.
   Running tasks stay above the composer; finished tasks remain in the transcript.
 - Model and reasoning-effort choices scoped to each conversation.
-- Tool approvals and clarification questions.
+- Slash commands with server-provided suggestions: type `/`, choose with ↑/↓ and
+  Enter or Tab, add arguments, then send. Command output appears in the chat.
+- Command approval cards with readable command text, **Allow once**, and **Reject**.
+  Remembered approvals appear only when Hermes offers them. Clarification questions
+  can be answered directly in chat.
 - New chats, history, rename, delete, and stop controls.
 - Automatic light/dark appearance and a layout that works on desktop and mobile.
 

@@ -36,7 +36,7 @@ export function conversationTurns(messages: Message[], running: boolean): Conver
   const turns: ConversationTurn[] = []
   for (const [index, message] of messages.entries()) {
     const notification = ['async_delegation_complete', 'process_complete'].includes(message.kind || '')
-    if (message.role === 'system' && !notification) continue
+    if (message.role === 'system' && !notification && message.kind !== 'slash_command') continue
     if (message.role === 'assistant' && !message.text.trim() && !(running && index === messages.length - 1)) continue
     const role = notification ? 'other' : message.role === 'tool' || message.role === 'assistant' ? 'assistant' : message.role === 'user' ? 'user' : 'other'
     let turn = turns.at(-1)

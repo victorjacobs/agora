@@ -333,3 +333,53 @@ returns truncated summaries, with pinned target entries when available. These ar
 labeled previews and have no approval controls. Full staged-write review and
 saved-memory browsing are unavailable through the current exposed contract;
 Agora does not patch Hermes or read its private pending/memory files.
+
+## Slash commands
+
+The composer loads `commands.catalog` on demand when typing `/`, scoped to the
+runtime session and profile. Suggestions include the server's built-ins, custom
+commands, and skills. Enter or Tab selects a suggestion; the next Enter runs it.
+Escape dismisses the picker. Commands can also be entered by name if discovery
+is unavailable.
+
+Execution uses `slash.exec` with the runtime ID, profile, and command without the
+leading slash. Only an explicit 4018 refusal directing the client to
+`command.dispatch` triggers that fallback. Worker failures, timeouts, and lost
+connections are never retried through a different method or sent as ordinary
+prompts. Ambiguous outcomes require user review before another send.
+
+Plain output and plugin output render as escaped text in compact transcript
+cards. Send/skill directives submit their resolved prompt once, displaying the
+invocation instead of expanded skill instructions. Prefill directives such as
+`/undo` refill the composer without sending. Alias chains are bounded. Session
+switches invalidate delayed results and prevent follow-up execution in another
+conversation. Successful output/prefill commands reconcile history and settings.
+Command output stays in memory for this browser tab; Hermes does not persist it
+as chat history, and refreshing the page clears it. Commands are disabled while
+the current agent turn runs, consistent with ordinary chat sends.
+
+Contracts checked against `tui_gateway/methods_tools.py`,
+`apps/shared/src/slash.ts`, and the desktop slash handler in the researched Hermes
+revision. Available commands and their effects remain Hermes's responsibility;
+Agora does not patch or emulate unsupported backend commands.
+
+## Command approvals
+
+Command approval cards show Hermes's redacted command text and reason. **Allow
+once** and **Reject** are the primary actions; conversation/permanent approvals
+appear under **More options** only when offered by Hermes. Missing command text
+cannot be approved. Content renders as text, never executable HTML.
+
+Current `approval` server requests answer through `request.answer` with the
+original server request ID and `{ choice }`. Legacy `approval.request` events
+and replayed `approval.pending` queue entries answer through `approval.respond`
+with the queue's `request_id`. Duplicate event/request cards are suppressed by
+that queue ID. Older entries without an ID can only answer the currently displayed
+oldest queue entry. Decisions are never inferred or sent on receipt.
+
+Cards disappear on successful decisions or authoritative withdrawal.
+`request.cancel` also removes the corresponding replayed queue entry;
+`approval.cancelled.request_ids` removes only affected entries. Failed decisions
+keep the card and show the error. Stale requests and choices not offered by Hermes
+cannot send decisions. Pending requests show a waiting-for-input status and follow
+the transcript when the user is already at its bottom.

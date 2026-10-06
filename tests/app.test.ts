@@ -86,6 +86,28 @@ describe('chat interface', () => {
     expect(host.querySelector('.memory-preview')?.textContent).toContain('Personal preview')
   })
 
+  it('shows one command approval card for both transports and waits for an explicit decision', async () => {
+    const answer = vi.spyOn(ChatClient.prototype, 'answer').mockResolvedValue()
+    const approve = vi.spyOn(ChatClient.prototype, 'approve').mockResolvedValue()
+    const { host, client } = mountApp()
+    const approval = { request_id: 'command-one', command: 'rm -rf build', description: 'Deletes files', choices: ['once', 'deny'] }
+    client.state.running = true
+    client.state.approvals = [approval]
+    client.state.requests = [{ id: 'server-one', method: 'approval', params: { ...approval, session_id: 'runtime' } }]
+    await nextTick()
+    expect(host.querySelectorAll('.command-approval')).toHaveLength(1)
+    expect(host.querySelector('.command-approval pre')?.textContent).toBe('rm -rf build')
+    expect(host.querySelector('.activity')?.textContent).toContain('Waiting for your approval or input')
+    expect(answer).not.toHaveBeenCalled()
+    expect(approve).not.toHaveBeenCalled()
+    host.querySelector<HTMLButtonElement>('.command-approval .primary')!.click()
+    expect(answer).toHaveBeenCalledWith(expect.objectContaining({ id: 'server-one' }), { choice: 'once' })
+    client.state.requests = []
+    await nextTick()
+    host.querySelector<HTMLButtonElement>('.command-approval .primary')!.click()
+    expect(approve).toHaveBeenCalledWith(expect.objectContaining({ request_id: 'command-one' }), 'once')
+  })
+
   it('shows running calls and their details in the expandable tool group', async () => {
     const { host, client } = mountApp()
     client.state.running = true

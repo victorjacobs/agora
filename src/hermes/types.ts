@@ -43,6 +43,7 @@ export interface HistoryPage {
 }
 
 export interface Approval {
+  smart_denied?: boolean | null
   tool_name?: string
   request_id?: string | null
   command?: string | null

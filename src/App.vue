@@ -4,17 +4,19 @@ import { ChatClient, initialState } from './hermes/chat'
 import { groupSessions } from './session-groups'
 import { conversationTimeline } from './hermes/transcript'
 import { taskRunning } from './hermes/tasks'
+import SlashCommands from './SlashCommands.vue'
 import ComposerSettings from './ComposerSettings.vue'
 import ConversationSwitcher from './ConversationSwitcher.vue'
 import BackgroundTasks from './BackgroundTasks.vue'
 import ProviderQuota from './ProviderQuota.vue'
 import MemoryView from './MemoryView.vue'
+import CommandApprovalCard from './CommandApprovalCard.vue'
 import MemoryApprovalCard from './MemoryApprovalCard.vue'
 import { isMemoryApproval, memoryApprovals, type MemoryApproval } from './hermes/memory'
 import ConversationTurn from './ConversationTurn.vue'
 import RequestCard from './RequestCard.vue'
 import SignInPage from './SignInPage.vue'
-import type { Approval, SessionRow } from './hermes/types'
+import type { SessionRow } from './hermes/types'
 
 const state = reactive(initialState())
 const chat = new ChatClient(state)
@@ -25,6 +27,7 @@ const menuButton = ref<HTMLButtonElement>()
 const closeMenuButton = ref<HTMLButtonElement>()
 const transcript = ref<HTMLElement>()
 const composer = ref<HTMLTextAreaElement>()
+const slashPicker = ref<InstanceType<typeof SlashCommands>>()
 const following = ref(true)
 const dialog = ref<HTMLDialogElement>()
 const switcher = ref<InstanceType<typeof ConversationSwitcher>>()
@@ -44,7 +47,7 @@ const showingThinking = computed(() => state.running && !state.activity && !stat
 const displayedItems = computed(() => conversationTimeline(state.messages, state.tasks, showingThinking.value))
 const runningTasks = computed(() => state.tasks.filter(taskRunning))
 const displayedApprovals = computed(() => state.approvals.filter(approval =>
-  !state.requests.some(request => request.method === 'approval' && request.params.request_id === approval.request_id),
+  !state.requests.some(request => request.method === 'approval' && approval.request_id && request.params.request_id === approval.request_id),
 ))
 const actionsDisabled = computed(() => state.connection !== 'ready' || state.actionPending || state.settingsPending || mutationPending.value)
 const loginUrl = computed(() => `/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`)
@@ -122,6 +125,7 @@ async function send() {
 }
 
 function composerKey(event: KeyboardEvent) {
+  if (slashPicker.value?.keydown(event)) return
   if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); void send() }
 }
 
@@ -151,12 +155,10 @@ function decideMemory(approval: MemoryApproval, choice: string) {
   else void chat.approve(approval, choice)
 }
 
-function approvalChoices(approval: Approval) {
-  return approval.choices || ['once', ...(approval.allow_session ? ['session'] : []), ...(approval.allow_permanent ? ['always'] : []), 'deny']
-}
-const approvalLabels: Record<string, string> = { once: 'Allow once', session: 'Allow for session', always: 'Always allow', deny: 'Deny' }
-
 watch(() => [state.messages.length, state.messages.at(-1)?.text], () => {
+  if (following.value) void scrollToLatest(false)
+}, { flush: 'post' })
+watch(() => [state.requests.length, state.approvals.length], () => {
   if (following.value) void scrollToLatest(false)
 }, { flush: 'post' })
 watch(() => state.selected, () => { following.value = true })
@@ -262,15 +264,12 @@ onBeforeUnmount(() => { clearInterval(dateTimer); window.removeEventListener('re
             <ConversationTurn v-if="item.kind === 'turn'" :turn="item.turn" :profile="state.profile" :thinking="showingThinking" @image-load="scrollToLatest(false)" />
             <BackgroundTasks v-else :tasks="item.tasks" error="" :connected="true" />
           </template>
-          <div v-if="state.activity || state.running" class="activity" role="status"><span v-if="state.running" class="pulse" aria-hidden="true"></span>{{ state.activity || 'Working…' }}</div>
+          <div v-if="state.activity || state.running || displayedRequests.length || displayedApprovals.length" class="activity" role="status"><span v-if="state.running" class="pulse" aria-hidden="true"></span>{{ displayedRequests.length || displayedApprovals.length ? 'Waiting for your approval or input' : state.activity || 'Working…' }}</div>
           <p v-if="state.taskError && !runningTasks.length" class="muted task-status-error" role="status">{{ state.taskError }}</p>
           <RequestCard v-for="request in displayedRequests" :key="request.id" :request="request" :disabled="actionsDisabled" :dashboard-url="state.endpoint || '/'" @answer="chat.answer(request, $event)" />
           <template v-for="approval in displayedApprovals" :key="approval.request_id || 'pending'">
           <MemoryApprovalCard v-if="isMemoryApproval(approval)" :approval="approval" :disabled="actionsDisabled" @decide="chat.approve(approval, $event)" />
-          <section v-else class="request-card">
-            <h3>Approval required</h3><p>{{ approval.description }}</p><pre v-if="approval.command">{{ approval.command }}</pre>
-            <div class="button-row"><button v-for="choice in approvalChoices(approval)" :key="choice" :disabled="actionsDisabled" @click="chat.approve(approval, choice)">{{ approvalLabels[choice] || choice }}</button></div>
-          </section>
+          <CommandApprovalCard v-else :approval="approval" :disabled="actionsDisabled" @decide="chat.approve(approval, $event)" />
           </template>
         </div>
       </div>
@@ -280,9 +279,10 @@ onBeforeUnmount(() => { clearInterval(dateTimer); window.removeEventListener('re
         <div v-if="runningTasks.length" class="pinned-tasks conversation-width">
           <BackgroundTasks :tasks="runningTasks" :error="state.taskError" :connected="state.connection === 'ready'" />
         </div>
-        <form class="composer conversation-width" @submit.prevent="send">
+        <form class="composer conversation-width" style="position: relative" @submit.prevent="send">
+          <SlashCommands ref="slashPicker" :draft="state.draft" :scope="JSON.stringify([state.runtime, state.profile])" :connected="state.connection === 'ready'" :load="() => chat.commands()" @select="state.draft = $event; composer?.focus()" />
           <label class="sr-only" for="prompt">Message Hermes</label>
-          <textarea id="prompt" ref="composer" v-model="state.draft" rows="2" placeholder="Message Hermes…" title="Enter to send · Shift + Enter for a new line" :disabled="state.connection === 'expired' || state.connection === 'closed'" @keydown="composerKey"></textarea>
+          <textarea id="prompt" ref="composer" v-model="state.draft" :role="slashPicker?.visible ? 'combobox' : undefined" :aria-expanded="slashPicker?.visible ? true : undefined" :aria-controls="slashPicker?.visible ? 'slash-options' : undefined" :aria-activedescendant="slashPicker?.activeId" :aria-autocomplete="slashPicker?.visible ? 'list' : undefined" rows="2" placeholder="Message Hermes…" title="Enter to send · Shift + Enter for a new line" :disabled="state.connection === 'expired' || state.connection === 'closed'" @keydown="composerKey"></textarea>
           <div class="composer-bottom">
             <div class="composer-options"><ComposerSettings :state="state" @model="chat.chooseModel($event)" @reasoning="chat.chooseReasoning($event)" @confirm="state.modelConfirmation && chat.chooseModel(state.modelConfirmation, true)" @cancel="state.modelConfirmation = undefined" @retry="chat.refreshSettings()" /></div>
             <button v-if="state.running" type="button" class="stop" :disabled="actionsDisabled" @click="chat.stop()">■ Stop</button>

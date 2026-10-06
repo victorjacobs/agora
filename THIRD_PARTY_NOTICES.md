@@ -1,6 +1,7 @@
 # Hermes gateway contracts
 
-The narrowed wire types in `src/hermes/types.ts` are derived from the Hermes
+The narrowed wire types in `src/hermes/types.ts` and slash command contracts in
+`src/hermes/commands.ts` are derived from the Hermes
 Agent gateway contract and dashboard routes at revision
 `e1fdf003a668f97bf5a53d7675c1e70b1dcfec34`.
 

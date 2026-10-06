@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, reactive, watch } from 'vue'
+import CommandApprovalCard from './CommandApprovalCard.vue'
 import MemoryApprovalCard from './MemoryApprovalCard.vue'
 import { isMemoryApproval } from './hermes/memory'
 import type { Approval, ServerRequest } from './hermes/types'
@@ -9,11 +10,6 @@ const emit = defineEmits<{ answer: [result: Record<string, unknown>] }>()
 const answers = reactive<Record<string, string>>({})
 const selected = reactive<Record<string, string[]>>({})
 const approval = computed(() => props.request.params as Approval)
-const choices = computed(() => approval.value.choices || [
-  'once', ...(approval.value.allow_session ? ['session'] : []),
-  ...(approval.value.allow_permanent ? ['always'] : []), 'deny',
-])
-const labels: Record<string, string> = { once: 'Allow once', session: 'Allow for session', always: 'Always allow', deny: 'Deny' }
 const questions = computed(() => props.request.params.questions || [])
 watch(questions, values => {
   for (const question of values) {
@@ -35,16 +31,9 @@ function submit() {
 
 <template>
   <MemoryApprovalCard v-if="request.method === 'approval' && isMemoryApproval(approval)" :approval="approval" :disabled="disabled" @decide="emit('answer', { choice: $event })" />
+  <CommandApprovalCard v-else-if="request.method === 'approval'" :approval="approval" :disabled="disabled" @decide="emit('answer', { choice: $event })" />
   <section v-else class="request-card" :aria-label="`${request.method} request`">
-    <template v-if="request.method === 'approval'">
-      <h3>Approval required</h3>
-      <p v-if="approval.description">{{ approval.description }}</p>
-      <pre v-if="approval.command">{{ approval.command }}</pre>
-      <div class="button-row">
-        <button v-for="choice in choices" :key="choice" :disabled="disabled" @click="emit('answer', { choice })">{{ labels[choice] || choice }}</button>
-      </div>
-    </template>
-    <form v-else-if="request.method === 'clarify' && questions.length" @submit.prevent="submit">
+    <form v-if="request.method === 'clarify' && questions.length" @submit.prevent="submit">
       <h3>Hermes needs your input</h3>
       <fieldset v-for="question in questions" :key="question.qid" :disabled="disabled || locked(question.qid)">
         <legend>{{ question.question }}</legend>

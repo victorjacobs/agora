@@ -35,6 +35,7 @@ let browser
 let liveSocket
 let changelogFinished = false
 const memoryAnswers = []
+const commandDecisions = []
 try {
   await server.listen()
   const origin = `http://127.0.0.1:${server.httpServer.address().port}`
@@ -63,7 +64,10 @@ try {
       let result = {}
       if (request.method === 'model.options') result = { model: 'gpt-6.1-sol', provider: 'openai-codex', providers: [{ slug: 'openai-codex', name: 'OpenAI Codex', models: ['gpt-6.1-sol'], capabilities: { 'gpt-6.1-sol': { reasoning: true } } }, { slug: 'anthropic', name: 'Anthropic', models: ['claude-sonnet'] }] }
       else if (request.method === 'cli.exec') result = { blocked: false, code: 0, output: JSON.stringify({ provider: 'openai-codex', plan: 'Plus', windows: [{ label: 'Session', used_percent: request.params.argv.includes('anthropic') ? 40 : 24 }, { label: 'Weekly', used_percent: 39 }], details: [] }) }
+      else if (request.method === 'commands.catalog') result = { pairs: [['/help', 'Show available commands'], ['/context', 'Show context usage'], ['/memory', 'Review memory writes'], ['/plan', 'Plan a task']] }
+      else if (request.method === 'slash.exec') result = { output: 'Available commands:\n/help — Show available commands\n/context — Show context usage' }
       else if (request.method === 'command.dispatch') result = { type: 'exec', output: 'Pending memory writes (1):\n  abcdef01 [auto]  add to memory: Prefers concise release notes…\n\nApply: /memory approve <id>   Reject: /memory reject <id>' }
+      else if (request.method === 'approval.respond') { commandDecisions.push(request.params); result = { resolved: 1 } }
       else if (request.method === 'request.answer') { memoryAnswers.push(request.params.result); result = { status: 'ok' } }
       else if (request.method === 'config.get') result = { value: 'medium' }
       else if (request.method === 'session.active_list') result = { sessions: [{ id: 'runtime-interface', session_key: 'interface', status: 'working' }] }
@@ -175,6 +179,46 @@ try {
   assert.deepEqual(memoryAnswers, [{ choice: 'deny' }])
   await page.getByRole('button', { name: 'Chat', exact: true }).click()
   await composer.waitFor({ state: 'visible' })
+  await page.setViewportSize({ width: 1280, height: 960 })
+  await composer.fill('/')
+  await page.getByRole('option', { name: '/help Show available commands' }).waitFor()
+  await page.screenshot({ path: '/tmp/agora-commands-light.png' })
+  await page.keyboard.press('Enter')
+  assert.equal(await composer.inputValue(), '/help ')
+  await page.keyboard.press('Enter')
+  await page.locator('.command-output').waitFor()
+  assert.equal(await composer.inputValue(), '')
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await composer.fill('/c')
+  await page.getByRole('option', { name: '/context Show context usage' }).waitFor()
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+  await page.screenshot({ path: '/tmp/agora-commands-mobile-dark.png' })
+  assert.ok(await page.locator('.slash-picker').evaluate(element => {
+    const bounds = element.getBoundingClientRect()
+    return bounds.left >= 0 && bounds.right <= innerWidth && bounds.top >= 0
+  }), 'Slash commands must fit on mobile.')
+  await page.keyboard.press('Escape')
+  await page.locator('.slash-picker').waitFor({ state: 'detached' })
+  await composer.fill('')
+  liveSocket.send(JSON.stringify({ jsonrpc: '2.0', id: 'command-review', method: 'approval', params: { request_id: 'command-one', session_id: 'runtime-release', description: 'Remove generated build output before rebuilding.', command: 'rm -rf dist\n npm run build', choices: ['once', 'session', 'always', 'deny'] } }))
+  const commandCard = page.getByRole('region', { name: 'Command approval', exact: true })
+  await commandCard.waitFor()
+  await page.screenshot({ path: '/tmp/agora-command-approval-mobile-dark.png' })
+  assert.deepEqual(memoryAnswers, [{ choice: 'deny' }], 'Showing a command approval must never answer it.')
+  assert.ok(await commandCard.evaluate(element => element.scrollWidth <= element.clientWidth), 'Command approval must fit on mobile.')
+  await commandCard.getByRole('button', { name: 'Allow once', exact: true }).click()
+  await commandCard.waitFor({ state: 'detached' })
+  assert.deepEqual(memoryAnswers.at(-1), { choice: 'once' })
+  await page.setViewportSize({ width: 1280, height: 960 })
+  await page.emulateMedia({ colorScheme: 'light' })
+  liveSocket.send(JSON.stringify({ jsonrpc: '2.0', method: 'event', params: { type: 'approval.request', session_id: 'runtime-release', payload: { request_id: 'command-two', command: 'rm -rf dist', description: 'Remove generated build output.', choices: ['once', 'deny'] } } }))
+  await commandCard.waitFor()
+  await page.screenshot({ path: '/tmp/agora-command-approval-light.png' })
+  assert.deepEqual(commandDecisions, [])
+  await commandCard.getByRole('button', { name: 'Reject', exact: true }).click()
+  await commandCard.waitFor({ state: 'detached' })
+  assert.deepEqual(commandDecisions, [{ session_id: 'runtime-release', profile: 'default', request_id: 'command-two', choice: 'deny' }])
   if (errors.length) throw new Error(errors.join('\n'))
   console.info('Saved docs/screenshots/chat-light.png and chat-dark.png (sample data).')
 } finally {

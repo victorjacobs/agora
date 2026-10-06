@@ -1,3 +1,5 @@
+import { approvalChoices, eventApproval } from './approvals'
+import { commandCatalog, executeCommand, slashCommand } from './commands'
 import { pendingMemory } from './memory'
 import { providerQuota } from './quota'
 import { modelSwitchValue, reasoningEfforts, type ModelChoice, type ModelChangeResult, type ModelInventory, type ModelProvider, type SessionModelInfo } from './settings'
@@ -88,6 +90,7 @@ export class ChatClient {
   private bufferedRequests: ServerRequest[] = []
   private sequence = new Map<string, number>()
   private drafts = new Map<string, string>()
+  private commandOutputs = new Map<string, Array<{ message: Message; after?: Message }>>()
   private uncertain = new Set<string>()
   private configuredProfile?: string
 
@@ -610,7 +613,7 @@ export class ChatClient {
       this.state.profile = page.profile || profile
       this.applyModelInfo(snapshot.info)
       this.state.title = snapshot.info.title || this.state.title
-      this.state.messages = restoreInflight(historyMessages(page), snapshot)
+      this.state.messages = this.restoreCommandOutputs(restoreInflight(historyMessages(page), snapshot), stored, this.state.profile)
       this.state.historyOffset = page.pagination.returned
       this.state.hasOlder = page.pagination.returned === page.pagination.limit
       this.state.running = Boolean(snapshot.running ?? snapshot.info.running)
@@ -710,9 +713,81 @@ export class ChatClient {
     }
   }
 
+  async commands() {
+    if (this.state.connection !== 'ready') throw new Error('Connect to Hermes to load commands.')
+    return commandCatalog(this.gateway, this.state.runtime, this.state.profile)
+  }
+
+  private async sendCommand(text: string) {
+    let generation = this.selectionGeneration
+    const selected = this.state.selected
+    const profile = this.state.profile
+    this.state.sending = true
+    this.state.error = ''
+    try {
+      const result = await executeCommand(this.gateway, text, this.state.runtime, profile, () => generation === this.selectionGeneration && !this.stopped && this.state.connection === 'ready')
+      if (generation !== this.selectionGeneration || this.stopped || this.state.connection !== 'ready') return
+      const output = result.type === 'exec' || result.type === 'plugin' ? result.output : 'notice' in result ? result.notice : ''
+      if ('message' in result && result.type !== 'prefill') {
+        if (!result.message.trim()) throw new Error('Hermes returned an empty command prompt.')
+        if (this.state.running) throw new Error('The conversation is now busy. The command prompt was not sent.')
+        if (output) this.commandOutput(text, output)
+        await this.submitPrompt(result.message, result.display || text, text)
+        return
+      }
+      const draft = this.state.draft.trim() === text ? '' : this.state.draft
+      this.state.draft = draft
+      this.drafts.set(selected, draft)
+      const recovery = this.open(selected, profile)
+      generation = this.selectionGeneration
+      await recovery
+      if (generation !== this.selectionGeneration || this.stopped) return
+      if ('message' in result && result.type === 'prefill') {
+        if (!draft && !this.state.draft) this.state.draft = result.message
+        else this.commandOutput(text, `Your newer draft was kept. Hermes returned this text to edit:\n\n${result.message}`)
+      }
+      if (output) this.commandOutput(text, output)
+      void this.refreshSettings()
+      void this.refreshTasks()
+    } catch (error) {
+      if (error instanceof ConnectionLost) {
+        this.uncertain.add(selected)
+        this.drafts.set(selected, text)
+      }
+      if (generation !== this.selectionGeneration) return
+      this.state.uncertain = this.uncertain.has(selected)
+      this.state.error = error instanceof ConnectionLost ? 'Command outcome is unknown. Check the conversation before running it again.' : errorMessage(error)
+      if (error instanceof ConnectionLost) this.scheduleReconnect()
+    } finally {
+      if (generation === this.selectionGeneration) this.state.sending = false
+    }
+  }
+
+  private commandOutput(command: string, output: string) {
+    const message: Message = { key: `command-${crypto.randomUUID()}`, role: 'system', kind: 'slash_command', name: command, text: output }
+    const scope = JSON.stringify([this.state.selected, this.state.profile])
+    this.commandOutputs.set(scope, [...(this.commandOutputs.get(scope) || []), { message, after: this.state.messages.at(-1) }])
+    this.state.messages.push(message)
+  }
+
+  private restoreCommandOutputs(messages: Message[], selected: string, profile?: string) {
+    const result = [...messages]
+    for (const { message, after } of this.commandOutputs.get(JSON.stringify([selected, profile])) || []) {
+      const index = after ? result.findLastIndex(row => row.key === after.key ||
+        after.rowId !== undefined && row.rowId === after.rowId || row.role === after.role && row.text === after.text) : -1
+      result.splice(index + 1, 0, message)
+    }
+    return result
+  }
+
   async send() {
     if (!this.canSend()) return
     const text = this.state.draft.trim()
+    if (slashCommand(text)) { await this.sendCommand(text); return }
+    await this.submitPrompt(text)
+  }
+
+  private async submitPrompt(text: string, display = text, draft = text) {
     const selected = this.state.selected
     const runtime = this.state.runtime
     const profile = this.state.profile
@@ -720,17 +795,17 @@ export class ChatClient {
     this.state.sending = true
     this.state.error = ''
     this.state.running = true
-    this.state.messages.push({ key: `submitted-${crypto.randomUUID()}`, role: 'user', text })
+    this.state.messages.push({ key: `submitted-${crypto.randomUUID()}`, role: 'user', text: display })
     try {
       const result = await this.gateway.request<{ status?: string }>('prompt.submit', { session_id: runtime, profile, text })
       this.drafts.set(selected, '')
-      if (this.state.selected === selected && this.state.draft.trim() === text) this.state.draft = ''
+      if (this.state.selected === selected && this.state.draft.trim() === draft) this.state.draft = ''
       if (generation !== this.selectionGeneration) return
       if (result.status && result.status !== 'streaming') this.state.activity = `Hermes accepted the prompt (${result.status}).`
     } catch (error) {
       if (error instanceof ConnectionLost) {
         this.uncertain.add(selected)
-        this.drafts.set(selected, text)
+        this.drafts.set(selected, draft)
       }
       if (generation !== this.selectionGeneration) return
       this.state.uncertain = this.uncertain.has(selected)
@@ -747,7 +822,8 @@ export class ChatClient {
 
   canSend() {
     return this.state.connection === 'ready' && Boolean(this.state.runtime && this.state.draft.trim()) &&
-      !this.state.running && !this.state.sending && !this.state.actionPending && !this.state.settingsPending && !this.state.modelConfirmation && !this.state.uncertain
+      !this.state.running && !this.state.sending && !this.state.actionPending && !this.state.settingsPending && !this.state.modelConfirmation && !this.state.uncertain &&
+      !this.state.approvals.length && !this.state.requests.length
   }
 
   acknowledgeUncertain() {
@@ -765,6 +841,10 @@ export class ChatClient {
   }
 
   async answer(request: ServerRequest, result: Record<string, unknown>) {
+    if (request.method === 'approval') {
+      const current = this.state.requests.find(entry => entry.id === request.id && entry.method === 'approval')
+      if (!current || typeof result.choice !== 'string' || !approvalChoices(current.params as Approval).includes(result.choice)) return
+    }
     await this.action('request.answer', { id: request.id, result }, response => {
       if ((response as { status: string }).status === 'expired') this.state.error = 'This request expired or was already answered.'
       this.state.requests = this.state.requests.filter(entry => entry.id !== request.id)
@@ -775,6 +855,8 @@ export class ChatClient {
   }
 
   async approve(approval: Approval, choice: string) {
+    const current = this.state.approvals.find(entry => approval.request_id ? entry.request_id === approval.request_id : entry === approval)
+    if (!current || !approvalChoices(current).includes(choice) || !approval.request_id && this.state.approvals[0] !== current) return
     await this.action('approval.respond', { request_id: approval.request_id, choice }, response => {
       if (!(response as { resolved: number }).resolved) this.state.error = 'This approval expired or was already answered.'
       this.state.approvals = this.state.approvals.filter(entry => entry.request_id !== approval.request_id)
@@ -938,19 +1020,31 @@ export class ChatClient {
           void this.open(payload.stored_session_id, this.state.profile)
         }
         break
-      case 'request.cancel':
+      case 'approval.request': {
+        const approval = eventApproval(payload)
+        if (!approval) break
+        this.state.approvals = [...this.state.approvals.filter(entry => approval.request_id ? entry.request_id !== approval.request_id : Boolean(entry.request_id)), approval]
+        break
+      }
+      case 'request.cancel': {
+        const request = this.state.requests.find(entry => entry.id === payload.id)
+        const queueId = request?.method === 'approval' ? request.params.request_id : undefined
         this.state.requests = this.state.requests.filter(request => request.id !== payload.id)
+        if (queueId) this.state.approvals = this.state.approvals.filter(approval => approval.request_id !== queueId)
         this.state.activity = 'A pending request was withdrawn by Hermes.'
         break
+      }
       case 'session.reclaimed':
         this.state.error = 'Hermes reclaimed this runtime session. Reconnect to recover it.'
         this.state.connection = 'failed'
         break
-      case 'approval.cancelled':
-        this.state.approvals = []
-        this.state.requests = this.state.requests.filter(request => request.method !== 'approval')
+      case 'approval.cancelled': {
+        const ids = Array.isArray(payload.request_ids) ? payload.request_ids : undefined
+        this.state.approvals = this.state.approvals.filter(approval => ids && approval.request_id && !ids.includes(approval.request_id))
+        this.state.requests = this.state.requests.filter(request => request.method !== 'approval' || Boolean(ids && request.params.request_id && !ids.includes(request.params.request_id)))
         this.state.activity = 'Pending approvals were cancelled by Hermes.'
         break
+      }
       case 'error': this.state.error = typeof payload.message === 'string' ? payload.message : 'Hermes reported an error.'; break
     }
   }
