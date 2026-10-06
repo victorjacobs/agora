@@ -31,6 +31,50 @@ function mountApp(connection: 'ready' | 'connecting' = 'ready') {
 }
 
 describe('chat interface', () => {
+  it('fits the application to the keyboard viewport and releases its listeners on unmount', async () => {
+    const viewport = Object.assign(new EventTarget(), { height: 844, offsetTop: 0, scale: 1 })
+    vi.stubGlobal('visualViewport', viewport)
+    mountApp()
+    await nextTick()
+    const style = document.documentElement.style
+    expect(style.getPropertyValue('--app-height')).toBe('844px')
+    Object.assign(viewport, { height: 500, offsetTop: 44 })
+    viewport.dispatchEvent(new Event('resize'))
+    expect(style.getPropertyValue('--app-height')).toBe('500px')
+    viewport.offsetTop = 20
+    viewport.dispatchEvent(new Event('scroll'))
+    expect(style.getPropertyValue('--app-top')).toBe('20px')
+    cleanup()
+    cleanup = () => {}
+    viewport.dispatchEvent(new Event('resize'))
+    expect(style.getPropertyValue('--app-height')).toBe('')
+    expect(style.getPropertyValue('--app-top')).toBe('')
+  })
+
+  it('preserves the layout while pinch zoom pans a smaller visual viewport', async () => {
+    const viewport = Object.assign(new EventTarget(), { height: 844, offsetTop: 0, scale: 1 })
+    vi.stubGlobal('visualViewport', viewport)
+    mountApp()
+    await nextTick()
+    Object.assign(viewport, { height: 422, offsetTop: 100, scale: 2 })
+    viewport.dispatchEvent(new Event('resize'))
+    viewport.dispatchEvent(new Event('scroll'))
+    expect(document.documentElement.style.getPropertyValue('--app-height')).toBe('844px')
+    expect(document.documentElement.style.getPropertyValue('--app-top')).toBe('0px')
+    Object.assign(viewport, { height: 600, offsetTop: 0, scale: 1 })
+    viewport.dispatchEvent(new Event('resize'))
+    expect(document.documentElement.style.getPropertyValue('--app-height')).toBe('600px')
+  })
+
+  it('uses CSS viewport sizing when the visual viewport API is unavailable', async () => {
+    vi.stubGlobal('visualViewport', undefined)
+    const { host } = mountApp()
+    await nextTick()
+    expect(host.querySelector('.shell')).not.toBeNull()
+    expect(document.documentElement.style.getPropertyValue('--app-height')).toBe('')
+    expect(document.documentElement.style.getPropertyValue('--app-top')).toBe('')
+  })
+
   it('pins a chat locally without opening it and displays a separate pinned group', async () => {
     const open = vi.spyOn(ChatClient.prototype, 'open').mockResolvedValue()
     const { host, client } = mountApp()
@@ -485,6 +529,7 @@ describe('chat interface', () => {
     client.state.error = 'Synthetic connection failure'
     await nextTick()
     expect(login()?.textContent).toContain('Sign in with Hermes')
+    expect(host.querySelector('.sign-in-brand img')?.getAttribute('src')).toBe('/favicon-192.png')
     expect(new URL(login()!.href).searchParams.get('next')).toBe(window.location.pathname + window.location.search)
     expect(host.querySelector('.startup-page')).toBeNull()
     expect(host.textContent).not.toContain('https://remote-hermes.test')
