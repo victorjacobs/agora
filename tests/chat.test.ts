@@ -49,6 +49,44 @@ function setup(selected = '') {
 afterEach(() => vi.useRealTimers())
 
 describe('chat recovery and session ownership', () => {
+  it('keeps concurrent live tool calls in the transcript and matches completions by ID', async () => {
+    const { state, gateway, chat } = setup('a')
+    await chat.start('work')
+    const emit = (type: string, payload: Record<string, unknown>, seq: number, session_id = 'runtime-a') => gateway.onEvent?.({ type, payload, seq, session_id })
+    emit('message.start', {}, 1)
+    emit('tool.start', { tool_id: 'one', name: 'terminal', context: 'npm test', args: { command: 'npm test' } }, 2)
+    emit('tool.start', { tool_id: 'two', name: 'read_file', context: 'README.md', args: { path: 'README.md' } }, 3)
+    expect(state.running).toBe(true)
+    expect(state.activity).toBe('')
+    expect(state.messages.filter(message => message.role === 'tool').map(message => message.tool?.status)).toEqual(['running', 'running'])
+    emit('tool.complete', { tool_id: 'two', name: 'read_file', result: { content: 'File contents' }, summary: 'Read file', duration_s: 1.2 }, 4)
+    expect(state.messages.find(message => message.tool?.id === 'one')?.tool?.status).toBe('running')
+    const second = state.messages.find(message => message.tool?.id === 'two')!
+    expect(second.tool).toMatchObject({ status: 'completed', args: '{\n  "path": "README.md"\n}', context: 'README.md', summary: 'Read file', duration: 1.2 })
+    expect(JSON.parse(second.text)).toEqual({ content: 'File contents' })
+    emit('tool.complete', { tool_id: 'one', name: 'terminal', result: 'Tests passed' }, 5)
+    emit('tool.complete', { tool_id: 'one', result: 'Duplicate' }, 5)
+    emit('tool.start', { tool_id: 'one', name: 'terminal' }, 6)
+    emit('tool.start', { tool_id: 'other', name: 'terminal' }, 7, 'runtime-b')
+    expect(state.messages.filter(message => message.role === 'tool')).toHaveLength(2)
+    expect(state.messages.find(message => message.tool?.id === 'one')).toMatchObject({ text: 'Tests passed', tool: { status: 'completed' } })
+    emit('message.delta', { text: 'The result.' }, 8)
+    expect(state.messages.at(-1)).toMatchObject({ role: 'assistant', text: 'The result.' })
+    chat.dispose()
+  })
+
+  it('accepts a tool completion without its start and replaces live rows with durable history', async () => {
+    const { state, api, gateway, chat } = setup('a')
+    await chat.start('work')
+    gateway.onEvent?.({ type: 'tool.complete', session_id: 'runtime-a', payload: { tool_id: 'one', name: 'terminal', result: 'Tests passed' } })
+    expect(state.messages.at(-1)).toMatchObject({ role: 'tool', text: 'Tests passed', tool: { status: 'completed' } })
+    vi.mocked(api.history).mockResolvedValue({ ...history('a'), messages: [{ id: 1, role: 'user', content: 'question-a' }, { id: 2, role: 'tool', tool_name: 'terminal', content: 'Tests passed' }, { id: 3, role: 'assistant', content: 'Done' }] })
+    gateway.onEvent?.({ type: 'message.complete', session_id: 'runtime-a', payload: { status: 'completed' } })
+    await vi.waitFor(() => expect(state.connection).toBe('ready'))
+    expect(state.messages.filter(message => message.role === 'tool')).toEqual([{ key: 'row-2', rowId: 2, role: 'tool', name: 'terminal', text: 'Tests passed', kind: undefined, metadata: undefined }])
+    chat.dispose()
+  })
+
   it('loads session model choices and applies reasoning only to the current runtime', async () => {
     const { state, gateway, chat } = setup('a')
     const ordinary = vi.mocked(gateway.request).getMockImplementation()!

@@ -884,8 +884,37 @@ export class ChatClient {
         }
         this.state.messages.push({ key: `live-${crypto.randomUUID()}`, role: 'assistant', text: '' })
         break
-      case 'tool.start': this.state.activity = `Using ${String(payload.name || 'tool')}`; break
-      case 'tool.complete': this.state.activity = typeof payload.summary === 'string' ? payload.summary : `Finished ${String(payload.name || 'tool')}`; break
+      case 'tool.start':
+      case 'tool.complete': {
+        if (typeof payload.tool_id !== 'string' || !payload.tool_id) break
+        const turnStart = this.state.messages.findLastIndex(message => message.role === 'user')
+        let message = this.state.messages.slice(turnStart + 1).find(message => message.tool?.id === payload.tool_id)
+        if (!message) {
+          this.state.messages.push({
+            key: `tool-${crypto.randomUUID()}`, role: 'tool', text: '',
+            name: typeof payload.name === 'string' ? payload.name : 'Tool',
+            tool: { id: payload.tool_id, status: 'running' },
+          })
+          message = this.state.messages.at(-1)!
+        }
+        const tool = message.tool!
+        if (event.type === 'tool.start' && tool.status === 'completed') break
+        if (typeof payload.name === 'string') message.name = payload.name
+        if (typeof payload.context === 'string') tool.context = payload.context
+        else if (typeof payload.preview === 'string') tool.context = payload.preview
+        if (payload.args && typeof payload.args === 'object') tool.args = JSON.stringify(payload.args, null, 2)
+        else if (typeof payload.args_text === 'string') tool.args = payload.args_text
+        tool.status = event.type === 'tool.start' ? 'running' : 'completed'
+        if (event.type === 'tool.complete') {
+          message.text = typeof payload.result === 'string' ? payload.result
+            : payload.result != null ? JSON.stringify(payload.result, null, 2)
+            : typeof payload.result_text === 'string' ? payload.result_text : ''
+          if (typeof payload.summary === 'string') tool.summary = payload.summary
+          if (typeof payload.duration_s === 'number' && Number.isFinite(payload.duration_s)) tool.duration = payload.duration_s
+        } else this.state.running = true
+        this.state.activity = ''
+        break
+      }
       case 'status.update': this.state.activity = typeof payload.text === 'string' ? payload.text : ''; break
       case 'session.info':
         this.applyModelInfo(payload)

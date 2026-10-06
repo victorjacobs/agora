@@ -22,6 +22,14 @@ export interface Message {
   kind?: string
   name?: string
   metadata?: Record<string, unknown>
+  tool?: {
+    id: string
+    status: 'running' | 'completed'
+    context?: string
+    args?: string
+    summary?: string
+    duration?: number
+  }
 }
 
 export interface HistoryPage {

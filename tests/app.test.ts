@@ -31,6 +31,40 @@ function mountApp(connection: 'ready' | 'connecting' = 'ready') {
 }
 
 describe('chat interface', () => {
+  it('shows running calls and their details in the expandable tool group', async () => {
+    const { host, client } = mountApp()
+    client.state.running = true
+    client.state.messages = [
+      { key: 'user', role: 'user', text: 'Check the project' },
+      { key: 'first', role: 'tool', name: 'read_file', text: 'Read README', tool: { id: 'one', status: 'completed', duration: 0.2 } },
+      { key: 'second', role: 'tool', name: 'terminal', text: '', tool: { id: 'two', status: 'running', context: 'npm test <img src=x>', args: '{"command":"npm test"}' } },
+    ]
+    await nextTick()
+    const group = host.querySelector<HTMLDetailsElement>('.tool-group')!
+    expect(group.querySelector('summary')?.textContent).toContain('2 tool calls')
+    expect(group.querySelector('summary')?.textContent).toContain('1 running')
+    expect(group.querySelector('summary')?.textContent).toContain('terminal · npm test')
+    expect(group.querySelector('.tool-spinner')).not.toBeNull()
+    expect(group.querySelector('img')).toBeNull()
+    expect(host.querySelector('.thinking')).toBeNull()
+    expect(host.querySelector('.activity .pulse')).not.toBeNull()
+    expect(host.querySelector('.activity')?.textContent).toContain('Working…')
+    group.open = true
+    expect(group.querySelector('.tool-arguments pre')?.textContent).toContain('npm test')
+    expect(group.textContent).toContain('Waiting for output…')
+    client.state.messages[2]!.tool!.status = 'completed'
+    client.state.messages[2]!.text = 'Tests passed'
+    await nextTick()
+    expect(group.open).toBe(true)
+    expect(group.querySelector('.tool-spinner')).toBeNull()
+    expect(group.textContent).toContain('Tests passed')
+    expect(group.textContent).toContain('Completed · 0.2s')
+    expect(host.querySelector('.activity .pulse')).not.toBeNull()
+    client.state.running = false
+    await nextTick()
+    expect(host.querySelector('.activity')).toBeNull()
+  })
+
   it('switches conversations with Command/Ctrl K and restores the previous search and draft on close', async () => {
     Object.defineProperties(HTMLDialogElement.prototype, {
       showModal: { configurable: true, value() { this.setAttribute('open', '') } },

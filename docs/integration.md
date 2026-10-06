@@ -77,7 +77,13 @@ Session create and resume RPCs sent over `/api/ws` set `source: "desktop"` to
 identify Agora as a graphical client to Hermes, including during recovery.
 The presentation groups assistant text and tool results into one turn, skipping
 empty stored assistant rows. Consecutive tool results share an expandable group
-with tool names and safely rendered plain-text output. Grouping preserves order
+with tool names and safely rendered plain-text output. During a turn, `tool.start`
+and `tool.complete` populate that same group, matched by `tool_id`. Its collapsed
+header shows the running count and current command or path; expanding it shows
+arguments, results, summaries, and reported durations. Concurrent calls retain
+independent status. Once the turn completes, REST history replaces these temporary
+rows with the stored transcript. Tool activity is kept in memory only.
+Grouping preserves order
 and user-turn boundaries without changing the underlying transcript or row IDs.
 The URL carries the durable stored ID; prompts, interrupts, and approvals use
 the separate resumed runtime ID. REST-returned compression descendant IDs and

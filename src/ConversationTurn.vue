@@ -3,10 +3,16 @@ import { computed } from 'vue'
 import type { ConversationTurn } from './hermes/transcript'
 import MarkdownMessage from './MarkdownMessage.vue'
 import { generatedImage } from './hermes/media'
+import type { Message } from './hermes/types'
 
 const props = defineProps<{ turn: ConversationTurn; thinking: boolean; profile?: string }>()
 const completionNotice = computed(() => props.turn.blocks.every(block => block.kind === 'text' && ['async_delegation_complete', 'process_complete'].includes(block.message.kind || '')))
 defineEmits<{ imageLoad: [] }>()
+function runningTools(messages: Message[]) { return messages.filter(message => message.tool?.status === 'running') }
+function toolContext(messages: Message[]) {
+  const tool = runningTools(messages).at(-1)
+  return tool ? [tool.name, tool.tool?.context].filter(Boolean).join(' · ') : [...new Set(messages.map(message => message.name).filter(Boolean))].join(', ')
+}
 </script>
 
 <template>
@@ -17,17 +23,21 @@ defineEmits<{ imageLoad: [] }>()
         <template v-for="tool in block.messages" :key="`image-${tool.key}`">
           <MarkdownMessage :profile="profile" v-if="generatedImage(tool.text, tool.name)" :text="`![Generated image](<${generatedImage(tool.text, tool.name)}>)`" @image-load="$emit('imageLoad')" />
         </template>
-        <details class="tool-group">
+        <details class="tool-group" :class="{ 'tool-group-running': runningTools(block.messages).length }">
           <summary>
             <svg class="tool-chevron" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m6 4 4 4-4 4" /></svg>
             <span>{{ block.messages.length }} tool {{ block.messages.length === 1 ? 'call' : 'calls' }}</span>
-            <span class="tool-names">{{ [...new Set(block.messages.map(message => message.name).filter(Boolean))].join(', ') }}</span>
+            <span v-if="runningTools(block.messages).length" class="tool-running-status" role="status"><span class="tool-spinner" aria-hidden="true"></span>{{ runningTools(block.messages).length }} running</span>
+            <span class="tool-names" :title="toolContext(block.messages)">{{ toolContext(block.messages) }}</span>
           </summary>
           <div class="tool-outputs">
             <section v-for="tool in block.messages" :key="tool.key" class="tool-output">
-              <h3>{{ tool.name || 'Tool output' }}</h3>
+              <h3>{{ tool.name || 'Tool output' }}<span v-if="tool.tool" class="tool-call-status"><span v-if="tool.tool.status === 'running'" class="tool-spinner" aria-hidden="true"></span>{{ tool.tool.status === 'running' ? 'Running' : 'Completed' }}<template v-if="tool.tool.duration !== undefined"> · {{ tool.tool.duration.toFixed(1) }}s</template></span></h3>
+              <p v-if="tool.tool?.context" class="tool-context">{{ tool.tool.context }}</p>
+              <details v-if="tool.tool?.args" class="tool-arguments"><summary>Arguments</summary><pre>{{ tool.tool.args }}</pre></details>
+              <p v-if="tool.tool?.summary" class="tool-context">{{ tool.tool.summary }}</p>
               <pre v-if="tool.text.trim()">{{ tool.text }}</pre>
-              <p v-else class="tool-no-output">No output.</p>
+              <p v-else class="tool-no-output">{{ tool.tool?.status === 'running' ? 'Waiting for output…' : 'No output.' }}</p>
             </section>
           </div>
         </details>
@@ -79,4 +89,15 @@ defineEmits<{ imageLoad: [] }>()
 .task-result .tool-outputs { font-size: 11px; padding: 8px 12px; }
 .task-result .tool-outputs p { margin: 0 0 8px; }
 .task-result pre { margin: 0; padding: 10px; font-size: 11px; max-height: 180px; }
+
+.tool-running-status, .tool-call-status { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 11px; font-weight: 400; white-space: nowrap; }
+.tool-call-status { margin-left: auto; }
+.tool-output h3 { display: flex; align-items: center; gap: 8px; }
+.tool-group-running { border-color: var(--muted); }
+.tool-context { margin: 0 0 8px; font-size: 12px; color: var(--secondary-text); white-space: pre-wrap; overflow-wrap: anywhere; }
+.tool-arguments { margin-bottom: 8px; }
+.tool-arguments > summary { font-size: 11px; color: var(--muted); cursor: pointer; margin-bottom: 6px; }
+.tool-spinner { display: inline-block; width: 10px; height: 10px; flex-shrink: 0; border: 1.5px solid var(--border); border-top-color: currentColor; border-radius: 50%; animation: tool-spin 1s linear infinite; }
+@keyframes tool-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .tool-spinner { animation: none; } }
 </style>

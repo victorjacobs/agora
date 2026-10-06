@@ -34,7 +34,8 @@ const searching = computed(() => Boolean(state.searchQuery.trim()))
 const visibleSessions = computed(() => chat.visibleSessions())
 const sessionGroups = computed(() => groupSessions(visibleSessions.value, currentDate.value))
 const displayedRequests = computed(() => state.requests)
-const displayedItems = computed(() => conversationTimeline(state.messages, state.tasks, state.running && !state.activity))
+const showingThinking = computed(() => state.running && !state.activity && !state.messages.some(message => message.tool?.status === 'running'))
+const displayedItems = computed(() => conversationTimeline(state.messages, state.tasks, showingThinking.value))
 const runningTasks = computed(() => state.tasks.filter(taskRunning))
 const displayedApprovals = computed(() => state.approvals.filter(approval =>
   !state.requests.some(request => request.method === 'approval' && request.params.request_id === approval.request_id),
@@ -246,10 +247,10 @@ onBeforeUnmount(() => { clearInterval(dateTimer); window.removeEventListener('re
             <p>Send a message to start.</p>
           </div>
           <template v-for="item in displayedItems" :key="item.key">
-            <ConversationTurn v-if="item.kind === 'turn'" :turn="item.turn" :profile="state.profile" :thinking="state.running && !state.activity" @image-load="scrollToLatest(false)" />
+            <ConversationTurn v-if="item.kind === 'turn'" :turn="item.turn" :profile="state.profile" :thinking="showingThinking" @image-load="scrollToLatest(false)" />
             <BackgroundTasks v-else :tasks="item.tasks" error="" :connected="true" />
           </template>
-          <div v-if="state.activity" class="activity" role="status"><span v-if="state.running" class="pulse" aria-hidden="true"></span>{{ state.activity }}</div>
+          <div v-if="state.activity || state.running" class="activity" role="status"><span v-if="state.running" class="pulse" aria-hidden="true"></span>{{ state.activity || 'Working…' }}</div>
           <p v-if="state.taskError && !runningTasks.length" class="muted task-status-error" role="status">{{ state.taskError }}</p>
           <RequestCard v-for="request in displayedRequests" :key="request.id" :request="request" :disabled="actionsDisabled" :dashboard-url="state.endpoint || '/'" @answer="chat.answer(request, $event)" />
           <section v-for="approval in displayedApprovals" :key="approval.request_id || 'pending'" class="request-card">
