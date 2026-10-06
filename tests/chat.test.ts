@@ -849,17 +849,17 @@ describe('chat recovery and session ownership', () => {
     chat.dispose()
   })
 
-  it('uses the local service for remote authentication and ticket renewal', async () => {
+  it.each(['local', 'hosted'])('uses the %s bridge for remote authentication and ticket renewal', async mode => {
     const { state, api, gateway, chat } = setup()
     vi.mocked(api.request).mockImplementation(async path => {
-      if (path === '/api/agora/connection') return { mode: 'local', endpoint: 'https://remote-hermes.test' }
+      if (path === '/api/agora/connection') return { mode, endpoint: 'https://remote-hermes.test' }
       if (path === '/api/status') return { auth_required: true }
       if (path === '/api/auth/me') return { display_name: 'Operator' }
       throw new Error(`Unexpected browser request: ${path}`)
     })
     await chat.start('work')
     expect(state.connection).toBe('ready')
-    expect(state.localMode).toBe(true)
+    expect(state.bridgeMode).toBe(true)
     expect(state.endpoint).toBe('https://remote-hermes.test')
     expect(gateway.connect).toHaveBeenCalledWith('wss://hermes.test/api/ws', undefined)
     await chat.connect()

@@ -62,7 +62,7 @@ export class NativeSession {
     })
     if (!response.ok) throw new BridgeError(400, 'Hermes rejected the login code. Start sign-in again.')
     const tokens = this.parseTokens(await response.json())
-    if (this.disposed) throw new BridgeError(401, 'This local login was cancelled.')
+    if (this.disposed) throw new BridgeError(401, 'This Agora login was cancelled.')
     this.tokens = tokens
   }
 
@@ -118,7 +118,7 @@ export class NativeSession {
       if (response.status === 401) { this.tokens = undefined; throw new BridgeError(401, 'Your Hermes login has expired. Sign in again.') }
       if (!response.ok) throw new BridgeError(503, 'Hermes could not refresh your login. Try again.')
       const refreshed = this.parseTokens(await response.json())
-      if (this.disposed) throw new BridgeError(401, 'This local login was cancelled.')
+      if (this.disposed) throw new BridgeError(401, 'This Agora login was cancelled.')
       this.tokens = refreshed
     })()
     try { await this.refreshPromise }

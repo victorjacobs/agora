@@ -17,7 +17,7 @@ export function initialState() {
   return {
     connection: 'connecting' as Connection,
     authRequired: false,
-    localMode: false,
+    bridgeMode: false,
     endpoint: '',
     identity: '',
     error: '',
@@ -147,7 +147,7 @@ export class ChatClient {
     this.state.selected = this.location.selected()
     try {
       const configuration = await this.api.request<{ mode?: string; endpoint?: string }>('/api/agora/connection')
-      this.state.localMode = configuration.mode === 'local'
+      this.state.bridgeMode = configuration.mode === 'local' || configuration.mode === 'hosted'
       this.state.endpoint = configuration.endpoint || ''
     } catch { /* Same-origin Hermes installations do not have a local connection service. */ }
     if (!this.stopped) await this.connect()
@@ -184,7 +184,7 @@ export class ChatClient {
       if (status.auth_required) {
         const identity = await this.api.request<{ display_name?: string; email?: string }>('/api/auth/me')
         this.state.identity = identity.display_name || identity.email || 'Signed in'
-        if (!this.state.localMode) ticket = (await this.api.request<{ ticket: string }>('/api/auth/ws-ticket', { method: 'POST' })).ticket
+        if (!this.state.bridgeMode) ticket = (await this.api.request<{ ticket: string }>('/api/auth/ws-ticket', { method: 'POST' })).ticket
       } else this.state.identity = 'Hermes dashboard'
       if (connectionGeneration !== this.connectionGeneration) return
 

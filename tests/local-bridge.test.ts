@@ -5,7 +5,7 @@ import type { Server } from 'node:http'
 import { createHash } from 'node:crypto'
 import { once } from 'node:events'
 import WebSocket, { WebSocketServer } from 'ws'
-import { LocalBridge } from '../server/bridge'
+import { HermesBridge, publicOriginURL } from '../server/bridge'
 
 let cleanup: Array<() => Promise<void> | void> = []
 afterEach(async () => { for (const close of cleanup.reverse()) await close(); cleanup = [] })
@@ -18,7 +18,7 @@ async function listen(server: Server) {
   return `http://127.0.0.1:${port}`
 }
 
-async function fixture() {
+async function fixture(publicOrigin?: string) {
   let challenge = ''
   let token = 'access-1'
   let refreshes = 0
@@ -85,13 +85,35 @@ async function fixture() {
     socket.send(JSON.stringify({ jsonrpc: '2.0', method: 'event', params: { type: 'gateway.ready', payload: {} } }))
     socket.on('message', data => socket.send(data))
   })
-  const bridge = new LocalBridge(upstreamOrigin)
+  const bridge = new HermesBridge(upstreamOrigin, fetch, { publicOrigin })
   const localServer = createServer((request, response) => bridge.middleware(request, response, () => { response.writeHead(404); response.end() }))
   bridge.attach(localServer)
   const origin = await listen(localServer)
   cleanup.push(() => bridge.dispose())
+  const request = (path: string, options: RequestInit = {}): Promise<Response> => {
+    if (!publicOrigin) return fetch(`${origin}${path}`, options)
+    return new Promise((resolve, reject) => {
+      const headers = new Headers(options.headers)
+      if (!headers.has('Host')) headers.set('Host', new URL(publicOrigin).host)
+      const outgoing = httpRequest(`${origin}${path}`, {
+        method: options.method, headers: Object.fromEntries(headers),
+      }, response => {
+        const parts: Buffer[] = []
+        response.on('data', part => parts.push(part))
+        response.on('error', reject)
+        response.on('end', () => {
+          const headers = new Headers()
+          for (let i = 0; i < response.rawHeaders.length; i += 2) headers.append(response.rawHeaders[i]!, response.rawHeaders[i + 1]!)
+          resolve(new Response(Buffer.concat(parts), { status: response.statusCode, headers }))
+        })
+      })
+      outgoing.on('error', reject)
+      if (typeof options.body === 'string') outgoing.write(options.body)
+      outgoing.end()
+    })
+  }
   const beginLogin = async (next = '/?session=test') => {
-    const beginning = await fetch(`${origin}/login?next=${encodeURIComponent(next)}`, { redirect: 'manual' })
+    const beginning = await request(`/login?next=${encodeURIComponent(next)}`, { redirect: 'manual' })
     const loginCookie = beginning.headers.get('set-cookie')!.split(';')[0]
     const authorize = await fetch(beginning.headers.get('location')!, { redirect: 'manual' })
     const callback = authorize.headers.get('location')!
@@ -99,14 +121,15 @@ async function fixture() {
   }
   const login = async (next = '/?session=test', expectedNext = next) => {
     const { loginCookie, callback } = await beginLogin(next)
-    const completed = await fetch(callback, { headers: { Cookie: loginCookie }, redirect: 'manual' })
+    const target = new URL(callback)
+    const completed = await request(target.pathname + target.search, { headers: { Cookie: loginCookie, 'Sec-Fetch-Site': 'cross-site' }, redirect: 'manual' })
     expect(completed.status).toBe(303)
     expect(completed.headers.get('location')).toBe(expectedNext)
-    const cookie = completed.headers.getSetCookie().find(value => value.startsWith('agora_local_session='))!.split(';')[0]
-    return { cookie, callback, loginCookie }
+    const cookie = completed.headers.getSetCookie().find(value => value.startsWith(publicOrigin ? '__Host-agora_session=' : 'agora_local_session='))!.split(';')[0]
+    return { cookie, callback, loginCookie, completed }
   }
   return {
-    origin, login, beginLogin, records, bridge,
+    origin, login, beginLogin, records, bridge, request, publicOrigin,
     expire: () => { refreshedExpiry = true }, rejectRefresh: () => { rejectRefresh = true; refreshedExpiry = true },
     rejectMutation: () => { rejectMutation = true },
     counts: () => ({ refreshes, patches }),
@@ -207,7 +230,8 @@ describe('local remote-Hermes connection', () => {
     altered.searchParams.set('state', 'wrong-state')
     expect((await fetch(altered, { headers: { Cookie: loginCookie } })).status).toBe(400)
     expect((await fetch(callback)).status).toBe(400)
-    const completed = await fetch(callback, { headers: { Cookie: loginCookie }, redirect: 'manual' })
+    const target = new URL(callback)
+    const completed = await test.request(target.pathname + target.search, { headers: { Cookie: loginCookie, 'Sec-Fetch-Site': 'cross-site' }, redirect: 'manual' })
     expect(completed.status).toBe(303)
     const cookie = completed.headers.getSetCookie().find(value => value.startsWith('agora_local_session='))!.split(';')[0]
     expect((await fetch(callback, { headers: { Cookie: loginCookie } })).status).toBe(400)
@@ -278,7 +302,115 @@ describe('local remote-Hermes connection', () => {
     expect(invalidHostStatus).toBe(403)
     expect((await fetch(`${test.origin}/api/config`)).status).toBe(404)
     await test.login('//untrusted.test', '/')
-    expect(() => new LocalBridge('http://hermes.example')).toThrow(/HTTPS/)
-    expect(() => new LocalBridge('https://user:password@hermes.example')).toThrow(/credentials/)
+    expect(() => new HermesBridge('http://hermes.example')).toThrow(/HTTPS/)
+    expect(() => new HermesBridge('https://user:password@hermes.example')).toThrow(/credentials/)
+  })
+})
+
+
+describe('hosted Hermes bridge', () => {
+  const publicOrigin = 'https://agora.example.com'
+
+  it('uses the configured HTTPS callback and host-only secure cookies behind a proxy', async () => {
+    const test = await fixture(publicOrigin)
+    const { loginCookie, callback } = await test.beginLogin()
+    expect(loginCookie).toMatch(/^__Host-agora_login=/)
+    expect(new URL(callback).origin + new URL(callback).pathname).toBe(publicOrigin + '/auth/native/callback')
+    const target = new URL(callback)
+    expect((await test.request(target.pathname + target.search)).status).toBe(400)
+    const altered = new URL(target)
+    altered.searchParams.set('state', 'wrong-state')
+    expect((await test.request(altered.pathname + altered.search, { headers: { Cookie: loginCookie } })).status).toBe(400)
+    const completed = await test.request(target.pathname + target.search, {
+      headers: { Cookie: loginCookie, 'Sec-Fetch-Site': 'cross-site' }, redirect: 'manual',
+    })
+    expect(completed.status).toBe(303)
+    expect(completed.headers.get('location')).toBe('/?session=test')
+    const cookies = completed.headers.getSetCookie()
+    for (const cookie of cookies) {
+      expect(cookie).toContain('; Secure')
+      expect(cookie).toContain('; HttpOnly')
+      expect(cookie).toContain('; SameSite=Lax')
+      expect(cookie).toContain('; Path=/')
+      expect(cookie).not.toContain('Domain=')
+      expect(cookie).not.toContain('access-1')
+      expect(cookie).not.toContain('refresh-1')
+    }
+    const cookie = cookies.find(value => value.startsWith('__Host-agora_session='))!.split(';')[0]
+    expect((await test.request('/api/auth/me', { headers: { Cookie: cookie } })).status).toBe(200)
+    expect(test.records.findLast(record => record.path === '/api/auth/me')?.authorization).toBe('Bearer access-1')
+    expect(test.records.findLast(record => record.path === '/api/auth/me')?.cookie).toBeUndefined()
+    expect((await (await test.request('/api/agora/connection')).json()).mode).toBe('hosted')
+    expect((await test.request(target.pathname + target.search, { headers: { Cookie: loginCookie } })).status).toBe(400)
+  })
+
+  it('rejects foreign Hosts and Origins and ignores spoofed forwarding headers', async () => {
+    const test = await fixture(publicOrigin)
+    const before = test.records.length
+    for (const path of ['/api/status', '/', '/assets/app.js']) {
+      expect((await test.request(path, { headers: { Host: 'attacker.example', 'X-Forwarded-Host': 'agora.example.com', 'X-Forwarded-Proto': 'https' } })).status).toBe(403)
+    }
+    expect(test.records).toHaveLength(before)
+    const { cookie } = await test.login()
+    for (const origin of [undefined, 'https://foreign.example', 'http://agora.example.com']) {
+      expect((await test.request('/auth/logout', { method: 'POST', headers: { Cookie: cookie, ...(origin ? { Origin: origin } : {}) } })).status).toBe(403)
+    }
+    const started = await test.request('/login', {
+      headers: { 'X-Forwarded-Host': 'attacker.example', 'X-Forwarded-Proto': 'http' }, redirect: 'manual',
+    })
+    expect(new URL(started.headers.get('location')!).searchParams.get('redirect_uri')).toBe(publicOrigin + '/auth/native/callback')
+    expect(started.headers.get('set-cookie')).toContain('; Secure')
+    expect((await test.request('/auth/unsupported')).status).toBe(404)
+  })
+
+  it('keeps sessions isolated, refreshes tokens, and clears secure cookies on logout', async () => {
+    const test = await fixture(publicOrigin)
+    const first = await test.login()
+    const second = await test.login()
+    test.expire()
+    expect((await test.request('/api/sessions', { headers: { Cookie: second.cookie } })).status).toBe(200)
+    expect(test.counts().refreshes).toBe(1)
+    const logout = await test.request('/auth/logout', {
+      method: 'POST', headers: { Cookie: first.cookie, Origin: publicOrigin }, redirect: 'manual',
+    })
+    expect(logout.status).toBe(303)
+    expect(logout.headers.getSetCookie().every(cookie => cookie.includes('; Secure') && cookie.includes('Max-Age=0'))).toBe(true)
+    expect((await test.request('/api/auth/me', { headers: { Cookie: first.cookie } })).status).toBe(401)
+    expect((await test.request('/api/auth/me', { headers: { Cookie: second.cookie } })).status).toBe(200)
+    test.bridge.dispose()
+    expect((await test.request('/api/auth/me', { headers: { Cookie: second.cookie } })).status).toBe(401)
+  })
+
+  it('requires the public browser Origin for WebSockets while connecting upstream as a native client', async () => {
+    const test = await fixture(publicOrigin)
+    const { cookie } = await test.login()
+    const headers = { Cookie: cookie, Host: 'agora.example.com', Origin: publicOrigin }
+    const socket = new WebSocket(test.origin.replace('http:', 'ws:') + '/api/ws', ['hermes-gateway-v1'], { headers })
+    cleanup.push(() => socket.terminate())
+    const [ready] = await once(socket, 'message')
+    expect(JSON.parse(ready.toString()).params.type).toBe('gateway.ready')
+    socket.send(JSON.stringify({ jsonrpc: '2.0', id: 'hosted', method: 'gateway.ping' }))
+    const [reply] = await once(socket, 'message')
+    expect(JSON.parse(reply.toString()).id).toBe('hosted')
+    const before = test.records.length
+    const foreign = new WebSocket(test.origin.replace('http:', 'ws:') + '/api/ws', ['hermes-gateway-v1'], {
+      headers: { ...headers, Origin: 'https://foreign.example' },
+    })
+    cleanup.push(() => foreign.terminate())
+    foreign.on('error', () => {})
+    const [, response] = await once(foreign, 'unexpected-response')
+    expect(response.statusCode).toBe(403)
+    foreign.terminate()
+    expect(test.records).toHaveLength(before)
+    const closed = once(socket, 'close')
+    await test.request('/auth/logout', { method: 'POST', headers, redirect: 'manual' })
+    await closed
+  })
+
+  it('accepts only a canonical public HTTPS origin', () => {
+    expect(publicOriginURL(publicOrigin + '/').origin).toBe(publicOrigin)
+    for (const origin of ['http://agora.example', 'https://user:password@agora.example', 'https://agora.example/path', 'https://agora.example?x=1', 'https://agora.example#', 'https://agora.example\n', 'https://AGORA.example', 'https://agora.example:443']) {
+      expect(() => publicOriginURL(origin)).toThrow()
+    }
   })
 })

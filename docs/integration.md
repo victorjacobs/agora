@@ -59,6 +59,41 @@ storage. This service is a transport/auth adapter, with no agent runner,
 transcript database, or Hermes filesystem access. A future desktop shell can
 replace the loopback transport without changing the chat state machine.
 
+## Hosted Node bridge
+
+> [!WARNING]
+> **This requires a Hermes build change allowing an exact HTTPS native-broker
+> callback.** Unmodified Hermes on the documented revision accepts loopback
+> callbacks only. Agora does not ship or apply that patch.
+
+Set `AGORA_PUBLIC_ORIGIN=https://agora.example.com` alongside `HERMES_ENDPOINT`,
+then build and run `agora-start`, or set `services.agora.publicOrigin` on NixOS.
+The Node service remains on `127.0.0.1`; an HTTPS reverse proxy forwards the whole
+application, preserving Host and browser Origin. See [the deployment examples](nix.md#public-hosting-with-the-node-bridge).
+
+Login uses the same native broker as laptop mode, with the configured public
+`/auth/native/callback`. Hermes's OIDC callback remains on its own domain;
+the patched broker redirects to Agora with a one-time code and state. The Node
+service checks browser binding/state/expiry and exchanges with PKCE. It keeps
+per-browser tokens in memory, refreshes them, and performs authenticated HTTP
+and ticket-based WebSocket forwarding. Browser code sees only an opaque session
+cookie. Hosted cookies use `__Host-` names, Secure, HttpOnly, SameSite=Lax, and
+Path=/; laptop cookies retain their existing names and HTTP behavior.
+
+Host validation uses the configured origin for all HTTP routes, including static
+files. Mutations and WebSockets require its exact Origin. Forwarded headers do
+not choose the public origin or callback. The callback accepts the expected
+cross-site browser return only with a pending login cookie and valid state/code;
+replays are rejected. API/auth routes outside the bridge allowlist return errors
+rather than the SPA. No arbitrary upstream target can be selected by a request.
+
+The client recognizes both `local` and `hosted` bridge metadata and lets the
+bridge mint upstream WebSocket tickets. It continues using same-origin browser
+HTTP/WS connections. A service restart requires login again. Only one process
+is supported; in-memory state is not shared between replicas. Existing retry
+and ambiguous-send rules apply unchanged. No Hermes CORS, Host/Origin, or cookie
+policy changes are required beyond the independently maintained callback patch.
+
 ## Browser and server boundary
 
 `src/hermes/api.ts` owns same-origin cookie-authenticated HTTP requests and profile-aware
@@ -122,7 +157,7 @@ and explicit skip. Unsupported requests remain visibly pending with a dashboard
 link; the user can stop the turn. Request cancellations and expired/already
 answered results are displayed. Agora never silently approves or answers a request.
 
-In hosted mode, login is full browser navigation to `/login?next=<same-origin Agora path>`.
+In static browser-cookie mode, login is full browser navigation to `/login?next=<same-origin Agora path>`.
 Hermes chooses the provider and owns callback, cookie refresh, and logout.
 A 401 pauses the client for sign-in; a 403 or WebSocket policy rejection is shown
 as a separate failure. There are no client OIDC tokens or automatic login redirects.

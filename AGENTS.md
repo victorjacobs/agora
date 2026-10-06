@@ -15,9 +15,11 @@ suggestions and unresolved details. Recheck them against the target Hermes versi
   use existing contracts and show unsupported capabilities as unavailable.
 - Never read or write Hermes SQLite, session files, or other internal storage.
   Do not depend on hermes-webui or create a second agent backend or database.
-- Hosted mode uses Hermes's browser OIDC flow and session cookies. Laptop mode
-  uses Hermes's native PKCE flow through a loopback-only local service configured
-  by HERMES_ENDPOINT. Keep native tokens in server memory, outside the browser.
+- Laptop and hosted bridge modes use Hermes's native PKCE broker, configured
+  by HERMES_ENDPOINT. Hosted mode also sets AGORA_PUBLIC_ORIGIN and requires an
+  operator-maintained Hermes HTTPS callback allowlist patch outside this project.
+  Keep tokens in server memory, outside the browser. Static same-origin deployments
+  can still use Hermes's browser OIDC flow and session cookies.
   Do not create an Agora identity store or independent authentication provider.
 - Keep v1 focused on chat and sessions. Do not reproduce the management dashboard.
 - Treat dashboard access as access to the operator's Hermes installation; do not

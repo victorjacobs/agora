@@ -22,6 +22,16 @@ let
     enable = true;
     hermesEndpoint = "http://hermes.example.com";
   }).config;
+  hosted = (evaluate {
+    enable = true;
+    hermesEndpoint = "https://hermes.foo.bar";
+    publicOrigin = "https://agora.foo.bar";
+  }).config;
+  invalidOrigin = (evaluate {
+    enable = true;
+    hermesEndpoint = "https://hermes.foo.bar";
+    publicOrigin = "https://agora.foo.bar/path";
+  }).config;
   service = enabled.systemd.services.agora;
   failedAssertions = cfg: builtins.filter
     (entry: !entry.assertion)
@@ -29,6 +39,10 @@ let
 in
 assert service.environment.HERMES_ENDPOINT == "https://hermes.example.com";
 assert service.environment.AGORA_PORT == "8123";
+assert !(service.environment ? AGORA_PUBLIC_ORIGIN);
+assert hosted.systemd.services.agora.environment.AGORA_PUBLIC_ORIGIN == "https://agora.foo.bar";
+assert !(builtins.any (entry: pkgs.lib.hasPrefix "services.agora.publicOrigin" entry.message) (failedAssertions hosted));
+assert builtins.any (entry: pkgs.lib.hasPrefix "services.agora.publicOrigin" entry.message) (failedAssertions invalidOrigin);
 assert service.serviceConfig.ExecStart == "${enabled.services.agora.package}/bin/agora";
 assert service.serviceConfig.DynamicUser;
 assert service.serviceConfig.ProtectSystem == "strict";

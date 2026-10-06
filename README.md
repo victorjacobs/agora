@@ -5,6 +5,15 @@ Run it on your laptop and connect to your own Hermes server, or host it alongsid
 the Hermes dashboard. Hermes runs the agent, stores conversations, and handles
 sign-in. Agora provides the chat interface.
 
+> [!WARNING]
+> **Hosting Agora on its own domain with the Node bridge requires a Hermes change.**
+> Hermes must allow the exact HTTPS callback
+> `https://<your-agora-domain>/auth/native/callback` in its native PKCE broker.
+> The source baseline only allows localhost callbacks. Setting an OIDC-provider
+> callback or adding CORS headers does not enable this. Apply the callback
+> allowlist patch in your Hermes build before using hosted bridge login.
+> Laptop mode works with unmodified Hermes.
+
 - Streamed replies, Markdown, code, and inline generated images.
 - Attach images with the paperclip, paste from your clipboard, or drop files onto
   the composer. Review/remove previews before sending; image-only messages work.
@@ -81,8 +90,9 @@ implemented yet.
 
 | Setting | Purpose |
 | --- | --- |
-| `HERMES_ENDPOINT` | Remote dashboard URL for laptop mode. HTTPS is required except for loopback test servers. URL path prefixes are supported. |
+| `HERMES_ENDPOINT` | Remote dashboard URL for the Node bridge. HTTPS is required except for loopback test servers. URL path prefixes are supported. |
 | `VITE_HERMES_PROFILE` | Optional Hermes profile. Omit it to use the server's launch profile. Vite reads this when starting development or building the UI. |
+| `AGORA_PUBLIC_ORIGIN` | Optional canonical HTTPS origin, e.g. `https://agora.example.com`. Enables hosted bridge login; requires the Hermes callback allowlist change. Omit for laptop mode. |
 | `AGORA_PORT` | Port for `agora-start`; defaults to `5173`. |
 | `HERMES_TARGET` | Development proxy target when `HERMES_ENDPOINT` is omitted; defaults to `http://127.0.0.1:8080`. |
 
@@ -159,7 +169,7 @@ your server or include your conversation history.
 | `src/hermes/api.ts`, `gateway.ts`, `types.ts` | Hermes HTTP and WebSocket contracts. |
 | `src/hermes/transcript.ts`, `media.ts` | History normalization and image loading. |
 | `src/theme.css`, `src/style.css` | System appearance and shared layout. |
-| `server/` | Loopback login, authenticated API/WebSocket forwarding, and local serving. |
+| `server/` | Local/hosted login, authenticated API/WebSocket forwarding, and production serving. |
 | `tests/` | Interface, transport, protocol, authentication, and recovery tests. |
 
 Keep Hermes protocol and authentication logic outside Vue components. Verify
@@ -204,36 +214,79 @@ To use Agora in a NixOS configuration flake:
 
 Add these entries to your existing configuration flake, which must already
 declare `inputs.nixpkgs`. The module builds Agora with your system's Nixpkgs.
-Its service listens on loopback for a browser on that machine.
+Its service listens on loopback. Use it directly on a laptop or behind an HTTPS
+reverse proxy when `publicOrigin` is configured.
 
 Exports are `packages.<system>.default` (also named `agora`) and
 `nixosModules.default` (also named `agora`). The implementations remain in
 [nix/package.nix](nix/package.nix) and [nix/module.nix](nix/module.nix), which can
 also be imported directly. See [Nix packaging and NixOS](docs/nix.md) for profile
-overrides, service options, and serving the packaged static files.
+overrides, service options, and hosted deployment.
 
-## Host alongside Hermes
+## Host Agora on its own domain
 
-For a static deployment, omit `HERMES_ENDPOINT` when building:
+> [!WARNING]
+> **This mode requires the Hermes HTTPS callback allowlist patch described above.**
+> Agora does not apply that patch. An unmodified Hermes on the documented source
+> baseline will reject hosted sign-in.
+
+Run the production Node service behind Caddy or Nginx. It serves the UI and
+handles API/WebSocket forwarding to your Hermes installation:
+
+```dotenv
+HERMES_ENDPOINT=https://hermes.foo.bar
+AGORA_PUBLIC_ORIGIN=https://agora.foo.bar
+```
 
 ```sh
 npm run build
+agora-start
 ```
 
-Serve `dist/` at `/` on your HTTPS domain, for example `https://agora.vjcbs.be/`.
-Proxy `/api/*`, `/login`, and `/auth/*` to Hermes, including WebSocket upgrades.
-Keep these routes ahead of the UI's SPA fallback. The static UI uses Hermes's
-browser login and session cookies directly; it does not need the local service.
-Configure Hermes to accept this public origin and its OIDC callback at
-`https://agora.vjcbs.be/auth/callback`; serving static files alone is not enough.
+The service listens at `127.0.0.1:5173`. Proxy the entire Agora domain to it:
 
-For development in this mode, omit `HERMES_ENDPOINT` and set `HERMES_TARGET` if
-needed. Hermes must accept the browser's Host/Origin and login callback location.
-See [integration and deployment](docs/integration.md) for the routing details.
+```caddyfile
+agora.foo.bar {
+    reverse_proxy 127.0.0.1:5173
+}
+```
+
+On NixOS, import the module and configure:
+
+```nix
+services.agora = {
+  enable = true;
+  hermesEndpoint = "https://hermes.foo.bar";
+  publicOrigin = "https://agora.foo.bar";
+};
+services.caddy = {
+  enable = true;
+  virtualHosts."agora.foo.bar".extraConfig = ''
+    reverse_proxy 127.0.0.1:5173
+  '';
+};
+networking.firewall.allowedTCPPorts = [ 80 443 ];
+```
+
+Point Agora's DNS at the proxy. Keep Hermes's `dashboard.public_url` and its
+OIDC-provider callback on the Hermes domain. Configure the patched Hermes broker
+to allow exactly `https://agora.foo.bar/auth/native/callback` as its final client
+callback. The configuration key depends on your Hermes patch; it is not an
+existing setting in the documented baseline. No CORS or Hermes proxy Host/Origin
+changes are needed.
+
+Browser session cookies are Secure and HttpOnly. Access/refresh tokens stay in
+the Node process's memory; refreshing Agora keeps the login, restarting the
+service requires signing in again. Run one bridge process per deployment.
+See [NixOS hosting](docs/nix.md#public-hosting-with-the-node-bridge) and
+[authentication details](docs/integration.md#hosted-node-bridge).
+
+Static hosting through Hermes's browser-cookie flow is also described in the
+[integration notes](docs/integration.md#hosting-at-the-domain-root).
 
 ## Behavior and compatibility
 
-Agora keeps access/refresh tokens in the local process's memory. Drafts,
+Agora keeps access/refresh tokens in the bridge process's memory. Drafts,
 transcripts, and unread markers are not persisted in browser storage. Hermes
 retains saved conversation history.
 

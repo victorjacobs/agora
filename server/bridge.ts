@@ -4,8 +4,6 @@ import type { Duplex } from 'node:stream'
 import WebSocket, { WebSocketServer } from 'ws'
 import { BridgeError, createAuthorization, endpointURL, NativeSession, upstreamURL } from './native-session.ts'
 
-const SESSION_COOKIE = 'agora_local_session'
-const LOGIN_COOKIE = 'agora_local_login'
 const CALLBACK_PATH = '/auth/native/callback'
 const LOGIN_TTL = 5 * 60_000
 const MAX_BODY = 1024 * 1024
@@ -45,7 +43,7 @@ function localOrigin(request: IncomingMessage): string {
 function checkOrigin(request: IncomingMessage, origin: string, required = false) {
   const supplied = request.headers.origin
   if ((supplied && supplied !== origin) || (required && supplied !== origin) || request.headers['sec-fetch-site'] === 'cross-site') {
-    throw new BridgeError(403, 'This request must come from the local Agora application.')
+    throw new BridgeError(403, 'This request must come from the Agora application.')
   }
 }
 
@@ -59,8 +57,12 @@ function redirect(response: ServerResponse, destination: string, cookies: string
   response.end()
 }
 
-function browserCookie(name: string, value: string, maxAge?: number) {
-  return `${name}=${value}; Path=/; HttpOnly; SameSite=Lax${maxAge === undefined ? '' : `; Max-Age=${maxAge}`}`
+export function publicOriginURL(value: string): URL {
+  const url = new URL(value)
+  if (url.protocol !== 'https:' || value.replace(/\/$/, '') !== url.origin) {
+    throw new Error('AGORA_PUBLIC_ORIGIN must be a canonical HTTPS origin without credentials, path, query, or fragment.')
+  }
+  return url
 }
 
 function safeNext(value: string | null) {
@@ -88,16 +90,22 @@ async function readBody(request: IncomingMessage): Promise<string | undefined> {
   return length ? Buffer.concat(parts).toString('utf8') : undefined
 }
 
-export class LocalBridge {
+export class HermesBridge {
   readonly endpoint: URL
+  readonly publicOrigin?: URL
+  private sessionCookie: string
+  private loginCookie: string
   private sessions = new Map<string, BrowserSession>()
   private logins = new Map<string, Login>()
   private socketServer = new WebSocketServer({ noServer: true, maxPayload: MAX_BODY })
   private cleanupTimer: ReturnType<typeof setInterval>
   private fetcher: typeof fetch
 
-  constructor(endpoint: string, fetcher: typeof fetch = fetch) {
+  constructor(endpoint: string, fetcher: typeof fetch = fetch, options: { publicOrigin?: string } = {}) {
     this.endpoint = endpointURL(endpoint)
+    this.publicOrigin = options.publicOrigin === undefined ? undefined : publicOriginURL(options.publicOrigin)
+    this.sessionCookie = this.publicOrigin ? '__Host-agora_session' : 'agora_local_session'
+    this.loginCookie = this.publicOrigin ? '__Host-agora_login' : 'agora_local_login'
     this.fetcher = fetcher
     this.cleanupTimer = setInterval(() => this.cleanup(), 60_000)
     this.cleanupTimer.unref()
@@ -117,8 +125,13 @@ export class LocalBridge {
   }
 
   middleware = (request: IncomingMessage, response: ServerResponse, next: () => void) => {
+    try { this.requestOrigin(request) }
+    catch (error) {
+      json(response, 403, { detail: error instanceof Error ? error.message : 'Invalid Host header.' })
+      return
+    }
     const path = (request.url || '').split('?')[0]
-    if (!path.startsWith('/api/') && path !== '/login' && path !== '/auth/logout' && path !== CALLBACK_PATH) return next()
+    if (!path.startsWith('/api/') && !path.startsWith('/auth/') && path !== '/login') return next()
     void this.handle(request, response).catch(error => {
       if (!response.headersSent) json(response, error instanceof BridgeError ? error.status : 502, {
         detail: error instanceof BridgeError ? error.message : 'Unable to reach the configured Hermes server.',
@@ -127,13 +140,24 @@ export class LocalBridge {
     })
   }
 
+  private requestOrigin(request: IncomingMessage): string {
+    if (!this.publicOrigin) return localOrigin(request)
+    if (request.headers.host !== this.publicOrigin.host) throw new BridgeError(403, 'Invalid public Host header.')
+    // The configured origin is authoritative; forwarding headers never choose callbacks or security policy.
+    return this.publicOrigin.origin
+  }
+
+  private browserCookie(name: string, value: string, maxAge?: number) {
+    return `${name}=${value}; Path=/; HttpOnly; SameSite=Lax${this.publicOrigin ? '; Secure' : ''}${maxAge === undefined ? '' : `; Max-Age=${maxAge}`}`
+  }
+
   private async handle(request: IncomingMessage, response: ServerResponse) {
-    const origin = localOrigin(request)
+    const origin = this.requestOrigin(request)
     const url = new URL(request.url!, origin)
     const method = request.method || 'GET'
     response.setHeader('Cache-Control', 'no-store')
     if (url.pathname === CALLBACK_PATH && method === 'GET') {
-      const loginId = cookie(request, LOGIN_COOKIE)
+      const loginId = cookie(request, this.loginCookie)
       const pending = loginId ? this.logins.get(loginId) : undefined
       const state = url.searchParams.get('state') || ''
       const code = url.searchParams.get('code') || ''
@@ -143,11 +167,11 @@ export class LocalBridge {
       this.logins.delete(loginId!)
       const native = new NativeSession(this.endpoint, this.fetcher)
       await native.exchange(code, pending.verifier)
-      const previous = cookie(request, SESSION_COOKIE)
+      const previous = cookie(request, this.sessionCookie)
       if (previous) this.removeSession(previous)
       const id = randomBytes(32).toString('base64url')
       this.sessions.set(id, { native, sockets: new Set(), lastUsed: Date.now() })
-      return redirect(response, pending.next, [browserCookie(SESSION_COOKIE, id), browserCookie(LOGIN_COOKIE, '', 0)])
+      return redirect(response, pending.next, [this.browserCookie(this.sessionCookie, id), this.browserCookie(this.loginCookie, '', 0)])
     }
     checkOrigin(request, origin, !['GET', 'HEAD'].includes(method))
 
@@ -158,29 +182,29 @@ export class LocalBridge {
       if (!status.ok || !(await status.json()).auth_flows?.includes('native_pkce')) {
         throw new BridgeError(502, 'This Hermes server does not advertise native_pkce login support.')
       }
-      const authorization = createAuthorization(this.endpoint, `${origin.replace('localhost', '127.0.0.1')}${CALLBACK_PATH}`)
+      const authorization = createAuthorization(this.endpoint, `${this.publicOrigin ? origin : origin.replace('localhost', '127.0.0.1')}${CALLBACK_PATH}`)
       // The callback must return to the same browser cookie host. Use the IP
       // origin throughout local mode, since Hermes requires a loopback literal.
-      if (!origin.startsWith('http://127.0.0.1:')) {
+      if (!this.publicOrigin && !origin.startsWith('http://127.0.0.1:')) {
         return redirect(response, `http://127.0.0.1:${request.socket.localPort}${url.pathname}${url.search}`)
       }
       const id = randomBytes(32).toString('base64url')
-      const previous = cookie(request, LOGIN_COOKIE)
+      const previous = cookie(request, this.loginCookie)
       if (previous) this.logins.delete(previous)
       this.logins.set(id, { state: authorization.state, verifier: authorization.verifier, origin, expires: Date.now() + LOGIN_TTL, next: safeNext(url.searchParams.get('next')) })
-      return redirect(response, authorization.url.href, [browserCookie(LOGIN_COOKIE, id, LOGIN_TTL / 1000)])
+      return redirect(response, authorization.url.href, [this.browserCookie(this.loginCookie, id, LOGIN_TTL / 1000)])
     }
 
     if (url.pathname === '/auth/logout' && method === 'POST') {
-      const id = cookie(request, SESSION_COOKIE)
+      const id = cookie(request, this.sessionCookie)
       if (id) this.removeSession(id)
-      const loginId = cookie(request, LOGIN_COOKIE)
+      const loginId = cookie(request, this.loginCookie)
       if (loginId) this.logins.delete(loginId)
-      return redirect(response, '/', [browserCookie(SESSION_COOKIE, '', 0), browserCookie(LOGIN_COOKIE, '', 0)])
+      return redirect(response, '/', [this.browserCookie(this.sessionCookie, '', 0), this.browserCookie(this.loginCookie, '', 0)])
     }
-    if (!allowedRoute(url.pathname, method)) throw new BridgeError(404, 'Unsupported local API route.')
+    if (!allowedRoute(url.pathname, method)) throw new BridgeError(404, 'Unsupported Agora API route.')
     if (url.pathname === '/api/agora/connection') {
-      return json(response, 200, { mode: 'local', endpoint: this.endpoint.href.replace(/\/$/, '') })
+      return json(response, 200, { mode: this.publicOrigin ? 'hosted' : 'local', endpoint: this.endpoint.href.replace(/\/$/, '') })
     }
     const publicRoute = ['/api/status', '/api/auth/providers'].includes(url.pathname)
     const session = publicRoute ? undefined : this.browserSession(request)
@@ -192,7 +216,7 @@ export class LocalBridge {
   }
 
   private browserSession(request: IncomingMessage): BrowserSession {
-    const id = cookie(request, SESSION_COOKIE)
+    const id = cookie(request, this.sessionCookie)
     const session = id ? this.sessions.get(id) : undefined
     if (!session) throw new BridgeError(401, 'Sign in to your Hermes server to continue.')
     session.lastUsed = Date.now()
@@ -200,7 +224,10 @@ export class LocalBridge {
   }
 
   private upgrade = (request: IncomingMessage, socket: Duplex, head: Buffer) => {
-    if ((request.url || '').split('?')[0] !== '/api/ws') return
+    if ((request.url || '').split('?')[0] !== '/api/ws') {
+      if (this.publicOrigin) socket.end('HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n')
+      return
+    }
     void this.connectSocket(request, socket, head).catch(error => {
       const status = error instanceof BridgeError ? error.status : 502
       if (!socket.destroyed) socket.end(`HTTP/1.1 ${status} Connection rejected\r\nConnection: close\r\n\r\n`)
@@ -208,7 +235,7 @@ export class LocalBridge {
   }
 
   private async connectSocket(request: IncomingMessage, socket: Duplex, head: Buffer) {
-    const origin = localOrigin(request)
+    const origin = this.requestOrigin(request)
     checkOrigin(request, origin, true)
     const session = this.browserSession(request)
     const protocols = request.headers['sec-websocket-protocol']?.split(',').map(value => value.trim()) || []
@@ -217,7 +244,7 @@ export class LocalBridge {
     if (!ticketResponse.ok) throw new BridgeError(ticketResponse.status, 'Hermes rejected the WebSocket ticket.')
     const { ticket } = await ticketResponse.json()
     if (typeof ticket !== 'string' || !ticket) throw new BridgeError(502, 'Hermes returned an invalid ticket.')
-    if (this.sessions.get(cookie(request, SESSION_COOKIE) || '') !== session) throw new BridgeError(401, 'This local login was cancelled.')
+    if (this.sessions.get(cookie(request, this.sessionCookie) || '') !== session) throw new BridgeError(401, 'This Agora login was cancelled.')
     const url = upstreamURL(this.endpoint, '/api/ws')
     url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
     const upstream = new WebSocket(url, ['hermes-gateway-v1', `hermes-gateway-ticket.${ticket}`], { handshakeTimeout: 15_000, maxPayload: MAX_BODY, followRedirects: false })
@@ -228,7 +255,7 @@ export class LocalBridge {
     // cannot disappear between the remote handshake and the browser handshake.
     upstream.on('message', (data, binary) => { if (browser?.readyState === WebSocket.OPEN) browser.send(data, { binary }) })
     upstream.once('open', () => {
-      if (socket.destroyed || !this.sessions.has(cookie(request, SESSION_COOKIE) || '')) { upstream.terminate(); socket.destroy(); return }
+      if (socket.destroyed || !this.sessions.has(cookie(request, this.sessionCookie) || '')) { upstream.terminate(); socket.destroy(); return }
       this.socketServer.handleUpgrade(request, socket, head, connected => {
         browser = connected
         session.sockets.add(connected)

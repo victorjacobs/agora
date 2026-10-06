@@ -6,7 +6,7 @@ let
 in
 {
   options.services.agora = {
-    enable = mkEnableOption "the Agora loopback chat service";
+    enable = mkEnableOption "the Agora Hermes connection service";
 
     package = mkOption {
       type = types.package;
@@ -21,10 +21,17 @@ in
       description = "Hermes built-in dashboard endpoint. Requires HTTPS except for loopback test servers.";
     };
 
+    publicOrigin = mkOption {
+      type = types.nullOr types.str;
+      default = null;
+      example = "https://agora.example.com";
+      description = "Public HTTPS origin when running behind a reverse proxy. Null uses laptop loopback login. Hosted login requires Hermes to allow this origin's /auth/native/callback through its native broker.";
+    };
+
     port = mkOption {
       type = types.port;
       default = 5173;
-      description = "HTTP port on 127.0.0.1. Open / in a browser on this machine.";
+      description = "HTTP port on 127.0.0.1. In hosted mode, proxy the public origin to this port.";
     };
 
     profile = mkOption {
@@ -41,6 +48,10 @@ in
           || builtins.match "http://(127[.]0[.]0[.]1|localhost|[[]::1[]])(:[0-9]+)?(/.*)?" cfg.hermesEndpoint != null;
         message = "services.agora.hermesEndpoint must use HTTPS, or HTTP on loopback.";
       }
+      {
+        assertion = cfg.publicOrigin == null || builtins.match "https://[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:[0-9]+)?/?" cfg.publicOrigin != null;
+        message = "services.agora.publicOrigin must be an HTTPS origin without credentials, path, query, or fragment.";
+      }
     ];
 
     systemd.services.agora = {
@@ -53,6 +64,8 @@ in
         HERMES_ENDPOINT = cfg.hermesEndpoint;
         AGORA_PORT = toString cfg.port;
         NODE_ENV = "production";
+      } // lib.optionalAttrs (cfg.publicOrigin != null) {
+        AGORA_PUBLIC_ORIGIN = cfg.publicOrigin;
       };
 
       serviceConfig = {
