@@ -153,3 +153,6 @@ dialog input { margin-top: 8px; }
 .memory-section-count { flex-shrink: 0; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 
 .compression-status { display: flex; align-items: center; gap: 10px; padding: 10px 12px; margin-bottom: 8px; background: var(--selected); border: 1px solid var(--selected-border); border-radius: 9px; color: var(--text); font-size: 13px; font-weight: 550; }
+
+.markdown img[role="button"] { cursor: zoom-in; }
+.markdown img[role="button"]:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }

@@ -511,3 +511,12 @@ private session/image storage. No Hermes API changes are required.
 Sources: [attachment handlers](https://github.com/NousResearch/hermes-agent/blob/main/tui_gateway/methods_prompt.py),
 [attachment contracts](https://github.com/NousResearch/hermes-agent/blob/main/tui_gateway/contracts/prompt_voice.py),
 and [image routing](https://github.com/NousResearch/hermes-agent/blob/main/tui_gateway/prompt_turn.py).
+
+### Image viewer
+
+Loaded images in chat messages (attachments, Markdown, and generated tool images)
+open an enlarged modal viewer on click or keyboard Enter/Space. The viewer reuses
+the loaded image data URL without another media request. Native dialog focus
+trapping keeps keyboard navigation inside the viewer; Escape, the close button,
+or a backdrop click dismisses it and restores focus to the thumbnail. Images
+fit the viewport on desktop/mobile and the viewer follows system appearance.

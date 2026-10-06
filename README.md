@@ -9,6 +9,8 @@ sign-in. Agora provides the chat interface.
 - Attach images with the paperclip, paste from your clipboard, or drop files onto
   the composer. Review/remove previews before sending; image-only messages work.
   Supports PNG, JPEG, WebP, and GIF, up to 8 images of 10 MB each.
+  Click any chat image to enlarge it; close with Escape, the close button, or
+  a click outside the image viewer.
 - Memory view with saved notes, user preferences, soul and custom instructions,
   provider status, readable inline approvals, and staged-write previews.
 - On-demand provider quota and credit balances, with a picker for multiple providers.

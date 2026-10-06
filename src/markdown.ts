@@ -48,7 +48,7 @@ markdown.renderer.rules.image = (tokens, index, _options, env) => {
   const resolved = source && env?.images?.[source]
   const alt = markdown.utils.escapeHtml(token.content || 'Generated image')
   return resolved && imageSource(resolved)?.startsWith('data:')
-    ? `<img src="${markdown.utils.escapeHtml(resolved)}" alt="${alt}" loading="lazy" decoding="async">`
+    ? `<img src="${markdown.utils.escapeHtml(resolved)}" alt="${alt}" role="button" tabindex="0" aria-label="Enlarge ${alt}" loading="lazy" decoding="async">`
     : `<span class="image-placeholder">${alt} (${!source ? 'unsupported image source' : env?.failures?.includes(source) ? 'image unavailable' : 'loading image…'})</span>`
 }
 
