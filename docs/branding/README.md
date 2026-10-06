@@ -1,22 +1,36 @@
-# Icon
+# Branding
 
-`icon.png` is the original image generated with the built-in imagegen tool. It
-is retained as a source asset and is not displayed in the chat interface.
-The browser favicon files in `public/` are raster reductions of this image.
+Agora's artwork depicts a public courtyard framed by ivory colonnades, with
+gold evening light and a deep navy sky.
 
-Run `agora-icons` from the Nix development shell to regenerate the PNG, ICO, and
-Apple touch icons. ImageMagick is included in the shell. The touch icon uses an
-opaque green background; the other icons preserve the source transparency.
+- `agora-courtyard.png`: detailed artwork for larger branding uses, with olive
+  trees, stonework, and people in conversation.
+- `icon.png`: simplified companion used as the source for browser favicons and
+  the Apple touch icon. It retains the courtyard, columns, olive tree, and sun,
+  but removes people and fine architectural ornament.
 
-## Generation prompt
+Both original PNGs are 1254 × 1254 pixels and were generated with GPT-image-2
+through Hermes's Codex OAuth image provider. The simplified icon was generated
+using the detailed artwork as an image reference, not drawn with code.
+Neither source asset is displayed in the chat interface.
 
-```text
-Use case: logo-brand
-Asset type: raster application icon and source for tiny browser favicons for Agora, a focused chat client for Hermes.
-Primary request: Design one polished, distinctive minimal chat icon matching the application's warm ivory and muted sage green appearance. A single bold ivory conversation bubble with a simple open arch suggested by the negative space inside, on a deep forest/sage green rounded square. The subtle arch recalls a meeting place; the silhouette reads immediately as conversation. Keep the mark very simple and substantial, legible at 16 pixels.
-Style/medium: beautifully finished raster app icon, flat graphic shapes, crisp edges, restrained subtle surface shading, professional and quiet.
-Composition/framing: square 1024x1024 canvas; rounded-square tile almost fills canvas with only about 4% transparent margin; central ivory mark occupies about 65% of tile width. Front-on, perfectly centered, no perspective.
-Color palette: dark green #415b3a, sage #819570, warm ivory #faf9f5, matching a calm chat UI.
-Constraints: one icon only, real transparent pixels outside rounded-square tile; no text, no letters, no wordmark, no tiny details, no robots, no sparkles, no surrounding scene, no mockup, no watermark, no external shadow. Clear high contrast and bold silhouette suitable for both light and dark browser tabs.
-```
+## Regenerate browser icons
+
+Run `agora-icons` from the Nix development shell to regenerate the 16, 32, 48,
+and 192-pixel PNGs, the multi-size ICO, and the 180-pixel Apple touch icon.
+ImageMagick is included in the shell. These are raster reductions of `icon.png`,
+not separately generated illustrations. The touch icon uses an opaque navy
+background if the source contains transparency.
+
+## Artwork direction
+
+The detailed artwork uses an open Greek public square enclosed by covered
+colonnades, broad foreground steps, olive trees, small conversational figures,
+and golden evening light. Its illustration combines bold navy and warm ivory
+shapes with architectural detail and restrained gold accents.
+
+The simplified companion preserves the courtyard composition and palette with
+fewer columns, broad roof bands, three foreground steps, and one olive tree.
+People, statues, pottery, distant scenery, engraved stonework, and roof tiles
+are removed. Both versions omit text, monograms, and speech-bubble symbols.
 
