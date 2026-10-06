@@ -53,11 +53,11 @@ function resetTime(value: string) { return new Date(value).toLocaleString(undefi
       <span>Provider quota</span><span class="quota-chevron" aria-hidden="true">{{ expanded ? '⌄' : '⌃' }}</span>
     </button>
     <div v-if="expanded" id="quota-panel" class="quota-panel">
-      <div class="quota-controls">
-        <select v-model="selected" aria-label="Quota provider" :disabled="!available.length">
-          <option v-if="!available.length" value="">No providers</option>
+      <div v-if="available.length" class="quota-controls">
+        <select v-if="available.length > 1" v-model="selected" aria-label="Quota provider">
           <option v-for="provider in available" :key="provider.slug" :value="provider.slug">{{ provider.name }}</option>
         </select>
+        <span v-else class="quota-provider-name">{{ available[0]?.name }}</span>
         <button class="quota-refresh" aria-label="Refresh provider quota" :disabled="loading || !connected || !selected" @click="refresh(true)">↻</button>
       </div>
       <p v-if="!connected" class="quota-note" role="status">Connect to Hermes to check quota.</p>
@@ -85,8 +85,9 @@ function resetTime(value: string) { return new Date(value).toLocaleString(undefi
 .quota-toggle svg { width: 16px; height: 16px; }
 .quota-chevron { margin-left: auto; }
 .quota-panel { padding-top: 10px; max-height: min(360px, 45dvh); overflow-y: auto; }
-.quota-controls { display: flex; gap: 6px; margin-bottom: 12px; }
+.quota-controls { display: flex; align-items: center; gap: 6px; margin-bottom: 12px; }
 .quota-controls select { min-width: 0; font-size: 12px; padding: 6px 8px; }
+.quota-provider-name { flex: 1; min-width: 0; font-size: 12px; font-weight: 550; overflow-wrap: anywhere; }
 .quota-refresh { padding: 3px 9px; font-size: 18px; }
 .quota-plan { margin: 0 0 10px; font-size: 12px; font-weight: 550; }
 .quota-window { margin: 0 0 12px; }

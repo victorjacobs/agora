@@ -8,10 +8,10 @@ let cleanup = () => {}
 afterEach(() => { cleanup(); document.body.innerHTML = '' })
 const providers = [{ slug: 'openai-codex', name: 'Codex', models: ['gpt'] }, { slug: 'anthropic', name: 'Claude', models: ['claude'] }]
 const snapshot: Quota = { windows: [{ label: 'Weekly', remaining: 70 }], details: [], plan: 'Plus' }
-function mount(load: (provider: string, profile?: string) => Promise<Quota>) {
+function mount(load: (provider: string, profile?: string) => Promise<Quota>, choices = providers) {
   const host = document.createElement('div')
   document.body.append(host)
-  const app = createApp(ProviderQuota, { providers, currentProvider: 'openai-codex', profile: 'work', connected: true, load })
+  const app = createApp(ProviderQuota, { providers: choices, currentProvider: 'openai-codex', profile: 'work', connected: true, load })
   app.mount(host)
   cleanup = () => app.unmount()
   return host
@@ -37,13 +37,21 @@ describe('quota picker', () => {
     await select(host, 'openai-codex')
     await vi.waitFor(() => expect(host.textContent).toContain('70% left'))
     expect(load).toHaveBeenCalledTimes(2)
+    host.querySelector<HTMLButtonElement>('.quota-toggle')!.click()
+    await nextTick()
+    expect(load).toHaveBeenCalledTimes(2)
+    host.querySelector<HTMLButtonElement>('.quota-toggle')!.click()
+    await nextTick()
+    expect(load).toHaveBeenCalledTimes(2)
   })
 
   it('shows the actual request failure and can retry successfully', async () => {
     const load = vi.fn().mockRejectedValueOnce(new RpcError(5016, 'cli.exec: timeout')).mockResolvedValue(snapshot)
-    const host = mount(load)
+    const host = mount(load, [providers[0]!])
     host.querySelector<HTMLButtonElement>('.quota-toggle')!.click()
     await vi.waitFor(() => expect(host.textContent).toContain('Hermes timed out'))
+    expect(host.querySelector('select')).toBeNull()
+    expect(host.querySelector('.quota-provider-name')?.textContent).toBe('Codex')
     host.querySelector<HTMLButtonElement>('.quota-refresh')!.click()
     await vi.waitFor(() => expect(host.textContent).toContain('70% left'))
     expect(host.textContent).not.toContain('timed out')
