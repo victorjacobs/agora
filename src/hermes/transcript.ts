@@ -1,3 +1,4 @@
+import { reasoningText } from './reasoning'
 import { imageSource } from './media'
 import type { HistoryPage, Message, Snapshot } from './types'
 import { taskRunning, type BackgroundTask } from './tasks'
@@ -11,14 +12,17 @@ export function contentText(content: unknown): string {
 export function historyMessages(page: HistoryPage): Message[] {
   return page.messages.filter(row => row.display_kind !== 'hidden').map((row, index) => {
     const rowId = row.id ?? row.row_id
+    const text = row.display_content ?? row.text ?? contentText(row.content)
+    const reasoning = row.role === 'assistant' ? reasoningText(row, text) : ''
     return {
       key: rowId === undefined ? `history-${page.pagination.offset}-${index}` : `row-${rowId}`,
       rowId,
       role: row.role,
-      text: row.display_content ?? row.text ?? contentText(row.content),
+      text,
       kind: row.display_kind,
       metadata: row.display_metadata,
       name: row.tool_name || row.name,
+      ...(reasoning ? { reasoning: { text: reasoning, active: false } } : {}),
     }
   })
 }
@@ -37,7 +41,7 @@ export function conversationTurns(messages: Message[], running: boolean): Conver
   for (const [index, message] of messages.entries()) {
     const notification = ['async_delegation_complete', 'process_complete'].includes(message.kind || '')
     if (message.role === 'system' && !notification && message.kind !== 'slash_command') continue
-    if (message.role === 'assistant' && !message.text.trim() && !(running && index === messages.length - 1)) continue
+    if (message.role === 'assistant' && !message.text.trim() && !message.reasoning?.text && !(running && index === messages.length - 1)) continue
     const role = notification ? 'other' : message.role === 'tool' || message.role === 'assistant' ? 'assistant' : message.role === 'user' ? 'user' : 'other'
     let turn = turns.at(-1)
     if (!turn || role !== 'assistant' || turn.role !== 'assistant') {

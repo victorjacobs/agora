@@ -18,6 +18,9 @@ Hermes does not need to host the UI. Native desktop packaging is deferred.
   conversation in advance.
 - Text composer with send and stop controls. Keep an unsent draft during a
   temporary disconnect; show sending, running, reconnecting, and failed states.
+- Memory workspace with pending-update review, inspection and explicit editing/deletion
+  of saved notes and user-profile entries, and read-only soul/instructions and
+  memory-provider status exposed by Hermes.
 - Explicit controls for agent approval/clarification requests needed to finish
   an ordinary chat. Show unsupported requests clearly; never silently accept them.
 - Login/logout and a clear expired-session state. Preserve the selected

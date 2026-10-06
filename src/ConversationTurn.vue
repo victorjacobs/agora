@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import type { ConversationTurn } from './hermes/transcript'
 import MarkdownMessage from './MarkdownMessage.vue'
+import ThinkingTrace from './ThinkingTrace.vue'
 import { generatedImage } from './hermes/media'
 import type { Message } from './hermes/types'
 
@@ -18,6 +19,7 @@ function toolContext(messages: Message[]) {
 <template>
   <article class="message" :class="[turn.role, { 'completion-notice': completionNotice }]" :aria-label="turn.role === 'user' ? 'You' : turn.role === 'assistant' ? 'Hermes' : undefined">
     <div v-for="block in turn.blocks" :key="block.key" class="message-block">
+      <ThinkingTrace v-if="block.kind === 'text' && (block.message.reasoning?.text || turn.role === 'assistant' && !block.message.text.trim() && thinking)" :text="block.message.reasoning?.text || ''" :active="block.message.reasoning?.active ?? thinking" />
       <template v-if="block.kind === 'tools'">
         <template v-for="tool in block.messages" :key="`image-${tool.key}`">
           <MarkdownMessage :profile="profile" v-if="generatedImage(tool.text, tool.name)" :text="`![Generated image](<${generatedImage(tool.text, tool.name)}>)`" @image-load="$emit('imageLoad')" />
@@ -58,7 +60,7 @@ function toolContext(messages: Message[]) {
         <span v-if="block.message.kind" class="message-kind">{{ block.message.kind.replaceAll('_', ' ') }}</span>
         <MarkdownMessage :profile="profile" v-if="turn.role === 'assistant' && block.message.text.trim()" :text="block.message.text" @image-load="$emit('imageLoad')" />
         <div v-else-if="turn.role !== 'assistant'" :class="turn.role === 'user' ? 'user-text' : 'muted'">{{ block.message.text }}</div>
-        <span v-else-if="thinking" class="thinking">Thinking…</span>
+
       </template>
     </div>
   </article>

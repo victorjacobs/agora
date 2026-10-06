@@ -9,6 +9,8 @@ import ComposerSettings from './ComposerSettings.vue'
 import ConversationSwitcher from './ConversationSwitcher.vue'
 import BackgroundTasks from './BackgroundTasks.vue'
 import ProviderQuota from './ProviderQuota.vue'
+import MemoryStateView from './MemoryStateView.vue'
+import { memorySections, type MemorySection } from './hermes/memory-state'
 import MemoryView from './MemoryView.vue'
 import CommandApprovalCard from './CommandApprovalCard.vue'
 import MemoryApprovalCard from './MemoryApprovalCard.vue'
@@ -22,6 +24,8 @@ const state = reactive(initialState())
 const chat = new ChatClient(state)
 const sidebarOpen = ref(false)
 const view = ref<'chat' | 'memory'>('chat')
+const memorySection = ref<MemorySection>('pending')
+const memoryTitle = computed(() => memorySections.find(section => section.id === memorySection.value)?.title || 'Memory')
 const memoryRequests = computed(() => memoryApprovals(state.approvals, state.requests))
 const menuButton = ref<HTMLButtonElement>()
 const closeMenuButton = ref<HTMLButtonElement>()
@@ -43,7 +47,7 @@ const searching = computed(() => Boolean(state.searchQuery.trim()))
 const visibleSessions = computed(() => chat.visibleSessions())
 const sessionGroups = computed(() => groupSessions(visibleSessions.value, currentDate.value))
 const displayedRequests = computed(() => state.requests)
-const showingThinking = computed(() => state.running && !state.activity && !state.messages.some(message => message.tool?.status === 'running'))
+const showingThinking = computed(() => state.running && !state.compressing && !state.activity && !state.messages.some(message => message.tool?.status === 'running'))
 const displayedItems = computed(() => conversationTimeline(state.messages, state.tasks, showingThinking.value))
 const runningTasks = computed(() => state.tasks.filter(taskRunning))
 const displayedApprovals = computed(() => state.approvals.filter(approval =>
@@ -155,10 +159,10 @@ function decideMemory(approval: MemoryApproval, choice: string) {
   else void chat.approve(approval, choice)
 }
 
-watch(() => [state.messages.length, state.messages.at(-1)?.text], () => {
+watch(() => [state.messages.length, state.messages.at(-1)?.text, state.messages.at(-1)?.reasoning?.text], () => {
   if (following.value) void scrollToLatest(false)
 }, { flush: 'post' })
-watch(() => [state.requests.length, state.approvals.length], () => {
+watch(() => [state.requests.length, state.approvals.length, state.compressing], () => {
   if (following.value) void scrollToLatest(false)
 }, { flush: 'post' })
 watch(() => state.selected, () => { following.value = true })
@@ -232,7 +236,7 @@ onBeforeUnmount(() => { clearInterval(dateTimer); window.removeEventListener('re
         <p v-if="searching && state.searchResults.length === 100" class="search-limit">Showing up to 100 matches. Refine your search for more.</p>
       </nav>
       <nav v-else class="session-list" aria-label="Memory sections">
-        <button class="session selected" aria-current="page" @click="sidebarOpen = false"><span class="session-heading"><span class="session-title">Pending updates</span><span v-if="memoryRequests.length" class="memory-section-count">{{ memoryRequests.length }}</span></span></button>
+        <button v-for="section in memorySections" :key="section.id" class="session" :class="{ selected: memorySection === section.id }" :aria-current="memorySection === section.id ? 'page' : undefined" @click="memorySection = section.id; sidebarOpen = false"><span class="session-heading"><span class="session-title">{{ section.title }}</span><span v-if="section.id === 'pending' && memoryRequests.length" class="memory-section-count">{{ memoryRequests.length }}</span></span></button>
       </nav>
       <div v-show="view === 'chat'" class="sidebar-footer">
         <ProviderQuota :providers="state.modelProviders" :current-provider="state.provider" :profile="state.profile" :connected="state.connection === 'ready'" :load="(provider, profile) => chat.providerQuota(provider, profile)" />
@@ -242,7 +246,7 @@ onBeforeUnmount(() => { clearInterval(dateTimer); window.removeEventListener('re
     <main :inert="sidebarOpen">
       <header class="conversation-header">
         <button ref="menuButton" class="mobile-menu" :aria-label="view === 'chat' ? 'Open conversations' : 'Open memory navigation'" :aria-expanded="sidebarOpen" @click="toggleSidebar()">☰</button>
-        <div class="conversation-heading"><h1>{{ view === 'memory' ? 'Pending updates' : state.title }}</h1></div>
+        <div class="conversation-heading"><h1>{{ view === 'memory' ? memoryTitle : state.title }}</h1></div>
         <div v-if="state.selected && view === 'chat'" class="header-actions">
           <button :disabled="actionsDisabled" @click="showDialog('rename')">Rename</button>
           <button :disabled="actionsDisabled || state.running || state.sending" @click="showDialog('delete')">Delete</button>
@@ -252,7 +256,8 @@ onBeforeUnmount(() => { clearInterval(dateTimer); window.removeEventListener('re
       <div v-if="state.error" class="banner warning" role="alert"><span>{{ state.error }}</span><button v-if="state.connection === 'failed'" @click="chat.connect()">Retry connection</button><button v-else class="text-button" aria-label="Dismiss error" @click="state.error = ''">×</button></div>
       <div v-if="state.uncertain" class="banner warning" role="alert"><div>The last send may have reached Hermes. Check the recovered conversation before sending again. Your draft is retained.</div><button :disabled="state.connection !== 'ready'" @click="chat.acknowledgeUncertain()">I’ve checked; keep editing</button></div>
 
-      <MemoryView v-show="view === 'memory'" :active="view === 'memory'" :runtime="state.runtime" :profile="state.profile" :connected="state.connection === 'ready'" :approvals="memoryRequests" :disabled="actionsDisabled" :load="(runtime, profile) => chat.pendingMemory(runtime, profile)" @decide="decideMemory" />
+      <MemoryView v-show="view === 'memory' && memorySection === 'pending'" :active="view === 'memory' && memorySection === 'pending'" :runtime="state.runtime" :profile="state.profile" :connected="state.connection === 'ready'" :approvals="memoryRequests" :disabled="actionsDisabled" :load="(runtime, profile) => chat.pendingMemory(runtime, profile)" @decide="decideMemory" />
+      <MemoryStateView v-if="memorySection !== 'pending'" v-show="view === 'memory'" :active="view === 'memory'" :section="memorySection" :runtime="state.runtime" :profile="state.profile" :connected="state.connection === 'ready'" :load="(section, profile) => chat.inspectMemory(section, profile)" :read="(id, profile) => chat.readMemoryEntry(id, profile)" :mutate="(id, profile, content) => chat.mutateMemoryEntry(id, profile, content)" />
       <div v-show="view === 'chat'" ref="transcript" class="transcript" tabindex="0" aria-label="Conversation messages" @scroll="trackScroll">
         <div class="conversation-width">
           <button v-if="state.hasOlder" class="older-button" :disabled="state.olderLoading || state.connection !== 'ready'" @click="loadOlder">{{ state.olderLoading ? 'Loading…' : '↑ Load older messages' }}</button>
@@ -264,7 +269,7 @@ onBeforeUnmount(() => { clearInterval(dateTimer); window.removeEventListener('re
             <ConversationTurn v-if="item.kind === 'turn'" :turn="item.turn" :profile="state.profile" :thinking="showingThinking" @image-load="scrollToLatest(false)" />
             <BackgroundTasks v-else :tasks="item.tasks" error="" :connected="true" />
           </template>
-          <div v-if="state.activity || state.running || displayedRequests.length || displayedApprovals.length" class="activity" role="status"><span v-if="state.running" class="pulse" aria-hidden="true"></span>{{ displayedRequests.length || displayedApprovals.length ? 'Waiting for your approval or input' : state.activity || 'Working…' }}</div>
+          <div v-if="!state.compressing && (state.activity || state.running || displayedRequests.length || displayedApprovals.length)" class="activity" role="status"><span v-if="state.running" class="pulse" aria-hidden="true"></span>{{ displayedRequests.length || displayedApprovals.length ? 'Waiting for your approval or input' : state.activity || 'Working…' }}</div>
           <p v-if="state.taskError && !runningTasks.length" class="muted task-status-error" role="status">{{ state.taskError }}</p>
           <RequestCard v-for="request in displayedRequests" :key="request.id" :request="request" :disabled="actionsDisabled" :dashboard-url="state.endpoint || '/'" @answer="chat.answer(request, $event)" />
           <template v-for="approval in displayedApprovals" :key="approval.request_id || 'pending'">
@@ -276,6 +281,7 @@ onBeforeUnmount(() => { clearInterval(dateTimer); window.removeEventListener('re
       <button v-if="!following && view === 'chat'" class="jump-latest" @click="scrollToLatest()">↓ Latest messages</button>
 
       <footer v-show="view === 'chat'" class="composer-footer">
+        <div v-if="state.compressing" class="compression-status conversation-width" role="status" :title="state.compressionDetail"><span class="session-indicator" aria-hidden="true"></span><span>Compressing context…</span></div>
         <div v-if="runningTasks.length" class="pinned-tasks conversation-width">
           <BackgroundTasks :tasks="runningTasks" :error="state.taskError" :connected="state.connection === 'ready'" />
         </div>

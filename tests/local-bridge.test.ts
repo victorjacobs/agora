@@ -58,6 +58,8 @@ async function fixture() {
       return send({ access_token: token, refresh_token: 'refresh-1', provider: 'self-hosted', expires_at: Date.now() / 1000 + 3600 })
     }
     if (request.headers.authorization !== `Bearer ${token}`) return send({ detail: 'Unauthorized' }, 401)
+    if (url.pathname === '/api/learning/node' && ['PUT', 'DELETE'].includes(request.method || '')) return send({ ok: true, value: await body() })
+    if (['/api/profiles/active', '/api/memory', '/api/learning/graph', '/api/learning/node'].includes(url.pathname)) return send({ inspected: true })
     if (url.pathname === '/api/fs/read-data-url') return send({ dataUrl: 'data:image/png;base64,aGVsbG8=' })
     if (['/api/media', '/api/media/proxy'].includes(url.pathname)) return send({ data_url: 'data:image/png;base64,aGVsbG8=' })
     if (url.pathname === '/api/sessions/search') return send({ results: [{ id: 'old', title: 'Older chat' }] })
@@ -112,6 +114,43 @@ async function fixture() {
 }
 
 describe('local remote-Hermes connection', () => {
+  it('forwards authenticated memory inspection and rejects unsupported writes', async () => {
+    const test = await fixture()
+    const { cookie } = await test.login()
+    for (const path of ['/api/profiles/active', '/api/memory?profile=work', '/api/learning/graph?profile=work', '/api/learning/node?id=memory%3Amemory%3A0%3Aabc&profile=work']) {
+      const response = await fetch(`${test.origin}${path}`, { headers: { Cookie: cookie } })
+      expect(response.status).toBe(200)
+      expect(await response.json()).toEqual({ inspected: true })
+      expect(test.records.at(-1)?.authorization).toBe('Bearer access-1')
+    }
+    for (const method of ['POST', 'PATCH']) {
+      const before = test.records.length
+      const response = await fetch(`${test.origin}/api/learning/node`, { method, headers: { Cookie: cookie, Origin: test.origin } })
+      expect(response.ok).toBe(false)
+      expect(test.records).toHaveLength(before)
+    }
+  })
+
+  it('requires authentication and a local origin for memory writes and forwards exact bodies', async () => {
+    const test = await fixture()
+    for (const method of ['PUT', 'DELETE']) {
+      expect((await fetch(`${test.origin}/api/learning/node`, { method, headers: { Origin: test.origin } })).status).toBe(401)
+    }
+    const { cookie } = await test.login()
+    for (const method of ['PUT', 'DELETE']) {
+      const before = test.records.length
+      const value = { id: 'memory:memory:0:abc', profile: 'work', ...(method === 'PUT' ? { content: 'Updated note' } : {}) }
+      const body = JSON.stringify(value)
+      const foreign = await fetch(`${test.origin}/api/learning/node`, { method, headers: { Cookie: cookie, Origin: 'https://foreign.test', 'Content-Type': 'application/json' }, body })
+      expect(foreign.ok).toBe(false)
+      expect(test.records).toHaveLength(before)
+      const response = await fetch(`${test.origin}/api/learning/node`, { method, headers: { Cookie: cookie, Origin: test.origin, 'Content-Type': 'application/json' }, body })
+      expect(response.status).toBe(200)
+      expect(await response.json()).toEqual({ ok: true, value })
+      expect(test.records.at(-1)?.authorization).toBe('Bearer access-1')
+    }
+  })
+
   it('completes PKCE, forwards bearer REST, and never publishes tokens to the browser', async () => {
     const test = await fixture()
     expect((await fetch(`${test.origin}/api/auth/me`)).status).toBe(401)

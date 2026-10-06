@@ -108,6 +108,49 @@ describe('chat interface', () => {
     expect(approve).toHaveBeenCalledWith(expect.objectContaining({ request_id: 'command-one' }), 'once')
   })
 
+  it('shows a collapsed thinking trace with a live spinner and safely readable content', async () => {
+    const { host, client } = mountApp()
+    client.state.running = true
+    client.state.messages = [
+      { key: 'user', role: 'user', text: 'Inspect this' },
+      { key: 'reason', role: 'assistant', text: '', reasoning: { text: '**Review**\n\n- Check files\n- Run tests\n\n`npm test`\n\n<img src=x onerror=alert(1)>\n\n[unsafe](javascript:alert(1))', active: true } },
+    ]
+    await nextTick()
+    const trace = host.querySelector<HTMLDetailsElement>('.thinking-trace')!
+    expect(trace.open).toBe(false)
+    expect(trace.querySelector('summary')?.textContent).toContain('Thinking…')
+    expect(trace.querySelector('.session-indicator')).not.toBeNull()
+    trace.querySelector('summary')!.click()
+    expect(trace.open).toBe(true)
+    expect(trace.querySelector('.trace-text')?.textContent).toContain('<img src=x')
+    expect(trace.querySelector('strong')?.textContent).toBe('Review')
+    expect(trace.querySelectorAll('li')).toHaveLength(2)
+    expect(trace.querySelector('code')?.textContent).toBe('npm test')
+    expect(trace.querySelector('a[href^="javascript:"]')).toBeNull()
+    expect(trace.querySelector('img')).toBeNull()
+    client.state.messages[1]!.reasoning!.active = false
+    client.state.messages[1]!.text = 'The answer'
+    client.state.running = false
+    await nextTick()
+    expect(trace.querySelector('.session-indicator')).toBeNull()
+    expect(trace.open).toBe(true)
+    expect(host.textContent).toContain('The answer')
+    expect(trace.textContent).not.toContain('The answer')
+    expect(host.querySelector('.message-block > .markdown')?.textContent?.trim()).toBe('The answer')
+    trace.open = false
+    expect(host.querySelector('.message-block > .markdown')?.closest('details')).toBeNull()
+  })
+
+  it('explains missing traces without inventing reasoning text', async () => {
+    const { host, client } = mountApp()
+    client.state.running = true
+    client.state.messages = [{ key: 'live', role: 'assistant', text: '' }]
+    await nextTick()
+    expect(host.querySelector('.thinking-trace')).not.toBeNull()
+    expect(host.textContent).toContain('Hermes hasn’t provided a thinking trace.')
+    expect(host.querySelector('.trace-text')).toBeNull()
+  })
+
   it('shows running calls and their details in the expandable tool group', async () => {
     const { host, client } = mountApp()
     client.state.running = true

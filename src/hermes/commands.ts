@@ -3,7 +3,7 @@ import { RpcError, type Gateway } from './gateway'
 export interface SlashCommand { name: string; arg: string }
 export interface CommandChoice { name: string; description: string }
 export type CommandResult =
-  | { type: 'exec' | 'plugin'; output: string }
+  | { type: 'exec' | 'plugin'; output: string; pending?: boolean }
   | { type: 'alias'; target: string }
   | { type: 'send' | 'skill' | 'prefill'; message: string; notice?: string; display?: string }
 
@@ -45,7 +45,7 @@ export async function executeCommand(gateway: Gateway, text: string, runtime: st
     }
     if ((result.type === undefined && typeof result.output === 'string' || result.type === 'exec' || result.type === 'plugin') && (result.output === undefined || typeof result.output === 'string')) {
       const warning = typeof result.warning === 'string' ? result.warning : ''
-      return { type: result.type === 'plugin' ? 'plugin' : 'exec', output: [warning, result.output || '(No output)'].filter(Boolean).join('\n') }
+      return { type: result.type === 'plugin' ? 'plugin' : 'exec', output: [warning, result.output || '(No output)'].filter(Boolean).join('\n'), ...(result.status === 'pending' ? { pending: true } : {}) }
     }
     if (['send', 'skill', 'prefill'].includes(String(result.type)) && typeof result.message === 'string') {
       return { type: result.type as 'send' | 'skill' | 'prefill', message: result.message,

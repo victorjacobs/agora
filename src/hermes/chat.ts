@@ -1,5 +1,8 @@
+import { appendReasoning, excludeReplyFromReasoning, finishReasoning, restoreReasoning } from './reasoning'
+import { compressionStatus } from './compression'
 import { approvalChoices, eventApproval } from './approvals'
 import { commandCatalog, executeCommand, slashCommand } from './commands'
+import { inspectMemory, readMemoryEntry, mutateMemoryEntry, type MemoryInspectionSection } from './memory-state'
 import { pendingMemory } from './memory'
 import { providerQuota } from './quota'
 import { modelSwitchValue, reasoningEfforts, type ModelChoice, type ModelChangeResult, type ModelInventory, type ModelProvider, type SessionModelInfo } from './settings'
@@ -53,6 +56,8 @@ export function initialState() {
     actionPending: false,
     uncertain: false,
     activity: '',
+    compressing: false,
+    compressionDetail: '',
     approvals: [] as Approval[],
     requests: [] as ServerRequest[],
   }
@@ -90,6 +95,7 @@ export class ChatClient {
   private bufferedRequests: ServerRequest[] = []
   private sequence = new Map<string, number>()
   private drafts = new Map<string, string>()
+  private reasoningCache = new Map<string, Message[]>()
   private commandOutputs = new Map<string, Array<{ message: Message; after?: Message }>>()
   private uncertain = new Set<string>()
   private configuredProfile?: string
@@ -117,6 +123,8 @@ export class ChatClient {
     this.gateway.onDisconnect = code => {
       if (this.stopped) return
       clearInterval(this.activeTimer)
+      finishReasoning(this.state.messages)
+      this.clearCompression()
       this.connectionGeneration++
       this.selectionGeneration++
       this.recovering = false
@@ -142,6 +150,7 @@ export class ChatClient {
   }
 
   dispose() {
+    this.clearCompression()
     this.stopped = true
     this.connectionGeneration++
     this.selectionGeneration++
@@ -154,6 +163,7 @@ export class ChatClient {
 
   async connect() {
     if (this.stopped) return
+    this.clearCompression()
     clearTimeout(this.retryTimer)
     clearInterval(this.activeTimer)
     const connectionGeneration = ++this.connectionGeneration
@@ -211,6 +221,7 @@ export class ChatClient {
 
   private scheduleReconnect(error?: unknown) {
     if (this.stopped) return
+    this.clearCompression()
     this.state.connection = 'reconnecting'
     if (error) this.state.error = errorMessage(error)
     else if (!this.state.error) this.state.error = 'Unable to connect to Hermes. Retrying…'
@@ -244,6 +255,21 @@ export class ChatClient {
     if (typeof info.reasoning_effort === 'string') this.state.reasoning = info.reasoning_effort
     if (typeof info.reasoning_effort_wire === 'string') this.state.reasoningWire = info.reasoning_effort_wire
     if (['model', 'provider', 'reasoning_effort', 'reasoning_effort_wire'].some(key => typeof info[key as keyof SessionModelInfo] === 'string')) this.settingsRevision++
+  }
+
+  async inspectMemory(section: MemoryInspectionSection, profile?: string) {
+    if (this.stopped || this.state.connection !== 'ready' || profile !== this.state.profile) throw new Error('Connect to Hermes to inspect memory.')
+    return inspectMemory(this.api, this.gateway, section, profile, this.state.runtime)
+  }
+
+  async readMemoryEntry(id: string, profile: string) {
+    if (this.stopped || this.state.connection !== 'ready' || this.state.profile && profile !== this.state.profile) throw new Error('Connect to the selected profile to read memory.')
+    return readMemoryEntry(this.api, id, profile)
+  }
+
+  async mutateMemoryEntry(id: string, profile: string, content?: string) {
+    if (this.stopped || this.state.connection !== 'ready' || this.state.profile && profile !== this.state.profile) throw new Error('Connect to the selected profile to change memory.')
+    return mutateMemoryEntry(this.api, id, profile, content)
   }
 
   async pendingMemory(runtime: string, profile?: string) {
@@ -283,7 +309,7 @@ export class ChatClient {
   }
 
   private async ensureSettingsSession(): Promise<number | undefined> {
-    if (this.state.connection !== 'ready' || this.state.running || this.state.sending || this.state.actionPending || this.settingsMutation || this.stopped) return undefined
+    if (this.state.connection !== 'ready' || this.state.running || this.state.compressing || this.state.sending || this.state.actionPending || this.settingsMutation || this.stopped) return undefined
     this.settingsMutation = true
     this.state.settingsPending = true
     if (!this.state.runtime) {
@@ -457,7 +483,7 @@ export class ChatClient {
   sessionStatus(row: SessionRow): 'working' | 'waiting' | undefined {
     const profile = row.profile || this.configuredProfile || this.state.profile
     if (row.id === this.state.selected && this.state.runtime && profile === this.state.profile) {
-      if (!this.state.running) return this.state.tasks.some(taskRunning) ? 'working' : undefined
+      if (!this.state.running) return this.state.compressing || this.state.tasks.some(taskRunning) ? 'working' : undefined
       return this.state.approvals.length || this.state.requests.length ? 'waiting' : 'working'
     }
     const active = this.state.activeSessions.find(session => session.session_key === row.id && session.profile === profile)
@@ -523,7 +549,7 @@ export class ChatClient {
     if (this.state.runtime && this.state.selected) {
       const current: ActiveSession & { profile?: string } = {
         id: this.state.runtime, session_key: this.state.selected, profile: this.state.profile,
-        status: this.state.running || this.state.tasks.some(taskRunning) ? (this.state.approvals.length || this.state.requests.length ? 'waiting' : 'working') : 'idle',
+        status: this.state.running || this.state.compressing || this.state.tasks.some(taskRunning) ? (this.state.approvals.length || this.state.requests.length ? 'waiting' : 'working') : 'idle',
       }
       this.state.activeSessions = [...this.state.activeSessions.filter(session => session.id !== current.id || session.profile !== current.profile), current]
       this.activeRevision++
@@ -534,6 +560,8 @@ export class ChatClient {
     if (['expired', 'reconnecting', 'connecting', 'closed'].includes(this.state.connection)) return
     this.taskCache.set(this.taskScope(), this.state.tasks)
     this.rememberActiveSession()
+    this.rememberReasoning()
+    this.clearCompression()
     this.drafts.set(this.state.selected, this.state.draft)
     const generation = ++this.selectionGeneration
     const previousId = this.state.selected
@@ -613,7 +641,7 @@ export class ChatClient {
       this.state.profile = page.profile || profile
       this.applyModelInfo(snapshot.info)
       this.state.title = snapshot.info.title || this.state.title
-      this.state.messages = this.restoreCommandOutputs(restoreInflight(historyMessages(page), snapshot), stored, this.state.profile)
+      this.state.messages = this.restoreCommandOutputs(restoreReasoning(restoreInflight(historyMessages(page), snapshot), this.reasoningCache.get(JSON.stringify([stored, this.state.profile])) || []), stored, this.state.profile)
       this.state.historyOffset = page.pagination.returned
       this.state.hasOlder = page.pagination.returned === page.pagination.limit
       this.state.running = Boolean(snapshot.running ?? snapshot.info.running)
@@ -670,6 +698,8 @@ export class ChatClient {
     if (this.state.connection !== 'ready' || this.state.sending || this.state.actionPending) return
     this.taskCache.set(this.taskScope(), this.state.tasks)
     this.rememberActiveSession()
+    this.rememberReasoning()
+    this.clearCompression()
     this.drafts.set(this.state.selected, this.state.draft)
     const generation = ++this.selectionGeneration
     this.state.connection = 'recovering'
@@ -724,6 +754,12 @@ export class ChatClient {
     const profile = this.state.profile
     this.state.sending = true
     this.state.error = ''
+    const command = slashCommand(text)
+    const compressionCommand = !!command && ['compress', 'compact'].includes(command.name)
+    if (compressionCommand) {
+      this.state.compressing = true
+      this.state.compressionDetail = 'Summarizing earlier messages.'
+    }
     try {
       const result = await executeCommand(this.gateway, text, this.state.runtime, profile, () => generation === this.selectionGeneration && !this.stopped && this.state.connection === 'ready')
       if (generation !== this.selectionGeneration || this.stopped || this.state.connection !== 'ready') return
@@ -732,12 +768,18 @@ export class ChatClient {
         if (!result.message.trim()) throw new Error('Hermes returned an empty command prompt.')
         if (this.state.running) throw new Error('The conversation is now busy. The command prompt was not sent.')
         if (output) this.commandOutput(text, output)
+        this.clearCompression()
         await this.submitPrompt(result.message, result.display || text, text)
         return
       }
       const draft = this.state.draft.trim() === text ? '' : this.state.draft
       this.state.draft = draft
       this.drafts.set(selected, draft)
+      if (compressionCommand && 'pending' in result && result.pending) {
+        if (this.state.compressing && output) this.state.compressionDetail = output
+        if (output) this.commandOutput(text, output)
+        return
+      }
       const recovery = this.open(selected, profile)
       generation = this.selectionGeneration
       await recovery
@@ -756,6 +798,7 @@ export class ChatClient {
       }
       if (generation !== this.selectionGeneration) return
       this.state.uncertain = this.uncertain.has(selected)
+      this.clearCompression()
       this.state.error = error instanceof ConnectionLost ? 'Command outcome is unknown. Check the conversation before running it again.' : errorMessage(error)
       if (error instanceof ConnectionLost) this.scheduleReconnect()
     } finally {
@@ -822,7 +865,7 @@ export class ChatClient {
 
   canSend() {
     return this.state.connection === 'ready' && Boolean(this.state.runtime && this.state.draft.trim()) &&
-      !this.state.running && !this.state.sending && !this.state.actionPending && !this.state.settingsPending && !this.state.modelConfirmation && !this.state.uncertain &&
+      !this.state.running && !this.state.compressing && !this.state.sending && !this.state.actionPending && !this.state.settingsPending && !this.state.modelConfirmation && !this.state.uncertain &&
       !this.state.approvals.length && !this.state.requests.length
   }
 
@@ -915,7 +958,7 @@ export class ChatClient {
         Object.assign(this.state, {
           selected: '', runtime: '', title: 'New conversation', messages: [], tasks: [], taskError: '',
           approvals: [], requests: [], draft: '', running: false, uncertain: false,
-          activity: '', hasOlder: false,
+          activity: '', compressing: false, compressionDetail: '', hasOlder: false,
         })
         this.resetSettings()
         this.location.select('')
@@ -943,11 +986,38 @@ export class ChatClient {
     }
     this.applyTaskEvent(event)
     switch (event.type) {
+      case 'reasoning.delta':
+      case 'reasoning.available': {
+        if (typeof payload.text !== 'string' || !payload.text.length) break
+        const complete = event.type === 'reasoning.available'
+        let message = this.state.messages.at(-1)
+        const chunk = complete && message?.role === 'assistant'
+          ? excludeReplyFromReasoning(payload.text, message.text) : payload.text
+        if (!chunk.trim() && complete) { finishReasoning(this.state.messages); break }
+        this.clearCompression()
+        this.state.activity = ''
+        this.state.running = true
+        if (message?.role !== 'assistant' || !complete && message.text.trim()) {
+          message = { key: `live-${crypto.randomUUID()}`, role: 'assistant', text: '' }
+          this.state.messages.push(message)
+          message = this.state.messages.at(-1)!
+        }
+        const previous = excludeReplyFromReasoning(message.reasoning?.text || '', message.text)
+        const text = appendReasoning(previous, chunk, complete)
+        message.reasoning = { text, active: !complete }
+        break
+      }
+      case 'thinking.delta':
+        if (typeof payload.text === 'string') this.state.activity = payload.text
+        break
       case 'message.start':
+        finishReasoning(this.state.messages)
         this.state.running = true
         this.state.messages.push({ key: `live-${crypto.randomUUID()}`, role: 'assistant', text: '' })
         break
       case 'message.delta': {
+        finishReasoning(this.state.messages)
+        this.clearCompression()
         let message = this.state.messages.at(-1)
         if (message?.role !== 'assistant') {
           message = { key: `live-${crypto.randomUUID()}`, role: 'assistant', text: '' }
@@ -959,6 +1029,11 @@ export class ChatClient {
         break
       }
       case 'message.complete': {
+        for (const message of this.state.messages) {
+          if (message.reasoning) message.reasoning.text = excludeReplyFromReasoning(message.reasoning.text, message.text)
+        }
+        finishReasoning(this.state.messages)
+        this.clearCompression()
         this.state.running = false
         this.state.activity = ''
         const selected = this.state.selected
@@ -973,6 +1048,8 @@ export class ChatClient {
         break
       }
       case 'message.interim':
+        finishReasoning(this.state.messages)
+        this.clearCompression()
         if (!payload.already_streamed && typeof payload.text === 'string') {
           this.state.messages.push({ key: `interim-${crypto.randomUUID()}`, role: 'assistant', text: payload.text })
         }
@@ -981,6 +1058,7 @@ export class ChatClient {
       case 'tool.start':
       case 'tool.complete': {
         if (typeof payload.tool_id !== 'string' || !payload.tool_id) break
+        if (event.type === 'tool.start') { finishReasoning(this.state.messages); this.clearCompression() }
         const turnStart = this.state.messages.findLastIndex(message => message.role === 'user')
         let message = this.state.messages.slice(turnStart + 1).find(message => message.tool?.id === payload.tool_id)
         if (!message) {
@@ -1009,10 +1087,23 @@ export class ChatClient {
         this.state.activity = ''
         break
       }
-      case 'status.update': this.state.activity = typeof payload.text === 'string' ? payload.text : ''; break
+      case 'status.update': {
+        const compressing = compressionStatus(payload)
+        if (compressing !== undefined) {
+          if (compressing) finishReasoning(this.state.messages)
+          this.state.compressing = compressing
+          this.state.compressionDetail = compressing && typeof payload.text === 'string' ? payload.text : ''
+        }
+        this.state.activity = typeof payload.text === 'string' ? payload.text : ''
+        if (payload.kind === 'ready') this.state.activity = ''
+        break
+      }
       case 'session.info':
         this.applyModelInfo(payload)
-        if (typeof payload.running === 'boolean') this.state.running = payload.running
+        if (typeof payload.running === 'boolean') {
+          this.state.running = payload.running
+          if (!payload.running) finishReasoning(this.state.messages)
+        }
         if (typeof payload.stored_session_id === 'string' && payload.stored_session_id !== this.state.selected) {
           const old = this.state.selected
           this.drafts.set(payload.stored_session_id, this.state.draft)
@@ -1035,6 +1126,8 @@ export class ChatClient {
         break
       }
       case 'session.reclaimed':
+        finishReasoning(this.state.messages)
+        this.clearCompression()
         this.state.error = 'Hermes reclaimed this runtime session. Reconnect to recover it.'
         this.state.connection = 'failed'
         break
@@ -1045,8 +1138,21 @@ export class ChatClient {
         this.state.activity = 'Pending approvals were cancelled by Hermes.'
         break
       }
-      case 'error': this.state.error = typeof payload.message === 'string' ? payload.message : 'Hermes reported an error.'; break
+      case 'error': finishReasoning(this.state.messages); this.clearCompression(); this.state.error = typeof payload.message === 'string' ? payload.message : 'Hermes reported an error.'; break
     }
+  }
+
+  private rememberReasoning() {
+    if (!this.state.selected || !this.state.messages.some(message => message.reasoning?.text)) return
+    this.reasoningCache.set(JSON.stringify([this.state.selected, this.state.profile]), this.state.messages.map(message => ({
+      ...message, ...(message.reasoning ? { reasoning: { text: message.reasoning.text, active: false } } : {}),
+    })))
+  }
+
+  private clearCompression() {
+    if (this.state.compressing) this.state.activity = ''
+    this.state.compressing = false
+    this.state.compressionDetail = ''
   }
 
   private matchesRequest(request: ServerRequest) {
@@ -1059,6 +1165,7 @@ export class ChatClient {
 
   private handleAuth(error: unknown): boolean {
     if (!(error instanceof HttpError) || error.status !== 401) return false
+    this.clearCompression()
     clearTimeout(this.retryTimer)
     clearInterval(this.activeTimer)
     this.connectionGeneration++

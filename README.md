@@ -6,7 +6,8 @@ the Hermes dashboard. Hermes runs the agent, stores conversations, and handles
 sign-in. Agora provides the chat interface.
 
 - Streamed replies, Markdown, code, and inline generated images.
-- Memory review view with readable inline approvals and staged-write previews.
+- Memory view with saved notes, user preferences, soul and custom instructions,
+  provider status, readable inline approvals, and staged-write previews.
 - On-demand provider quota and credit balances, with a picker for multiple providers.
 - A compact chat list grouped by date, with running and unread-reply indicators.
   Search loaded titles and stored message text; cron-job conversations are excluded.
@@ -94,6 +95,12 @@ agora-start
 Open the same local URL. This serves `dist/` without development hot reload.
 `HERMES_ENDPOINT` is read at startup, so changing the server does not require a
 new build. Changing `VITE_HERMES_PROFILE` does.
+
+Thinking appears as a collapsible item in the conversation. Open it to read the
+reasoning text or summaries Hermes provides; some providers do not expose a trace.
+
+Context compression shows a pinned spinner above the message box, including when
+you run `/compress`. It clears when Hermes finishes or resumes normal work.
 
 ## Development
 
@@ -252,6 +259,18 @@ The view also loads staged-write previews for the selected conversation’s prof
 Hermes currently truncates staged proposals and does not expose a full review API,
 so Agora shows those as previews without approval buttons. No Hermes patches,
 internal-file access, or changes to the memory approval policy are required.
+
+The same sidebar includes **Saved memory**, **User profile**, **Soul & instructions**,
+and **Memory providers**. These show the selected conversation's
+profile (or Hermes's current profile when no conversation is selected). Open a
+saved entry to load its complete text; the list shows previews. Use **Edit** to
+change the text or **Delete** to review and confirm removal. Changes go directly
+to Hermes and refresh the list after success; unsupported writes show an error.
+Soul, instructions, and provider status remain read-only. External memory
+providers may hold additional data that Hermes's built-in memory APIs do not
+expose. Unsupported sections show their error without blocking the others.
+Inspection loads on opening a section or clicking Refresh, with no background
+polling or browser persistence.
 
 ## Further documentation
 

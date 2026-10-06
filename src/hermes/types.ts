@@ -22,6 +22,7 @@ export interface Message {
   kind?: string
   name?: string
   metadata?: Record<string, unknown>
+  reasoning?: { text: string; active: boolean }
   tool?: {
     id: string
     status: 'running' | 'completed'
@@ -36,6 +37,7 @@ export interface HistoryPage {
   session_id: string
   profile?: string
   messages: Array<{
+    reasoning?: unknown; reasoning_content?: unknown; reasoning_details?: unknown; codex_reasoning_items?: unknown
     id?: number; row_id?: number; role: string; content?: unknown; text?: string
     display_content?: string; display_kind?: string; display_metadata?: Record<string, unknown>; name?: string; tool_name?: string
   }>

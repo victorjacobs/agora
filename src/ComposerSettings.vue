@@ -5,7 +5,7 @@ import { reasoningEfforts, type ModelChoice } from './hermes/settings'
 
 const props = defineProps<{ state: ChatState }>()
 const emit = defineEmits<{ model: [choice: ModelChoice]; reasoning: [effort: string]; confirm: []; cancel: []; retry: [] }>()
-const disabled = computed(() => props.state.connection !== 'ready' || props.state.running || props.state.sending || props.state.actionPending || props.state.settingsPending || Boolean(props.state.modelConfirmation))
+const disabled = computed(() => props.state.connection !== 'ready' || props.state.running || props.state.compressing || props.state.sending || props.state.actionPending || props.state.settingsPending || Boolean(props.state.modelConfirmation))
 const key = (provider: string, model: string) => JSON.stringify([provider, model])
 const current = computed(() => key(props.state.provider, props.state.model))
 const currentListed = computed(() => props.state.modelProviders.some(provider => provider.slug === props.state.provider && provider.models.includes(props.state.model)))

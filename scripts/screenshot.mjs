@@ -22,7 +22,7 @@ const sessions = [
 ]
 const messages = [
   { id: 1, role: 'user', content: 'Help me prepare the next release. Check the project and put together a short checklist.' },
-  { id: 2, role: 'assistant', content: 'I’ll check the project commands and recent changes.' },
+  { id: 2, role: 'assistant', reasoning_content: 'Check the project commands first, then verify the release steps against the recent changes.', content: 'I’ll check the project commands and recent changes.' },
   { id: 3, role: 'tool', tool_name: 'read_file', content: 'Read package.json and README.md.' },
   { id: 4, role: 'tool', tool_name: 'terminal', content: 'Type checking, tests, and production build passed.' },
   { id: 5, role: 'assistant', content: 'The project checks pass. Here’s the release checklist:\n\n- Review the changes and update the release notes.\n- Verify login and a chat against your Hermes server.\n- Build the application and tag the release.\n\nRun the checks again before publishing:\n\n```sh\nagora-check\n```\n\nI’m checking the changelog in the background.' },
@@ -36,6 +36,10 @@ let liveSocket
 let changelogFinished = false
 const memoryAnswers = []
 const commandDecisions = []
+const memoryReads = []
+const memoryMutations = []
+let editedMemory = ''
+let memoryDeleted = false
 try {
   await server.listen()
   const origin = `http://127.0.0.1:${server.httpServer.address().port}`
@@ -47,6 +51,17 @@ try {
     const url = new URL(route.request().url())
     let result
     if (url.pathname === '/api/agora/connection') result = { mode: 'local', endpoint: 'https://hermes.example.com' }
+    else if (url.pathname === '/api/profiles/active') result = { active: 'other', current: 'default' }
+    else if (url.pathname === '/api/memory') result = { active: '', builtin_files: { memory: 840, user: 215 }, providers: [{ name: 'honcho', description: 'External memory provider', status: 'not_configured', available: true, configured: false }] }
+    else if (url.pathname === '/api/learning/graph') result = { nodes: [{ id: 'memory:memory:0:abcdef', kind: 'memory', memorySource: 'memory', label: 'Project release process' }, { id: 'memory:profile:1:123abc', kind: 'memory', memorySource: 'profile', label: 'Communication preferences' }], memory: [{ source: 'memory', fingerprint: 'abcdef', body: 'Run the project checks before publishing a release.' }, { source: 'profile', fingerprint: '123abc', body: 'Prefers concise answers and clear verification results.' }] }
+    else if (url.pathname === '/api/learning/node' && route.request().method() !== 'GET') {
+      const value = route.request().postDataJSON()
+      memoryMutations.push({ method: route.request().method(), ...value })
+      if (route.request().method() === 'PUT') editedMemory = value.content
+      else memoryDeleted = true
+      result = { ok: true }
+    }
+    else if (url.pathname === '/api/learning/node') { memoryReads.push(url.searchParams.get('id')); result = { ok: true, kind: 'memory', id: url.searchParams.get('id'), content: editedMemory || 'Run the project checks before publishing a release.\n\nRecord the result of each check, then verify login and a chat against the real Hermes server.' } }
     else if (url.pathname === '/api/status') result = { auth_required: true }
     else if (url.pathname === '/api/auth/me') result = { display_name: 'Demo operator' }
     else if (url.pathname === '/api/sessions') result = { sessions, total: sessions.length }
@@ -54,6 +69,15 @@ try {
     else if (url.pathname === '/api/sessions/release/messages') result = { session_id: 'release', profile: 'default', messages, pagination: { returned: messages.length, offset: 0, limit: 50 } }
     else if (url.pathname === '/api/auth/ws-ticket') result = { ticket: 'demo-ticket' }
     else throw new Error(`Unmocked screenshot API: ${url.pathname}`)
+    if (url.pathname === '/api/learning/graph' && (editedMemory || memoryDeleted)) {
+      if (memoryDeleted) {
+        result.nodes = result.nodes.filter(node => node.memorySource !== 'memory')
+        result.memory = result.memory.filter(card => card.source !== 'memory')
+      } else {
+        result.nodes[0] = { ...result.nodes[0], label: editedMemory }
+        result.memory[0] = { ...result.memory[0], body: editedMemory }
+      }
+    }
     await route.fulfill({ json: result })
   })
   await page.routeWebSocket('**/api/ws', socket => {
@@ -69,7 +93,8 @@ try {
       else if (request.method === 'command.dispatch') result = { type: 'exec', output: 'Pending memory writes (1):\n  abcdef01 [auto]  add to memory: Prefers concise release notes…\n\nApply: /memory approve <id>   Reject: /memory reject <id>' }
       else if (request.method === 'approval.respond') { commandDecisions.push(request.params); result = { resolved: 1 } }
       else if (request.method === 'request.answer') { memoryAnswers.push(request.params.result); result = { status: 'ok' } }
-      else if (request.method === 'config.get') result = { value: 'medium' }
+      else if (request.method === 'profiles.describe') result = { name: request.params.name, description: 'Personal Hermes profile', soul: '# Hermes\n\nBe direct and practical. Explain choices when they matter.\n\nKeep replies concise, and use tools to verify uncertain details.' }
+      else if (request.method === 'config.get') result = request.params.key === 'personality' ? { value: 'none' } : request.params.key === 'prompt' ? { prompt: 'Ask before publishing changes or sending messages to other people.' } : { value: 'medium' }
       else if (request.method === 'session.active_list') result = { sessions: [{ id: 'runtime-interface', session_key: 'interface', status: 'working' }] }
       else if (request.method === 'session.resume') result = { session_id: 'runtime-release', stored_session_id: 'release', info: { title: 'Release checklist', profile_name: 'default', running: false } }
       else if (request.method === 'approval.pending') result = { approvals: [] }
@@ -78,6 +103,13 @@ try {
     })
   })
   await page.goto(`${origin}/agora/?session=release`)
+  const manifestUrl = await page.locator('link[rel="manifest"]').evaluate(link => link.href)
+  assert.equal(new URL(manifestUrl).pathname, '/agora/manifest.webmanifest')
+  const manifestResponse = await page.request.get(manifestUrl)
+  assert.ok(manifestResponse.ok())
+  const manifest = await manifestResponse.json()
+  assert.equal(manifest.display, 'standalone')
+  assert.equal(new URL(manifest.start_url, manifestUrl).pathname, '/agora/')
   const iconUrls = await page.locator('link[rel="icon"], link[rel="apple-touch-icon"]').evaluateAll(links => links.map(link => link.href))
   assert.equal(iconUrls.length, 4)
   for (const url of iconUrls) {
@@ -147,6 +179,19 @@ try {
     })
   })
   assert.ok(controlsFit, 'Composer controls must fit a narrow screen.')
+  liveSocket.send(JSON.stringify({ jsonrpc: '2.0', method: 'event', params: { type: 'status.update', session_id: 'runtime-release', payload: { kind: 'compacting', text: 'Compacting context — summarizing earlier conversation' } } }))
+  const compression = page.locator('.compression-status')
+  await compression.waitFor()
+  assert.equal(await compression.innerText(), 'Compressing context…')
+  assert.equal(await compression.locator('.session-indicator').count(), 1)
+  const compressionTop = await compression.evaluate(element => element.getBoundingClientRect().top)
+  await page.locator('.transcript').evaluate(element => { element.scrollTop = 0 })
+  assert.equal(await compression.evaluate(element => element.getBoundingClientRect().top), compressionTop, 'Compression status must stay pinned while scrolling.')
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await page.screenshot({ path: '/tmp/agora-compression-mobile-dark.png' })
+  liveSocket.send(JSON.stringify({ jsonrpc: '2.0', method: 'event', params: { type: 'status.update', session_id: 'runtime-release', payload: { kind: 'compacted', text: 'Context compaction complete' } } }))
+  await compression.waitFor({ state: 'detached' })
+  await page.emulateMedia({ colorScheme: 'light' })
   changelogFinished = true
   liveSocket.send(JSON.stringify({ jsonrpc: '2.0', method: 'event', params: { type: 'subagent.complete', session_id: 'runtime-release', payload: { subagent_id: 'changelog', status: 'completed', summary: 'Changelog checked.' } } }))
   await pinned.waitFor({ state: 'detached' })
@@ -219,6 +264,73 @@ try {
   await commandCard.getByRole('button', { name: 'Reject', exact: true }).click()
   await commandCard.waitFor({ state: 'detached' })
   assert.deepEqual(commandDecisions, [{ session_id: 'runtime-release', profile: 'default', request_id: 'command-two', choice: 'deny' }])
+  liveSocket.send(JSON.stringify({ jsonrpc: '2.0', method: 'event', params: { type: 'message.start', session_id: 'runtime-release', payload: {} } }))
+  liveSocket.send(JSON.stringify({ jsonrpc: '2.0', method: 'event', params: { type: 'reasoning.delta', session_id: 'runtime-release', payload: { text: 'Review the release steps' } } }))
+  liveSocket.send(JSON.stringify({ jsonrpc: '2.0', method: 'event', params: { type: 'reasoning.delta', session_id: 'runtime-release', payload: { text: ' before publishing. <script>Plain text only</script>' } } }))
+  const thinking = page.locator('.thinking-trace').last()
+  await thinking.locator('.session-indicator').waitFor()
+  assert.equal(await thinking.evaluate(element => element.open), false, 'Thinking traces must start collapsed.')
+  await thinking.locator('summary').click()
+  await thinking.getByText('Review the release steps before publishing. <script>Plain text only</script>', { exact: true }).waitFor()
+  assert.equal(await thinking.locator('script').count(), 0)
+  await page.screenshot({ path: '/tmp/agora-thinking-light.png' })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await thinking.scrollIntoViewIfNeeded()
+  await page.screenshot({ path: '/tmp/agora-thinking-mobile-dark.png' })
+  assert.ok(await thinking.evaluate(element => element.scrollWidth <= element.clientWidth), 'Thinking traces must fit on mobile.')
+  liveSocket.send(JSON.stringify({ jsonrpc: '2.0', method: 'event', params: { type: 'message.delta', session_id: 'runtime-release', payload: { text: 'Ready for review.' } } }))
+  await thinking.locator('.session-indicator').waitFor({ state: 'detached' })
+  assert.equal(await thinking.evaluate(element => element.open), true, 'Reply streaming must not collapse a trace the user opened.')
+  liveSocket.send(JSON.stringify({ jsonrpc: '2.0', method: 'event', params: { type: 'message.complete', session_id: 'runtime-release', payload: {} } }))
+  await page.locator('select[aria-label="Model"]:not([disabled])').waitFor()
+  assert.ok(await page.locator('.thinking-trace').count() >= 2, 'Live traces must survive completion recovery when history omits them.')
+  await page.setViewportSize({ width: 1280, height: 960 })
+  await page.emulateMedia({ colorScheme: 'light' })
+  await page.getByRole('button', { name: 'Memory', exact: true }).click()
+  const memoryNavigation = page.getByRole('navigation', { name: 'Memory sections', exact: true })
+  await memoryNavigation.getByRole('button', { name: 'Saved memory', exact: true }).click()
+  const savedMemory = page.getByRole('region', { name: 'Saved memory', exact: true })
+  await savedMemory.getByText('Project release process', { exact: true }).waitFor()
+  assert.deepEqual(memoryReads, [], 'Full memory entries must load only on explicit request.')
+  await savedMemory.getByRole('button', { name: 'Read full entry' }).click()
+  await savedMemory.getByText('Record the result of each check, then verify login and a chat against the real Hermes server.', { exact: false }).waitFor()
+  assert.deepEqual(memoryReads, ['memory:memory:0:abcdef'])
+  await page.screenshot({ path: '/tmp/agora-saved-memory-light.png' })
+  await savedMemory.getByRole('button', { name: 'Edit', exact: true }).click()
+  await savedMemory.getByRole('textbox', { name: 'Memory text' }).fill('Verify login and chat before each release.')
+  await page.screenshot({ path: '/tmp/agora-memory-edit-light.png' })
+  await savedMemory.getByRole('button', { name: 'Save changes', exact: true }).click()
+  await savedMemory.getByText('Memory updated.', { exact: true }).waitFor()
+  assert.deepEqual(memoryMutations, [{ method: 'PUT', id: 'memory:memory:0:abcdef', profile: 'default', content: 'Verify login and chat before each release.' }])
+  await savedMemory.getByRole('button', { name: 'Read full entry' }).click()
+  await savedMemory.getByRole('button', { name: 'Delete', exact: true }).click()
+  await savedMemory.getByText('Delete this memory from saved memory?', { exact: true }).waitFor()
+  assert.equal(memoryMutations.length, 1, 'Opening deletion must not delete an entry.')
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.screenshot({ path: '/tmp/agora-memory-delete-mobile-dark.png' })
+  assert.ok(await savedMemory.evaluate(element => element.scrollWidth <= element.clientWidth), 'Memory controls must fit on mobile.')
+  await savedMemory.getByRole('button', { name: 'Delete memory', exact: true }).click()
+  await savedMemory.getByText('Memory deleted.', { exact: true }).waitFor()
+  await savedMemory.getByText('Hermes returned no saved entries.', { exact: true }).waitFor()
+  assert.deepEqual(memoryMutations.at(-1), { method: 'DELETE', id: 'memory:memory:0:abcdef', profile: 'default' })
+  await page.emulateMedia({ colorScheme: 'light' })
+  await page.setViewportSize({ width: 1280, height: 960 })
+  await memoryNavigation.getByRole('button', { name: 'User profile', exact: true }).click()
+  await page.getByRole('region', { name: 'User profile', exact: true }).getByText('Communication preferences', { exact: true }).waitFor()
+  assert.equal(await page.getByRole('region', { name: 'User profile', exact: true }).getByText('Project release process', { exact: true }).count(), 0)
+  await memoryNavigation.getByRole('button', { name: 'Memory providers', exact: true }).click()
+  await page.getByRole('region', { name: 'Memory providers', exact: true }).getByText('Built-in memory', { exact: true }).waitFor()
+  await memoryNavigation.getByRole('button', { name: 'Soul & instructions', exact: true }).click()
+  const soulView = page.getByRole('region', { name: 'Soul & instructions', exact: true })
+  await soulView.getByText('Be direct and practical. Explain choices when they matter.', { exact: false }).waitFor()
+  await page.screenshot({ path: '/tmp/agora-soul-light.png' })
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+  await page.screenshot({ path: '/tmp/agora-soul-mobile-dark.png' })
+  assert.ok(await soulView.evaluate(element => element.scrollWidth <= element.clientWidth), 'Soul inspection must fit on mobile.')
   if (errors.length) throw new Error(errors.join('\n'))
   console.info('Saved docs/screenshots/chat-light.png and chat-dark.png (sample data).')
 } finally {

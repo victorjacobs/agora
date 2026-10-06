@@ -317,22 +317,23 @@ blocking chat. No agent session is created or modified to fetch quota.
 
 The left icon rail switches the whole workspace between Chat and Memory without
 unmounting the transcript or losing its draft. Chat shows conversation navigation;
-Memory replaces it with its own Pending updates navigation. Memory approvals are identified by the upstream
+Memory replaces it with navigation for pending updates, saved memory, user profile,
+soul/instructions, and provider status. Memory approvals are identified by the upstream
 `Save to memory:` description prefix or `tool_name: memory`. Both queued
 `approval.pending` and server-to-client `approval` requests use the same readable
 card. Saving sends only the offered `once` choice through the request's existing
 response transport; rejection sends `deny`. No policy toggle or automatic
 approval is exposed. All content remains safely rendered plain text in memory.
 
-Opening Memory runs the existing `command.dispatch` RPC with `name: memory`,
+Opening Pending updates runs the existing `command.dispatch` RPC with `name: memory`,
 `arg: pending`, and the current runtime session ID. This command binds the
 session's profile; no new session or agent prompt is created. Unknown directives
 or preview formats fail visibly. Hermes's shared
 [write approval command handler](https://github.com/NousResearch/hermes-agent/blob/main/hermes_cli/write_approval_commands.py)
 returns truncated summaries, with pinned target entries when available. These are
-labeled previews and have no approval controls. Full staged-write review and
-saved-memory browsing are unavailable through the current exposed contract;
-Agora does not patch Hermes or read its private pending/memory files.
+labeled previews and have no approval controls. Full staged-write review remains unavailable through this command contract.
+Saved-memory browsing uses the separate read-only learning API below; Agora does
+not patch Hermes or read its private pending/memory files.
 
 ## Slash commands
 
@@ -383,3 +384,90 @@ Cards disappear on successful decisions or authoritative withdrawal.
 keep the card and show the error. Stale requests and choices not offered by Hermes
 cannot send decisions. Pending requests show a waiting-for-input status and follow
 the transcript when the user is already at its bottom.
+
+### Memory inspection
+
+All inspection is read-only and scoped to the selected profile. When no profile
+is named, `GET /api/profiles/active` supplies `current` (the running dashboard's
+profile), not the sticky CLI `active` setting. An unknown custom profile fails
+visibly rather than guessing `default`. No new session or agent turn is created.
+
+- **Saved memory / User profile:** `GET /api/learning/graph?profile=…` returns
+  memory nodes for `MEMORY.md` (`memorySource: memory`) and `USER.md`
+  (`memorySource: profile`). Graph bodies are previews capped at 1,200 characters.
+  Opening an entry fetches `GET /api/learning/node?id=…&profile=…`, which returns
+  the full memory chunk. IDs come from Hermes; stale entries show an error and
+  can be refreshed. Skill nodes are excluded.
+- **Soul & instructions:** `profiles.describe { name }` returns the stored
+  profile soul and description. `config.get` for `personality` and `prompt`
+  supplies the selected personality and custom instructions. These independent
+  reads preserve available sections when another is unsupported. This is stored
+  profile configuration, not a dump of a running agent's assembled system prompt.
+- **Memory providers:** `GET /api/memory?profile=…` returns the active external
+  provider (empty means built-in), discovered provider readiness, and built-in
+  memory/user file sizes. No provider configuration or credentials are queried.
+  External providers' own memory contents are not exposed by these endpoints.
+
+The local bridge permits GET for these four HTTP paths, plus PUT and DELETE
+for `/api/learning/node`. Edit sends `{id, profile, content}`; delete sends
+`{id, profile}`. Only fingerprinted built-in memory/profile IDs are accepted
+for writes, avoiding legacy positional targets. The editor reloads full text
+before editing or deletion confirmation. Save/delete never retry automatically;
+failures retain the draft and successful writes refresh the list. Profile/view
+changes discard delayed UI results, but do not cancel a submitted write.
+Soul edits, provider switching, and memory reset are not exposed. Loads occur when a
+section opens, its profile changes, or Refresh is clicked; full entries load on
+request. Closing/switching a view discards delayed results. Content is escaped
+text, kept only in component memory.
+
+Sources: [learning graph](https://github.com/NousResearch/hermes-agent/blob/main/agent/learning_graph.py),
+[node inspection](https://github.com/NousResearch/hermes-agent/blob/main/agent/learning_mutations.py),
+[dashboard learning API](https://github.com/NousResearch/hermes-agent/blob/main/hermes_cli/web_routers/status.py),
+[profile snapshot](https://github.com/NousResearch/hermes-agent/blob/main/tui_gateway/methods_profiles.py),
+and [provider status](https://github.com/NousResearch/hermes-agent/blob/main/hermes_cli/web_routers/ops.py).
+
+### Context compression status
+
+The pinned composer status uses session-scoped `status.update` events:
+`compacting` / `compressing` start it; `compacted` / `ready` clear it.
+Verified legacy `lifecycle` compression progress notices are also recognized.
+Normal message deltas, tool starts, errors, disconnection, and conversation
+switching clear stale progress. Manual `/compress` and `/compact` show progress
+while awaiting their result; a compute-host `status: pending` result keeps the
+indicator until a terminal event, without re-running the command.
+
+Snapshots do not expose a verified compression phase, so reconnecting waits for
+fresh status events rather than inferring compression from `running`.
+Contracts: [gateway status](https://github.com/NousResearch/hermes-agent/blob/main/tui_gateway/server.py),
+[manual compression](https://github.com/NousResearch/hermes-agent/blob/main/tui_gateway/methods_session.py),
+[automatic compression](https://github.com/NousResearch/hermes-agent/blob/main/agent/conversation_compression.py).
+
+### Thinking traces
+
+Agora appends session-scoped `reasoning.delta` text to an assistant's separate
+reasoning block. `reasoning.available` provides a completed block and does not
+duplicate a matching streamed prefix. Completed reasoning notices attach to the
+existing reply row; a complete final answer repeated at the end of a trace is
+removed during completion/history recovery, while the normal reply stays visible. The collapsed Thinking item shows a spinner
+while receiving reasoning and opens to sanitized Markdown using the same renderer
+as chat replies. Raw HTML and unsafe links are disabled. Reply text, tool starts,
+compression, completion, errors, and disconnects stop its spinner. A waiting
+assistant with no supplied trace shows that limitation when expanded.
+
+History reads readable `reasoning_content` / `reasoning` strings,
+`reasoning_details` entries of type `reasoning.text` / `reasoning.summary`,
+and Codex `reasoning` items' `summary_text` summaries. Encrypted content,
+signatures, and opaque replay items are never rendered. These may be summaries
+or previews rather than a full internal reasoning trace.
+
+Captured live traces stay in tab memory per stored session and profile across
+completion recovery and conversation switches. History data takes precedence;
+ambiguous prompt matches are discarded. Refresh relies on what Hermes persisted.
+No traces are logged or stored in browser storage, and Agora does not enable
+reasoning disclosure when Hermes has it disabled. `thinking.delta` is treated as
+activity text because current upstream uses it for waits and diagnostics too.
+
+Sources: [reasoning callbacks](https://github.com/NousResearch/hermes-agent/blob/main/tui_gateway/agent_callbacks.py),
+[reasoning events](https://github.com/NousResearch/hermes-agent/blob/main/tui_gateway/contracts/events.py),
+[readable reasoning details](https://github.com/NousResearch/hermes-agent/blob/main/agent/reasoning_summaries.py),
+and [history fields](https://github.com/NousResearch/hermes-agent/blob/main/hermes_state_messages.py).
