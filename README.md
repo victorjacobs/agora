@@ -27,6 +27,10 @@ sign-in. Agora provides the chat interface.
 - On-demand provider quota and credit balances, with a picker for multiple providers.
 - A compact chat list grouped by date, with running and unread-reply indicators.
   Search loaded titles and stored message text; cron-job conversations are excluded.
+- Local conversation pins: use the pin icon on a chat row or in its header.
+  Pinned chats stay above the date groups, including older chats. Pins are scoped
+  to the Hermes endpoint and profile, and stay in this browser; they do not sync.
+  Only IDs are stored locally, not titles or messages.
 - A conversation switcher on **⌘K / Ctrl+K**. Type to search, use ↑/↓ to choose,
   Enter to open, and Escape to close.
 - Expandable tool activity and background-task progress, results, and errors.

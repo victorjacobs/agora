@@ -80,7 +80,7 @@ function allowedRoute(path: string, method: string) {
   if (['PUT', 'DELETE'].includes(method) && path === '/api/learning/node') return true
   if (method === 'GET' && ['/api/sessions', '/api/sessions/search', '/api/profiles/active', '/api/memory', '/api/learning/graph', '/api/learning/node'].includes(path)) return true
   if (method === 'GET' && /^\/api\/sessions\/[^/]+\/messages$/.test(path)) return true
-  return ['PATCH', 'DELETE'].includes(method) && /^\/api\/sessions\/[^/]+$/.test(path)
+  return ['GET', 'PATCH', 'DELETE'].includes(method) && /^\/api\/sessions\/[^/]+$/.test(path)
 }
 
 async function readBody(request: IncomingMessage): Promise<string | undefined> {

@@ -63,6 +63,7 @@ async function fixture(publicOrigin?: string) {
     if (['/api/profiles/active', '/api/memory', '/api/learning/graph', '/api/learning/node'].includes(url.pathname)) return send({ inspected: true })
     if (url.pathname === '/api/fs/read-data-url') return send({ dataUrl: 'data:image/png;base64,aGVsbG8=' })
     if (['/api/media', '/api/media/proxy'].includes(url.pathname)) return send({ data_url: 'data:image/png;base64,aGVsbG8=' })
+    if (url.pathname === '/api/sessions/test' && request.method === 'GET') return send({ id: 'test', title: 'Pinned chat', profile: url.searchParams.get('profile') })
     if (url.pathname === '/api/sessions/search') return send({ results: [{ id: 'old', title: 'Older chat' }] })
     if (url.pathname === '/api/auth/me') return send({ display_name: 'Synthetic operator' })
     if (url.pathname === '/api/auth/ws-ticket') return send({ ticket: 'synthetic-ticket', ttl_seconds: 30 })
@@ -138,6 +139,15 @@ async function fixture(publicOrigin?: string) {
 }
 
 describe('local remote-Hermes connection', () => {
+  it('forwards authenticated pinned-session metadata requests', async () => {
+    const test = await fixture()
+    const { cookie } = await test.login()
+    const response = await fetch(`${test.origin}/api/sessions/test?profile=work`, { headers: { Cookie: cookie } })
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ id: 'test', title: 'Pinned chat', profile: 'work' })
+    expect(test.records.at(-1)?.authorization).toBe('Bearer access-1')
+  })
+
   it('forwards authenticated cron operations and blocks foreign origins and unrelated cron routes', async () => {
     const test = await fixture()
     const { cookie } = await test.login()

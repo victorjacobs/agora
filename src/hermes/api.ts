@@ -46,6 +46,10 @@ export class HermesApi {
     })}`)
   }
 
+  session(id: string, profile: string) {
+    return this.request<SessionRow>(`/api/sessions/${encodeURIComponent(id)}?${this.query({ profile })}`)
+  }
+
   history(id: string, profile: string | undefined, offset = 0) {
     return this.request<HistoryPage>(`/api/sessions/${encodeURIComponent(id)}/messages?${this.query({
       profile, offset, limit: 50, order: 'latest', inline_images: 'true',

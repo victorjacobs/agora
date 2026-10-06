@@ -6,7 +6,7 @@ import { HermesApi } from '../src/hermes/api'
 import { Gateway } from '../src/hermes/gateway'
 
 let cleanup = () => {}
-afterEach(() => { cleanup(); document.body.innerHTML = ''; vi.unstubAllGlobals() })
+afterEach(() => { cleanup(); document.body.innerHTML = ''; localStorage.clear(); vi.unstubAllGlobals() })
 
 function renderApp() {
   const host = document.createElement('div')
@@ -31,6 +31,48 @@ function mountApp(connection: 'ready' | 'connecting' = 'ready') {
 }
 
 describe('chat interface', () => {
+  it('pins a chat locally without opening it and displays a separate pinned group', async () => {
+    const open = vi.spyOn(ChatClient.prototype, 'open').mockResolvedValue()
+    const { host, client } = mountApp()
+    client.state.sessions = [{ id: 'stored', title: 'Synthetic conversation', profile: 'work' }, { id: 'another', title: 'Another chat', profile: 'work' }]
+    await nextTick()
+    const row = [...host.querySelectorAll<HTMLElement>('.session-row')].find(row => row.textContent?.includes('Another chat'))!
+    row.querySelector<HTMLButtonElement>('[aria-label="Pin conversation"]')!.click()
+    await nextTick()
+    expect(open).not.toHaveBeenCalled()
+    const groups = host.querySelectorAll('.session-group')
+    expect(groups[0]?.getAttribute('aria-label')).toBe('Pinned')
+    expect(groups[0]?.textContent).toContain('Another chat')
+    expect(groups[1]?.textContent).not.toContain('Another chat')
+    expect(JSON.parse(localStorage.getItem('agora.pinned-conversations')!)[window.location.origin]).toEqual([{ id: 'another', profile: 'work' }])
+    groups[0]!.querySelector<HTMLButtonElement>('[aria-label="Unpin conversation"]')!.click()
+    await nextTick()
+    expect(host.querySelector('[aria-label="Pinned"]')).toBeNull()
+  })
+
+  it('keeps pinned rows in place while a conversation is recovering', async () => {
+    const { host, client } = mountApp()
+    client.state.identity = 'Operator'
+    client.state.sessions = [{ id: 'stored', title: 'Pinned chat', profile: 'work' }, { id: 'another', title: 'Today chat', profile: 'work', last_active: Date.now() / 1000 }]
+    await nextTick()
+    const pinnedRow = [...host.querySelectorAll<HTMLElement>('.session-row')].find(row => row.textContent?.includes('Pinned chat'))!
+    pinnedRow.querySelector<HTMLButtonElement>('[aria-label="Pin conversation"]')!.click()
+    await nextTick()
+    const labels = () => [...host.querySelectorAll('.session-group')].map(group => group.getAttribute('aria-label'))
+    expect(labels()).toEqual(['Pinned', 'Today'])
+    client.state.selected = 'another'
+    client.state.connection = 'recovering'
+    await nextTick()
+    expect(labels()).toEqual(['Pinned', 'Today'])
+    expect(host.querySelector('[aria-label="Pinned"]')?.textContent).toContain('Pinned chat')
+    client.state.connection = 'ready'
+    await nextTick()
+    client.state.selected = 'stored'
+    client.state.connection = 'recovering'
+    await nextTick()
+    expect(labels()).toEqual(['Pinned', 'Today'])
+  })
+
   it('switches to memory without losing the chat draft and reviews inline changes explicitly', async () => {
     const pending = vi.spyOn(ChatClient.prototype, 'pendingMemory').mockResolvedValue({ previews: [{ id: 'abcdef01', summary: 'Truncated preview', background: true, targetDetails: '' }] })
     const approve = vi.spyOn(ChatClient.prototype, 'approve').mockResolvedValue()

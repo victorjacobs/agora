@@ -28,6 +28,7 @@ function toolContext(messages: Message[]) {
         <details class="tool-group" :class="{ 'tool-group-running': runningTools(block.messages).length }">
           <summary>
             <svg class="tool-chevron" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m6 4 4 4-4 4" /></svg>
+            <svg class="tool-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.8-3.8a6 6 0 0 1-7.9 7.9l-7.7 7.7a2.1 2.1 0 0 1-3-3l7.7-7.7a6 6 0 0 1 7.9-7.9l-3.8 3.8Z" /></svg>
             <span>{{ block.messages.length }} tool {{ block.messages.length === 1 ? 'call' : 'calls' }}</span>
             <span v-if="runningTools(block.messages).length" class="tool-running-status" role="status"><span class="tool-spinner" aria-hidden="true"></span>{{ runningTools(block.messages).length }} running</span>
             <span class="tool-names" :title="toolContext(block.messages)">{{ toolContext(block.messages) }}</span>
@@ -81,8 +82,10 @@ function toolContext(messages: Message[]) {
 .tool-group > summary::-webkit-details-marker { display: none; }
 .tool-group > summary:hover { background: var(--hover); }
 .tool-group > summary > span:first-of-type { flex-shrink: 0; font-weight: 550; }
+.tool-icon { width: 16px; height: 16px; flex-shrink: 0; }
 .tool-chevron { width: 14px; height: 14px; flex-shrink: 0; }
-.tool-group[open] > summary .tool-chevron { transform: rotate(90deg); }
+.tool-group[open] > summary .tool-icon { width: 16px; height: 16px; flex-shrink: 0; }
+.tool-chevron { transform: rotate(90deg); }
 .tool-names { margin-left: auto; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tool-outputs { padding: 0 12px 12px; border-top: 1px solid var(--border); }
 .tool-output { min-width: 0; padding-top: 12px; }

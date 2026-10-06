@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ChatClient, initialState } from './hermes/chat'
+import ConversationPin from './ConversationPin.vue'
+import { conversationKey, usePinnedConversations } from './pinned-conversations'
 import { groupSessions } from './session-groups'
 import { conversationTimeline } from './hermes/transcript'
 import { taskRunning } from './hermes/tasks'
@@ -49,8 +51,14 @@ const mutationPending = ref(false)
 const currentDate = ref(new Date())
 let dateTimer: ReturnType<typeof setInterval> | undefined
 const searching = computed(() => Boolean(state.searchQuery.trim()))
-const visibleSessions = computed(() => chat.visibleSessions())
-const sessionGroups = computed(() => groupSessions(visibleSessions.value, currentDate.value))
+const pins = usePinnedConversations(computed(() => state.endpoint || window.location.origin), computed(() => state.connection === 'ready'), computed(() => state.sessions))
+const currentSession = computed(() => ({ id: state.selected, profile: state.profile || import.meta.env.VITE_HERMES_PROFILE || 'default' }))
+const visibleSessions = computed(() => pins.ordered(chat.visibleSessions(), state.searchQuery))
+const sessionGroups = computed(() => {
+  const pinned = visibleSessions.value.filter(pins.isPinned)
+  const groups = groupSessions(visibleSessions.value.filter(session => !pins.isPinned(session)), currentDate.value)
+  return pinned.length ? [{ label: 'Pinned', sessions: pinned }, ...groups] : groups
+})
 const displayedRequests = computed(() => state.requests)
 const showingThinking = computed(() => state.running && !state.compressing && !state.activity && !state.messages.some(message => message.tool?.status === 'running'))
 const displayedItems = computed(() => conversationTimeline(state.messages, state.tasks, showingThinking.value))
@@ -157,7 +165,12 @@ function showDialog(kind: 'rename' | 'delete') {
 async function mutate() {
   mutationPending.value = true
   if (dialogKind.value === 'rename') await chat.rename(newTitle.value)
-  else await chat.deleteSelected()
+  else {
+    const deleted = { ...currentSession.value }
+    const endpoint = state.endpoint
+    await chat.deleteSelected()
+    if (state.endpoint === endpoint && state.selected !== deleted.id) pins.remove(deleted)
+  }
   mutationPending.value = false
   dialog.value?.close()
 }
@@ -230,17 +243,18 @@ onBeforeUnmount(() => { clearInterval(dateTimer); window.removeEventListener('re
         <template v-else>
           <p v-if="state.listLoading && !state.sessions.length" class="muted">Loading conversations…</p>
           <div v-if="state.listError" class="list-error" role="alert"><p>{{ state.listError }}</p><button @click="chat.refreshSessions()">Try again</button></div>
-          <p v-else-if="!state.listLoading && !state.sessions.length" class="muted">Your conversations will appear here.</p>
+          <p v-else-if="!state.listLoading && !visibleSessions.length" class="muted">Your conversations will appear here.</p>
         </template>
+        <p v-if="pins.error.value" class="muted" role="alert">{{ pins.error.value }}</p>
         <section v-for="group in sessionGroups" :key="group.label" class="session-group" :aria-label="group.label">
           <h2 class="session-group-heading">{{ group.label }}</h2>
-          <button v-for="session in group.sessions" :key="session.id" class="session" :class="{ selected: session.id === state.selected }" :aria-current="session.id === state.selected ? 'page' : undefined" :disabled="['connecting', 'reconnecting', 'expired', 'closed'].includes(state.connection)" @click="selectSession(session)">
+          <div v-for="session in group.sessions" :key="conversationKey(session)" class="session-row"><button class="session" :class="{ selected: conversationKey(session) === conversationKey(currentSession) }" :aria-current="conversationKey(session) === conversationKey(currentSession) ? 'page' : undefined" :disabled="['connecting', 'reconnecting', 'expired', 'closed'].includes(state.connection)" @click="selectSession(session)">
             <span class="session-heading">
               <span class="session-title">{{ session.title || 'Untitled conversation' }}</span>
               <span v-if="chat.hasUnreadReply(session)" class="unread-reply" role="img" aria-label="Unread response" title="Unread response"></span>
               <span v-if="chat.sessionStatus(session)" class="session-indicator" :class="{ waiting: chat.sessionStatus(session) === 'waiting' }" :aria-label="chat.sessionStatus(session) === 'waiting' ? 'Waiting for input' : 'Running'" :title="chat.sessionStatus(session) === 'waiting' ? 'Waiting for input' : 'Running'" role="img"></span>
             </span>
-          </button>
+          </button><ConversationPin :pinned="pins.isPinned(session)" :disabled="state.connection !== 'ready'" @toggle="pins.toggle(session)" /></div>
         </section>
         <button v-if="!searching && state.sessions.length < state.total" class="load-more" :disabled="state.listLoading" @click="chat.refreshSessions(true)">{{ state.listLoading ? 'Loading…' : 'Load more conversations' }}</button>
         <p v-if="searching && state.searchResults.length === 100" class="search-limit">Showing up to 100 matches. Refine your search for more.</p>
@@ -259,6 +273,7 @@ onBeforeUnmount(() => { clearInterval(dateTimer); window.removeEventListener('re
         <button ref="menuButton" class="mobile-menu" :aria-label="view === 'chat' ? 'Open conversations' : view === 'memory' ? 'Open memory navigation' : 'Open cron navigation'" :aria-expanded="sidebarOpen" @click="toggleSidebar()">☰</button>
         <div class="conversation-heading"><h1>{{ view === 'memory' ? memoryTitle : view === 'cron' ? 'Cron jobs' : state.title }}</h1></div>
         <div v-if="state.selected && view === 'chat'" class="header-actions">
+          <ConversationPin :pinned="pins.isPinned(currentSession)" :disabled="state.connection !== 'ready'" @toggle="pins.toggle(currentSession)" />
           <button :disabled="actionsDisabled" @click="showDialog('rename')">Rename</button>
           <button :disabled="actionsDisabled || state.running || state.sending" @click="showDialog('delete')">Delete</button>
         </div>

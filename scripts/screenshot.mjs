@@ -74,7 +74,9 @@ try {
     else if (url.pathname === '/api/auth/me') result = { display_name: 'Demo operator' }
     else if (url.pathname === '/api/sessions') result = { sessions, total: sessions.length }
     else if (url.pathname === '/api/sessions/search') result = { results: [] }
+    else if (url.pathname === '/api/sessions/notes/messages') { await new Promise(done => setTimeout(done, 200)); result = { session_id: 'notes', profile: 'default', messages, pagination: { returned: messages.length, offset: 0, limit: 50 } } }
     else if (url.pathname === '/api/sessions/release/messages') result = { session_id: 'release', profile: 'default', messages, pagination: { returned: messages.length, offset: 0, limit: 50 } }
+    else if (/^\/api\/sessions\/[^/]+$/.test(url.pathname) && route.request().method() === 'GET') result = sessions.find(session => session.id === url.pathname.split('/').at(-1))
     else if (url.pathname === '/api/auth/ws-ticket') result = { ticket: 'demo-ticket' }
     else throw new Error(`Unmocked screenshot API: ${url.pathname}`)
     if (url.pathname === '/api/learning/graph' && (editedMemory || memoryDeleted)) {
@@ -106,7 +108,7 @@ try {
       else if (request.method === 'profiles.describe') result = { name: request.params.name, description: 'Personal Hermes profile', soul: '# Hermes\n\nBe direct and practical. Explain choices when they matter.\n\nKeep replies concise, and use tools to verify uncertain details.' }
       else if (request.method === 'config.get') result = request.params.key === 'personality' ? { value: 'none' } : request.params.key === 'prompt' ? { prompt: 'Ask before publishing changes or sending messages to other people.' } : { value: 'medium' }
       else if (request.method === 'session.active_list') result = { sessions: [{ id: 'runtime-interface', session_key: 'interface', status: 'working' }] }
-      else if (request.method === 'session.resume') result = { session_id: 'runtime-release', stored_session_id: 'release', info: { title: 'Release checklist', profile_name: 'default', running: false } }
+      else if (request.method === 'session.resume') { const id = request.params.session_id; result = { session_id: `runtime-${id}`, stored_session_id: id, info: { title: sessions.find(session => session.id === id)?.title, profile_name: 'default', running: false } } }
       else if (request.method === 'approval.pending') result = { approvals: [] }
       else if (request.method === 'subagent.list') result = { subagents: [{ subagent_id: 'changelog', goal: 'Review the changelog and check that the release notes cover the recent changes.', status: changelogFinished ? 'completed' : 'running', tool_count: 4, last_tool: 'read_file' }] }
       socket.send(JSON.stringify({ jsonrpc: '2.0', id: request.id, result }))
@@ -457,6 +459,43 @@ try {
   assert.ok(await runDialog.evaluate(element => { const bounds = element.getBoundingClientRect(); return bounds.left >= 0 && bounds.right <= innerWidth && bounds.top >= 0 && bounds.bottom <= innerHeight }), 'Run dialog must fit mobile.')
   await page.screenshot({ path: '/tmp/agora-cron-run-mobile-dark.png' })
   await runDialog.getByRole('button', { name: 'Close', exact: true }).click()
+  await page.setViewportSize({ width: 1280, height: 960 })
+  await page.emulateMedia({ colorScheme: 'light' })
+  await page.getByRole('button', { name: 'Chat', exact: true }).click()
+  const projectRow = page.locator('.session-row').filter({ hasText: 'Project notes' })
+  await projectRow.hover()
+  await projectRow.getByRole('button', { name: 'Pin conversation', exact: true }).click()
+  const pinnedSection = page.getByRole('region', { name: 'Pinned', exact: true })
+  await pinnedSection.getByText('Project notes', { exact: true }).waitFor()
+  assert.equal(await page.locator('.conversation-header h1').innerText(), 'Release checklist', 'Pinning a row must not open it.')
+  await page.reload()
+  await pinnedSection.getByText('Project notes', { exact: true }).waitFor()
+  assert.deepEqual(await page.evaluate(() => JSON.parse(localStorage.getItem('agora.pinned-conversations'))['https://hermes.example.com']), [{ id: 'notes', profile: 'default' }])
+  await page.getByRole('button', { name: 'Switch conversation', exact: true }).click()
+  await page.getByRole('dialog', { name: 'Switch conversation' }).waitFor()
+  assert.ok((await page.locator('.switcher-option').first().innerText()).includes('Project notes'), 'Pins should also lead the conversation switcher.')
+  await page.keyboard.press('Escape')
+  const groupOrder = () => page.locator('.session-group').evaluateAll(groups => groups.map(group => group.getAttribute('aria-label')))
+  const originalGroupOrder = await groupOrder()
+  await pinnedSection.locator('.session').click()
+  await page.waitForFunction(() => new URLSearchParams(location.search).get('session') === 'notes')
+  assert.deepEqual(await groupOrder(), originalGroupOrder, 'Pinned group must stay in place while loading a pinned chat.')
+  await page.getByRole('heading', { name: 'Project notes', exact: true }).waitFor()
+  await pinnedSection.getByRole('button', { name: 'Unpin conversation' }).waitFor({ state: 'visible' })
+  await page.getByRole('region', { name: 'Today', exact: true }).locator('.session').filter({ hasText: 'Release checklist' }).click()
+  await page.getByRole('heading', { name: 'Release checklist', exact: true }).waitFor()
+  assert.deepEqual(await groupOrder(), originalGroupOrder, 'Returning to Today must not move pinned rows.')
+  await page.locator('.thinking-trace .thinking-icon').waitFor()
+  await page.locator('.tool-group .tool-icon').first().waitFor()
+  await page.locator('.header-actions .conversation-pin:not([disabled])').waitFor()
+  await page.screenshot({ path: '/tmp/agora-pinned-light.png' })
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.getByRole('button', { name: 'Open conversations' }).click()
+  await pinnedSection.getByRole('button', { name: 'Unpin conversation' }).click()
+  await pinnedSection.waitFor({ state: 'detached' })
+  await page.screenshot({ path: '/tmp/agora-pins-mobile-dark.png' })
+
   if (errors.length) throw new Error(errors.join('\n'))
   console.info('Saved docs/screenshots/chat-light.png and chat-dark.png (sample data).')
 } finally {

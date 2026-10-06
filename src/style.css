@@ -16,6 +16,11 @@ a { color: var(--link); text-underline-offset: 3px; }
 .text-button { border: 0; background: transparent; padding: 3px 6px; }
 .session-list { flex: 1; overflow-y: auto; min-height: 0; }
 .session { display: block; text-align: left; width: 100%; padding: 7px 13px; margin: 1px 0; border: 1px solid transparent; background: transparent; }
+.session-row { position: relative; }
+.session-row > .session { padding-right: 42px; }
+.session-row > .conversation-pin { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); opacity: 0; }
+.session-row:hover > .conversation-pin, .session-row:focus-within > .conversation-pin, .session-row > .conversation-pin.pinned { opacity: 1; }
+@media (hover: none) { .session-row > .conversation-pin { opacity: 1; } }
 .session.selected { background: var(--selected); border-color: var(--selected-border); }
 .session-heading { display: flex; align-items: center; gap: 9px; }
 .cron-paused { width: 12px; height: 12px; flex-shrink: 0; color: var(--muted); }
