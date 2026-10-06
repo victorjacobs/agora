@@ -60,7 +60,8 @@ try {
     socket.onMessage(raw => {
       const request = JSON.parse(String(raw))
       let result = {}
-      if (request.method === 'model.options') result = { model: 'gpt-6.1-sol', provider: 'openai', providers: [{ slug: 'openai', name: 'OpenAI', models: ['gpt-6.1-sol'], capabilities: { 'gpt-6.1-sol': { reasoning: true } } }] }
+      if (request.method === 'model.options') result = { model: 'gpt-6.1-sol', provider: 'openai-codex', providers: [{ slug: 'openai-codex', name: 'OpenAI Codex', models: ['gpt-6.1-sol'], capabilities: { 'gpt-6.1-sol': { reasoning: true } } }, { slug: 'anthropic', name: 'Anthropic', models: ['claude-sonnet'] }] }
+      else if (request.method === 'cli.exec') result = { blocked: false, code: 0, output: JSON.stringify({ provider: 'openai-codex', plan: 'Plus', windows: [{ label: 'Session', used_percent: request.params.argv.includes('anthropic') ? 40 : 24 }, { label: 'Weekly', used_percent: 39 }], details: [] }) }
       else if (request.method === 'config.get') result = { value: 'medium' }
       else if (request.method === 'session.active_list') result = { sessions: [{ id: 'runtime-interface', session_key: 'interface', status: 'working' }] }
       else if (request.method === 'session.resume') result = { session_id: 'runtime-release', stored_session_id: 'release', info: { title: 'Release checklist', profile_name: 'default', running: false } }
@@ -97,6 +98,12 @@ try {
   await composer.blur()
   await page.evaluate(() => document.fonts.ready)
   if (errors.length) throw new Error(errors.join('\n'))
+  await page.getByRole('button', { name: 'Provider quota' }).click()
+  await page.getByText('76% left', { exact: true }).waitFor()
+  await page.getByRole('combobox', { name: 'Quota provider' }).selectOption('anthropic')
+  await page.getByText('60% left', { exact: true }).waitFor()
+  await page.getByRole('combobox', { name: 'Quota provider' }).selectOption('openai-codex')
+  await page.getByText('76% left', { exact: true }).waitFor()
   const output = resolve('docs/screenshots')
   await mkdir(output, { recursive: true })
   await page.screenshot({ path: `${output}/chat-light.png` })

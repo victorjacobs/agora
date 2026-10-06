@@ -288,7 +288,8 @@ describe('chat interface', () => {
     expect(host.textContent).not.toContain('https://remote-hermes.test')
     expect(host.querySelector('.session-title')?.textContent).toBe('Synthetic conversation')
     expect(host.querySelector('.sign-in-page')).toBeNull()
-    expect(host.querySelector('form[action="/auth/logout"]')).not.toBeNull()
+    expect(host.querySelector('form[action="/auth/logout"]')).toBeNull()
+    expect(host.querySelector('.provider-quota')).not.toBeNull()
   })
 
   it('goes directly from the session check to chat for an authenticated refresh', async () => {
@@ -334,7 +335,8 @@ describe('chat interface', () => {
     await nextTick()
     expect(login()).toBeNull()
     expect(host.querySelector('textarea')).not.toBeNull()
-    expect(host.querySelector('form[action="/auth/logout"]')).not.toBeNull()
+    expect(host.querySelector('form[action="/auth/logout"]')).toBeNull()
+    expect(host.querySelector('.provider-quota')).not.toBeNull()
     client.state.connection = 'reconnecting'
     await nextTick()
     expect(host.querySelector('.sign-in-page')).toBeNull()

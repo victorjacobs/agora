@@ -1,3 +1,4 @@
+import { providerQuota } from './quota'
 import { modelSwitchValue, reasoningEfforts, type ModelChoice, type ModelChangeResult, type ModelInventory, type ModelProvider, type SessionModelInfo } from './settings'
 import { anchorFinishedTasks, reconcileTasks, taskEvent, taskRunning, type BackgroundTask, type SubagentRoster } from './tasks'
 import { HermesApi, HttpError } from './api'
@@ -239,6 +240,11 @@ export class ChatClient {
     if (typeof info.reasoning_effort === 'string') this.state.reasoning = info.reasoning_effort
     if (typeof info.reasoning_effort_wire === 'string') this.state.reasoningWire = info.reasoning_effort_wire
     if (['model', 'provider', 'reasoning_effort', 'reasoning_effort_wire'].some(key => typeof info[key as keyof SessionModelInfo] === 'string')) this.settingsRevision++
+  }
+
+  async providerQuota(provider: string, profile?: string) {
+    if (this.stopped || this.state.connection !== 'ready') throw new Error('Connect to Hermes to check quota.')
+    return providerQuota(this.gateway, provider, profile)
   }
 
   async refreshSettings() {

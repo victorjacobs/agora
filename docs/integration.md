@@ -289,3 +289,26 @@ warnings are shown to the user; deferred switches are labelled as queued rather
 than reported as already active. Controls are disabled during a turn or setting
 change. Ambiguous setting failures are not retried automatically. Inventory reads
 do not delay normal chat recovery; unsupported methods show a refreshable error.
+
+### Provider quota
+
+The sidebar footer queries quota on demand through `cli.exec`, with the fixed
+argument list `usage --provider <inventory slug> --json`, an explicit
+`--profile=<selected profile>` when available,
+and a 20-second server timeout. The CLI flag is required because this Hermes
+revision does not apply the `cli.exec` RPC profile field to its subprocess. This invokes Hermes's existing read-only account
+usage implementation rather than accessing credentials or vendor APIs in Agora.
+The gateway combines stdout and stderr; the client extracts the quota JSON
+document so startup warnings do not invalidate it. Request failures distinguish
+unsupported methods, provider timeouts, and invalid responses.
+The response schema is defined by
+[`usage_snapshot_document`](https://github.com/NousResearch/hermes-agent/blob/main/hermes_cli/subcommands/usage.py).
+Quota windows report `used_percent` and `resets_at`; credit balances remain the
+provider's plain-text `details`. Missing percentages are unavailable, not zero.
+
+The provider picker uses the existing model inventory, independently of the
+chat's selected model. Snapshots are cached in component memory for one minute,
+scoped by profile and provider. Refresh forces a new request. Late replies are
+discarded after switching providers, profiles, disconnecting, or unmounting.
+Providers without supported account usage and old gateways fail visibly without
+blocking chat. No agent session is created or modified to fetch quota.

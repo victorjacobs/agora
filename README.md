@@ -6,6 +6,7 @@ the Hermes dashboard. Hermes runs the agent, stores conversations, and handles
 sign-in. Agora provides the chat interface.
 
 - Streamed replies, Markdown, code, and inline generated images.
+- On-demand provider quota and credit balances, with a picker for multiple providers.
 - A compact chat list grouped by date, with running and unread-reply indicators.
   Search loaded titles and stored message text; cron-job conversations are excluded.
 - A conversation switcher on **⌘K / Ctrl+K**. Type to search, use ↑/↓ to choose,
@@ -215,8 +216,7 @@ See [integration and deployment](docs/integration.md) for the routing details.
 
 Agora keeps access/refresh tokens in the local process's memory. Drafts,
 transcripts, and unread markers are not persisted in browser storage. Hermes
-retains saved conversation history. Local sign-out clears Agora's grants and
-sockets; it does not end your identity provider's browser SSO session.
+retains saved conversation history.
 
 Losing a connection does not stop an agent. Agora recovers history and runtime
 state before enabling actions. If a send's outcome is uncertain, it retains the
@@ -225,6 +225,14 @@ draft and asks you to check the conversation; it never automatically resends it.
 Generated images load through Hermes's authenticated media routes. Remote-image
 previews depend on Hermes's CDN allowlist. Background-task visibility depends on
 the gateway's supported events and session-scoped roster.
+
+Provider quota is available in the sidebar footer. Choose a provider to see its
+remaining limits, reset times, or credit balance. Agora queries Hermes’s read-only
+`hermes usage --provider … --json` command through the gateway; credentials stay
+on Hermes. Providers without a quota endpoint, or older Hermes versions without
+this command, show quota as unavailable. Checking quota does not change the chat’s
+model or start an agent turn.
+
 
 The source-verified compatibility baseline is Hermes revision
 [`e1fdf003a668f97bf5a53d7675c1e70b1dcfec34`](https://github.com/NousResearch/hermes-agent/tree/e1fdf003a668f97bf5a53d7675c1e70b1dcfec34).

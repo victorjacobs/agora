@@ -7,6 +7,7 @@ import { taskRunning } from './hermes/tasks'
 import ComposerSettings from './ComposerSettings.vue'
 import ConversationSwitcher from './ConversationSwitcher.vue'
 import BackgroundTasks from './BackgroundTasks.vue'
+import ProviderQuota from './ProviderQuota.vue'
 import ConversationTurn from './ConversationTurn.vue'
 import RequestCard from './RequestCard.vue'
 import SignInPage from './SignInPage.vue'
@@ -143,13 +144,7 @@ function approvalChoices(approval: Approval) {
 }
 const approvalLabels: Record<string, string> = { once: 'Allow once', session: 'Allow for session', always: 'Always allow', deny: 'Deny' }
 
-function logout(event: Event) {
-  event.preventDefault()
-  chat.dispose()
-  Object.assign(state, initialState(), { connection: 'closed' })
-  const form = event.target as HTMLFormElement
-  form.submit()
-}
+
 
 watch(() => [state.messages.length, state.messages.at(-1)?.text], () => {
   if (following.value) void scrollToLatest(false)
@@ -220,8 +215,8 @@ onBeforeUnmount(() => { clearInterval(dateTimer); window.removeEventListener('re
         <button v-if="!searching && state.sessions.length < state.total" class="load-more" :disabled="state.listLoading" @click="chat.refreshSessions(true)">{{ state.listLoading ? 'Loading…' : 'Load more conversations' }}</button>
         <p v-if="searching && state.searchResults.length === 100" class="search-limit">Showing up to 100 matches. Refine your search for more.</p>
       </nav>
-      <div v-if="state.authRequired && state.identity" class="sidebar-footer">
-        <form method="post" action="/auth/logout" @submit="logout"><button class="text-button">Sign out</button></form>
+      <div class="sidebar-footer">
+        <ProviderQuota :providers="state.modelProviders" :current-provider="state.provider" :profile="state.profile" :connected="state.connection === 'ready'" :load="(provider, profile) => chat.providerQuota(provider, profile)" />
       </div>
     </aside>
 
