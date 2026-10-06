@@ -90,18 +90,18 @@ async function fixture() {
   bridge.attach(localServer)
   const origin = await listen(localServer)
   cleanup.push(() => bridge.dispose())
-  const beginLogin = async (next = '/agora/?session=test') => {
+  const beginLogin = async (next = '/?session=test') => {
     const beginning = await fetch(`${origin}/login?next=${encodeURIComponent(next)}`, { redirect: 'manual' })
     const loginCookie = beginning.headers.get('set-cookie')!.split(';')[0]
     const authorize = await fetch(beginning.headers.get('location')!, { redirect: 'manual' })
     const callback = authorize.headers.get('location')!
     return { loginCookie, callback }
   }
-  const login = async (next = '/agora/?session=test') => {
+  const login = async (next = '/?session=test', expectedNext = next) => {
     const { loginCookie, callback } = await beginLogin(next)
     const completed = await fetch(callback, { headers: { Cookie: loginCookie }, redirect: 'manual' })
     expect(completed.status).toBe(303)
-    expect(completed.headers.get('location')).toBe(next.startsWith('/agora/') ? next : '/agora/')
+    expect(completed.headers.get('location')).toBe(expectedNext)
     const cookie = completed.headers.getSetCookie().find(value => value.startsWith('agora_local_session='))!.split(';')[0]
     return { cookie, callback, loginCookie }
   }
@@ -148,6 +148,15 @@ describe('local remote-Hermes connection', () => {
       expect(response.status).toBe(200)
       expect(await response.json()).toEqual({ ok: true, value })
       expect(test.records.at(-1)?.authorization).toBe('Bearer access-1')
+    }
+  })
+
+  it('returns login to the root conversation URL and rejects unsafe return paths', async () => {
+    const test = await fixture()
+    await test.login('/?session=a%20b&profile=work')
+    await test.login('/')
+    for (const next of ['//untrusted.test', '/\\untrusted.test', 'https://untrusted.test', '/auth/logout', '/agora/', '/?session=x\nLocation: https://untrusted.test']) {
+      await test.login(next, '/')
     }
   })
 
@@ -225,6 +234,7 @@ describe('local remote-Hermes connection', () => {
     const second = await test.login()
     const logout = await fetch(`${test.origin}/auth/logout`, { method: 'POST', headers: { Cookie: first.cookie, Origin: test.origin }, redirect: 'manual' })
     expect(logout.status).toBe(303)
+    expect(logout.headers.get('location')).toBe('/')
     expect((await fetch(`${test.origin}/api/auth/me`, { headers: { Cookie: first.cookie } })).status).toBe(401)
     expect((await fetch(`${test.origin}/api/auth/me`, { headers: { Cookie: second.cookie } })).status).toBe(200)
     test.rejectRefresh()
@@ -267,7 +277,7 @@ describe('local remote-Hermes connection', () => {
     })
     expect(invalidHostStatus).toBe(403)
     expect((await fetch(`${test.origin}/api/config`)).status).toBe(404)
-    await test.login('//untrusted.test')
+    await test.login('//untrusted.test', '/')
     expect(() => new LocalBridge('http://hermes.example')).toThrow(/HTTPS/)
     expect(() => new LocalBridge('https://user:password@hermes.example')).toThrow(/credentials/)
   })

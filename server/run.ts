@@ -22,21 +22,10 @@ const files = sirv(dist, {
   },
 })
 const server = createServer((request, response) => {
-  bridge.middleware(request, response, () => {
-    if (request.url === '/' || request.url === '/agora') {
-      response.writeHead(302, { Location: '/agora/' })
-      response.end()
-    } else if (request.url?.startsWith('/agora/')) {
-      request.url = request.url.slice('/agora'.length)
-      files(request, response)
-    } else {
-      response.writeHead(404)
-      response.end('Not found')
-    }
-  })
+  bridge.middleware(request, response, () => files(request, response))
 })
 bridge.attach(server)
-server.listen(port, '127.0.0.1', () => console.info(`Agora: http://127.0.0.1:${port}/agora/`))
+server.listen(port, '127.0.0.1', () => console.info(`Agora: http://127.0.0.1:${port}/`))
 server.on('error', error => { console.error(error.message); process.exitCode = 1; bridge.dispose() })
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.on(signal, () => { bridge.dispose(); server.close(); server.closeAllConnections() })

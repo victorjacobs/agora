@@ -22,7 +22,7 @@ authenticated live login or chat. Recheck contracts against another revision.
 ## Laptop connection
 
 Set `HERMES_ENDPOINT` in `.env.local`, then run `agora-dev` or build and run
-`agora-start`. The local URL is `http://127.0.0.1:5173/agora/`. The endpoint is a
+`agora-start`. The local URL is `http://127.0.0.1:5173/`. The endpoint is a
 runtime setting for `agora-start`, so changing servers does not require rebuilding
 assets. Restart the process to apply it. Remote endpoints require HTTPS; HTTP is
 allowed for loopback Hermes test installations. URL path prefixes are preserved.
@@ -128,18 +128,15 @@ A 401 pauses the client for sign-in; a 403 or WebSocket policy rejection is show
 as a separate failure. There are no client OIDC tokens or automatic login redirects.
 Logout submits Hermes’s `/auth/logout` form and closes the local gateway.
 
-## Same-origin routing example
+## Hosting at the domain root
 
-Copy the production `dist/` contents to `/srv/www/agora/`. An example Nginx
-routing fragment, inside an existing HTTPS server block:
+Copy the production `dist/` contents to `/srv/www/agora/`. The UI, manifest,
+icons, and assets are served at `/`, with conversation URLs such as
+`https://agora.example.com/?session=…`. An example Nginx fragment inside that
+domain's HTTPS server block:
 
 ```nginx
-root /srv/www;
-
-location = /agora { return 308 /agora/; }
-location /agora/ {
-    try_files $uri $uri/ /agora/index.html;
-}
+root /srv/www/agora;
 
 location = /api/ws {
     proxy_pass http://127.0.0.1:8080;
@@ -151,15 +148,30 @@ location = /api/ws {
     proxy_read_timeout 90s;
 }
 
-location / {
+location ~ ^/(api|auth)(/|$) {
     proxy_pass http://127.0.0.1:8080;
     proxy_set_header Host $http_host;
     proxy_set_header X-Forwarded-Proto $scheme;
 }
+
+location = /login {
+    proxy_pass http://127.0.0.1:8080;
+    proxy_set_header Host $http_host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+
+location / {
+    try_files $uri $uri/ /index.html;
+}
 ```
 
+The browser sees one origin: the Agora domain. Hermes may run on another machine;
+replace the upstream address with its reachable dashboard URL. Keep API and auth
+routes proxied rather than returning `index.html` for them. Static files alone do
+not authenticate against an unrelated Hermes origin.
+
 Keep Hermes’s backend port restricted. Configure its public URL as the HTTPS
-origin, and the OIDC callback as `<origin>/auth/callback`, not `/agora/`.
+origin, and the OIDC callback as `<origin>/auth/callback`, not the UI root.
 Use the gated Hermes configuration and verify `/api/status` reports
 `auth_required: true`: loopback mode alone can be ungated even behind a proxy.
 Do not replace Host/Origin checks with an unconditional allow rule.
@@ -387,7 +399,7 @@ the transcript when the user is already at its bottom.
 
 ### Memory inspection
 
-All inspection is read-only and scoped to the selected profile. When no profile
+Inspection is scoped to the selected profile. When no profile
 is named, `GET /api/profiles/active` supplies `current` (the running dashboard's
 profile), not the sticky CLI `active` setting. An unknown custom profile fails
 visibly rather than guessing `default`. No new session or agent turn is created.

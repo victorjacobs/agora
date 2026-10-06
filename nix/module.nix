@@ -24,7 +24,7 @@ in
     port = mkOption {
       type = types.port;
       default = 5173;
-      description = "HTTP port on 127.0.0.1. Open /agora/ in a browser on this machine.";
+      description = "HTTP port on 127.0.0.1. Open / in a browser on this machine.";
     };
 
     profile = mkOption {

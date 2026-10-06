@@ -28,7 +28,7 @@ const messages = [
   { id: 5, role: 'assistant', content: 'The project checks pass. Here’s the release checklist:\n\n- Review the changes and update the release notes.\n- Verify login and a chat against your Hermes server.\n- Build the application and tag the release.\n\nRun the checks again before publishing:\n\n```sh\nagora-check\n```\n\nI’m checking the changelog in the background.' },
 ]
 const server = await createServer({
-  configFile: false, plugins: [vue()], base: '/agora/',
+  configFile: false, plugins: [vue()], base: '/',
   server: { host: '127.0.0.1', port: 0 }, logLevel: 'error',
 })
 let browser
@@ -102,18 +102,18 @@ try {
       socket.send(JSON.stringify({ jsonrpc: '2.0', id: request.id, result }))
     })
   })
-  await page.goto(`${origin}/agora/?session=release`)
+  await page.goto(`${origin}/?session=release`)
   const manifestUrl = await page.locator('link[rel="manifest"]').evaluate(link => link.href)
-  assert.equal(new URL(manifestUrl).pathname, '/agora/manifest.webmanifest')
+  assert.equal(new URL(manifestUrl).pathname, '/manifest.webmanifest')
   const manifestResponse = await page.request.get(manifestUrl)
   assert.ok(manifestResponse.ok())
   const manifest = await manifestResponse.json()
   assert.equal(manifest.display, 'standalone')
-  assert.equal(new URL(manifest.start_url, manifestUrl).pathname, '/agora/')
+  assert.equal(new URL(manifest.start_url, manifestUrl).pathname, '/')
   const iconUrls = await page.locator('link[rel="icon"], link[rel="apple-touch-icon"]').evaluateAll(links => links.map(link => link.href))
   assert.equal(iconUrls.length, 4)
   for (const url of iconUrls) {
-    assert.match(new URL(url).pathname, /^\/agora\/[^/]+\.(png|ico)$/)
+    assert.match(new URL(url).pathname, /^\/[^/]+\.(png|ico)$/)
     const response = await page.request.get(url)
     assert.ok(response.ok(), `Icon failed to load: ${url}`)
     assert.match(response.headers()['content-type'], /^image\//, `Icon URL did not serve an image: ${url}`)

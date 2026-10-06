@@ -63,7 +63,7 @@ Start Agora:
 agora-dev
 ```
 
-Open **http://127.0.0.1:5173/agora/** and click **Sign in with Hermes** if prompted.
+Open **http://127.0.0.1:5173/** and click **Sign in with Hermes** if prompted.
 Complete the sign-in in your browser. Keep the local process running while using
 Agora. Restart it after changing the endpoint.
 
@@ -170,7 +170,7 @@ HERMES_ENDPOINT=https://hermes.example.com nix run github:victorjacobs/agora
 ```
 
 For a local checkout, use `nix build .` or `nix run .`. The package includes
-Node.js and production dependencies. Open `http://127.0.0.1:5173/agora/`.
+Node.js and production dependencies. Open `http://127.0.0.1:5173/`.
 
 To use Agora in a NixOS configuration flake:
 
@@ -215,10 +215,12 @@ For a static deployment, omit `HERMES_ENDPOINT` when building:
 npm run build
 ```
 
-Serve `dist/` at `/agora/` on the **same HTTPS origin** as Hermes. Keep the existing
-dashboard and `/api/*`, `/login`, and `/auth/*` routes, including WebSocket upgrades.
-Apply SPA fallback only under `/agora/`. The static UI uses Hermes's browser login
-and session cookies directly; it does not need the local service.
+Serve `dist/` at `/` on your HTTPS domain, for example `https://agora.vjcbs.be/`.
+Proxy `/api/*`, `/login`, and `/auth/*` to Hermes, including WebSocket upgrades.
+Keep these routes ahead of the UI's SPA fallback. The static UI uses Hermes's
+browser login and session cookies directly; it does not need the local service.
+Configure Hermes to accept this public origin and its OIDC callback at
+`https://agora.vjcbs.be/auth/callback`; serving static files alone is not enough.
 
 For development in this mode, omit `HERMES_ENDPOINT` and set `HERMES_TARGET` if
 needed. Hermes must accept the browser's Host/Origin and login callback location.

@@ -9,7 +9,7 @@ export default defineConfig(({ mode }) => {
   const target = env.HERMES_TARGET || 'http://127.0.0.1:8080'
 
   return {
-    base: '/agora/',
+    base: '/',
     plugins: [vue(), ...(endpoint && mode !== 'test' ? [localHermesPlugin(endpoint)] : [])],
     server: {
       host: '127.0.0.1', port: 5173, strictPort: true,

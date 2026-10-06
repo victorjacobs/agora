@@ -64,7 +64,7 @@ function browserCookie(name: string, value: string, maxAge?: number) {
 }
 
 function safeNext(value: string | null) {
-  if (!value || !/^\/agora\/(?:\?[^\r\n\\]*)?$/.test(value)) return '/agora/'
+  if (!value || !/^\/(?:\?[^\r\n\\]*)?$/.test(value)) return '/'
   return value
 }
 
@@ -176,7 +176,7 @@ export class LocalBridge {
       if (id) this.removeSession(id)
       const loginId = cookie(request, LOGIN_COOKIE)
       if (loginId) this.logins.delete(loginId)
-      return redirect(response, '/agora/', [browserCookie(SESSION_COOKIE, '', 0), browserCookie(LOGIN_COOKIE, '', 0)])
+      return redirect(response, '/', [browserCookie(SESSION_COOKIE, '', 0), browserCookie(LOGIN_COOKIE, '', 0)])
     }
     if (!allowedRoute(url.pathname, method)) throw new BridgeError(404, 'Unsupported local API route.')
     if (url.pathname === '/api/agora/connection') {

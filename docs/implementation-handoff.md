@@ -2,7 +2,8 @@
 
 The initial client is now implemented. See [integration.md](integration.md) for
 implementation behavior and validation limits. This document retains the original
-research baseline and planning observations. The original same-origin suggestion
+research baseline and planning observations. The implemented UI now uses `/`,
+not the original `/agora/` suggestion; see the current deployment guide. The original same-origin suggestion
 is now optional: the owner requested standalone laptop use with a configurable
 endpoint. See [integration.md](integration.md#laptop-connection) for the implemented
 loopback PKCE service; native desktop packaging remains deferred.

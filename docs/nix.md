@@ -21,7 +21,7 @@ nix-build --expr 'let pkgs = import <nixpkgs> {}; in pkgs.callPackage ./nix/pack
 HERMES_ENDPOINT=https://hermes.example.com ./result/bin/agora
 ```
 
-Open `http://127.0.0.1:5173/agora/`. Set `AGORA_PORT` to choose another port.
+Open `http://127.0.0.1:5173/`. Set `AGORA_PORT` to choose another port.
 The executable includes Node.js 24, the built UI, and production dependencies;
 it runs independently of your working directory. Configure the endpoint with
 environment variables, rather than a local `.env.local` file.
@@ -69,29 +69,44 @@ systemctl status agora
 journalctl -u agora
 ```
 
-## Public hosting alongside Hermes
+## Public hosting at the domain root
 
 The loopback login bridge expects a local browser and local Host/Origin headers.
 Putting it behind a public reverse proxy is not a supported hosting mode.
 
-Instead, serve `${agoraPackage}/share/agora/dist` at `/agora/` on the same origin
-as Hermes, using its existing browser-cookie login. For example, add these
-locations to the existing Hermes Nginx virtual host:
+Instead, serve `${agoraPackage}/share/agora/dist` at `/` on your Agora domain,
+with Hermes's API and browser-cookie login proxied through that same origin:
 
 ```nix
 let
   agoraPackage = pkgs.callPackage /path/to/agora/nix/package.nix { };
 in {
-  services.nginx.virtualHosts."hermes.example.com".locations = {
-    "= /agora".return = "302 /agora/";
-    "/agora/".alias = "${agoraPackage}/share/agora/dist/";
+  services.nginx.virtualHosts."agora.example.com" = {
+    root = "${agoraPackage}/share/agora/dist";
+    locations = {
+      "/".tryFiles = "$uri $uri/ /index.html";
+      "/api/" = {
+        proxyPass = "http://127.0.0.1:8080";
+        proxyWebsockets = true;
+        recommendedProxySettings = true;
+      };
+      "/auth/" = {
+        proxyPass = "http://127.0.0.1:8080";
+        recommendedProxySettings = true;
+      };
+      "= /login" = {
+        proxyPass = "http://127.0.0.1:8080";
+        recommendedProxySettings = true;
+      };
+    };
   };
 }
 ```
 
-Keep Hermes's API, WebSocket, and login routes as described in
-[integration.md](integration.md). Agora uses query parameters for conversation
-selection, so its current routes do not need a catch-all SPA fallback.
+Configure HTTPS, Hermes's accepted public origin, and the provider callback at
+`https://agora.example.com/auth/callback`. See [integration.md](integration.md)
+for auth gating and routing details. The Hermes dashboard can remain available
+on its own domain; the Agora domain serves the chat UI at its root.
 
 ## Verify changes
 
