@@ -42,6 +42,12 @@ sign-in. Agora provides the chat interface.
   Remembered approvals appear only when Hermes offers them. Clarification questions
   can be answered directly in chat.
 - New chats, history, rename, delete, and stop controls.
+- Opt-in desktop notifications when a response finishes while Agora is unfocused.
+  Enable **Notifications** at the bottom of the Chats sidebar and allow the browser
+  permission prompt. Notifications contain no conversation title or response text;
+  clicking one opens its chat. Agora must stay open and connected; closed or
+  suspended apps require Web Push, which is not implemented. HTTPS or localhost
+  and desktop browser notification support are required.
 - Automatic light/dark appearance and a layout that works on desktop and mobile.
 
 <picture>

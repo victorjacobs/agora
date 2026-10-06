@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ChatClient, initialState } from './hermes/chat'
+import NotificationToggle from './NotificationToggle.vue'
+import { notificationState, ReplyNotifications } from './reply-notifications'
 import ConversationPin from './ConversationPin.vue'
 import { conversationKey, usePinnedConversations } from './pinned-conversations'
 import { groupSessions } from './session-groups'
@@ -27,6 +29,11 @@ import type { SessionRow } from './hermes/types'
 
 const state = reactive(initialState())
 const chat = new ChatClient(state)
+const notificationSettings = reactive(notificationState())
+const notifications = new ReplyNotifications(notificationSettings, () => state.endpoint || window.location.origin, session => {
+  if (state.connection === 'ready') selectSession(session)
+})
+chat.onReply = session => notifications.show(session)
 const sidebarOpen = ref(false)
 const view = ref<'chat' | 'memory' | 'cron'>('chat')
 const cronView = ref<InstanceType<typeof CronView>>()
@@ -186,6 +193,7 @@ watch(() => [state.messages.length, state.messages.at(-1)?.text, state.messages.
 watch(() => [state.requests.length, state.approvals.length, state.compressing], () => {
   if (following.value) void scrollToLatest(false)
 }, { flush: 'post' })
+watch(() => [state.endpoint, state.identity], () => notifications.clear())
 watch(() => state.selected, () => { following.value = true })
 watch(() => state.tasks.map(task => [task.key, task.status]), () => {
   if (following.value) void scrollToLatest(false)
@@ -205,7 +213,7 @@ onMounted(() => {
   window.addEventListener('resize', resizeComposer)
   window.addEventListener('keydown', globalKey)
 })
-onBeforeUnmount(() => { clearInterval(dateTimer); window.removeEventListener('resize', resizeComposer); window.removeEventListener('keydown', globalKey); chat.dispose() })
+onBeforeUnmount(() => { clearInterval(dateTimer); window.removeEventListener('resize', resizeComposer); window.removeEventListener('keydown', globalKey); notifications.dispose(); chat.dispose() })
 </script>
 
 <template>
@@ -264,6 +272,7 @@ onBeforeUnmount(() => { clearInterval(dateTimer); window.removeEventListener('re
       </nav>
       <nav v-else class="session-list" aria-label="Scheduled jobs"><button v-for="job in cronJobs" :key="job.id" class="session" :class="{ selected: cronView?.selected === job.id }" :disabled="cronView?.busy" @click="cronView?.select(job.id); sidebarOpen = false"><span class="session-heading"><span class="session-title">{{ job.name || job.id }}</span><svg v-if="job.enabled === false || job.state === 'paused'" class="cron-paused" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" role="img" aria-label="Paused"><path d="M8 5v14M16 5v14" /></svg></span></button></nav>
       <div v-show="view === 'chat'" class="sidebar-footer">
+        <NotificationToggle :state="notificationSettings" @toggle="notifications.toggle()" />
         <ProviderQuota :providers="state.modelProviders" :current-provider="state.provider" :profile="state.profile" :connected="state.connection === 'ready'" :load="(provider, profile) => chat.providerQuota(provider, profile)" />
       </div>
     </aside>

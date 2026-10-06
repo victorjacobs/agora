@@ -48,7 +48,7 @@ function resetTime(value: string) { return new Date(value).toLocaleString(undefi
 
 <template>
   <section class="provider-quota" aria-label="Provider quota">
-    <button class="quota-toggle" :aria-expanded="expanded" aria-controls="quota-panel" @click="expanded = !expanded">
+    <button class="sidebar-action quota-toggle" :aria-expanded="expanded" aria-controls="quota-panel" @click="expanded = !expanded">
       <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M3 14a8 8 0 1 1 14 0M10 10l4-4M3 14h14" /><circle cx="10" cy="10" r="1.5" /></svg>
       <span>Provider quota</span><span class="quota-chevron" aria-hidden="true">{{ expanded ? '⌄' : '⌃' }}</span>
     </button>
@@ -81,8 +81,6 @@ function resetTime(value: string) { return new Date(value).toLocaleString(undefi
 
 <style scoped>
 .provider-quota { width: 100%; min-width: 0; }
-.quota-toggle { display: flex; align-items: center; gap: 8px; width: 100%; padding: 5px 0; border: 0; background: transparent; text-align: left; color: var(--secondary-text); font-size: 12px; }
-.quota-toggle svg { width: 16px; height: 16px; }
 .quota-chevron { margin-left: auto; }
 .quota-panel { padding-top: 10px; max-height: min(360px, 45dvh); overflow-y: auto; }
 .quota-controls { display: flex; align-items: center; gap: 6px; margin-bottom: 12px; }

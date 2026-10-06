@@ -77,6 +77,7 @@ export interface ChatLocation {
 export class ChatClient {
   private settingsMutation = false
   private settingsRevision = 0
+  onReply: (session: SessionRow) => void = () => {}
   private settingsReadGeneration = 0
   private selectionGeneration = 0
   private connectionGeneration = 0
@@ -478,6 +479,7 @@ export class ChatClient {
       this.replySequences.set(event.session_id, event.seq)
     }
     if (event.payload?.error || ['interrupted', 'failed', 'error'].includes(String(event.payload?.status))) return
+    if (event.type === 'message.complete') this.onReply(session)
     if (session.id === this.state.selected && session.profile === this.state.profile && this.state.connection === 'ready') return
     if (!this.state.unreadReplies.some(reply => reply.id === session.id && reply.profile === session.profile)) {
       this.state.unreadReplies.push(session)

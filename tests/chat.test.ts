@@ -49,6 +49,24 @@ function setup(selected = '') {
 afterEach(() => vi.useRealTimers())
 
 describe('chat recovery and session ownership', () => {
+  it('reports successful completed replies once, including the selected chat, without reporting stopped turns or subagents', async () => {
+    const { chat, gateway } = setup('a')
+    await chat.start('work')
+    const reply = vi.fn()
+    chat.onReply = reply
+    gateway.onEvent({ type: 'message.complete', session_id: 'runtime-a', seq: 1, payload: {} })
+    gateway.onEvent({ type: 'message.complete', session_id: 'runtime-a', seq: 1, payload: {} })
+    expect(reply).toHaveBeenCalledExactlyOnceWith({ id: 'a', profile: 'work' })
+    gateway.onEvent({ type: 'message.complete', session_id: 'runtime-a', seq: 2, payload: { status: 'interrupted' } })
+    gateway.onEvent({ type: 'message.complete', session_id: 'runtime-a', seq: 3, payload: { error: 'Failure' } })
+    gateway.onEvent({ type: 'background.complete', session_id: 'runtime-a', seq: 4, payload: {} })
+    gateway.onEvent({ type: 'message.complete', session_id: 'unknown', seq: 5, payload: {} })
+    expect(reply).toHaveBeenCalledTimes(1)
+    chat.dispose()
+    gateway.onEvent({ type: 'message.complete', session_id: 'runtime-a', seq: 6, payload: {} })
+    expect(reply).toHaveBeenCalledTimes(1)
+  })
+
   it('uploads image bytes before submitting an image-only prompt and shows the image in the user message', async () => {
     const { state, gateway, chat } = setup('a')
     await chat.start('work')

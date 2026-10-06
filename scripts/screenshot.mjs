@@ -48,6 +48,17 @@ try {
   const origin = `http://127.0.0.1:${server.httpServer.address().port}`
   browser = await chromium.launch({ executablePath, headless: true })
   const page = await browser.newPage({ viewport: { width: 1280, height: 960 }, deviceScaleFactor: 1, colorScheme: 'light', reducedMotion: 'reduce' })
+  await page.addInitScript(() => {
+    window.notificationCalls = []
+    window.notificationPermissionRequests = 0
+    class NotificationMock {
+      static permission = 'default'
+      static async requestPermission() { window.notificationPermissionRequests++; this.permission = 'granted'; return 'granted' }
+      constructor(title, options) { this.title = title; this.options = options; window.notificationCalls.push(this) }
+      close() { this.onclose?.() }
+    }
+    window.Notification = NotificationMock
+  })
   const errors = []
   page.on('pageerror', error => errors.push(error.message))
   await page.route('**/api/**', async route => {
@@ -481,6 +492,7 @@ try {
   await page.waitForFunction(() => new URLSearchParams(location.search).get('session') === 'notes')
   assert.deepEqual(await groupOrder(), originalGroupOrder, 'Pinned group must stay in place while loading a pinned chat.')
   await page.getByRole('heading', { name: 'Project notes', exact: true }).waitFor()
+  await page.locator('.header-actions .conversation-pin:not([disabled])').waitFor()
   await pinnedSection.getByRole('button', { name: 'Unpin conversation' }).waitFor({ state: 'visible' })
   await page.getByRole('region', { name: 'Today', exact: true }).locator('.session').filter({ hasText: 'Release checklist' }).click()
   await page.getByRole('heading', { name: 'Release checklist', exact: true }).waitFor()
@@ -495,6 +507,36 @@ try {
   await pinnedSection.getByRole('button', { name: 'Unpin conversation' }).click()
   await pinnedSection.waitFor({ state: 'detached' })
   await page.screenshot({ path: '/tmp/agora-pins-mobile-dark.png' })
+
+  await page.getByRole('button', { name: 'Close conversations', exact: true }).click()
+  await page.setViewportSize({ width: 1280, height: 960 })
+  assert.equal(await page.evaluate(() => window.notificationPermissionRequests), 0, 'Permission must not be requested automatically.')
+  const notificationButton = page.getByRole('button', { name: 'Enable response notifications' })
+  const quotaButton = page.getByRole('button', { name: 'Provider quota', exact: true })
+  const actionStyle = element => { const style = getComputedStyle(element); return [style.width, style.height, style.padding, style.color, style.fontSize, style.backgroundColor] }
+  await page.mouse.move(0, 0)
+  assert.deepEqual(await notificationButton.evaluate(actionStyle), await quotaButton.evaluate(actionStyle), 'Sidebar actions should share dimensions and styling.')
+  await notificationButton.hover()
+  const notificationHover = await notificationButton.evaluate(actionStyle)
+  await quotaButton.hover()
+  assert.deepEqual(notificationHover, await quotaButton.evaluate(actionStyle), 'Notification and quota hover styles must match.')
+  await notificationButton.click()
+  await page.getByRole('button', { name: 'Disable response notifications' }).waitFor()
+  assert.equal(await page.evaluate(() => window.notificationPermissionRequests), 1)
+  await page.evaluate(() => Object.defineProperty(document, 'hasFocus', { configurable: true, value: () => false }))
+  await page.getByRole('button', { name: 'Memory', exact: true }).click()
+  liveSocket.send(JSON.stringify({ jsonrpc: '2.0', method: 'event', params: { type: 'message.complete', session_id: 'runtime-notes', seq: 900, payload: {} } }))
+  await page.waitForFunction(() => window.notificationCalls.length === 1)
+  liveSocket.send(JSON.stringify({ jsonrpc: '2.0', method: 'event', params: { type: 'message.complete', session_id: 'runtime-notes', seq: 900, payload: {} } }))
+  assert.equal(await page.evaluate(() => window.notificationCalls[0].title), 'Hermes response ready')
+  await page.evaluate(() => window.notificationCalls[0].onclick())
+  await page.getByRole('heading', { name: 'Project notes', exact: true }).waitFor()
+  await page.locator('.header-actions .conversation-pin:not([disabled])').waitFor()
+  assert.equal(new URL(page.url()).searchParams.get('session'), 'notes', 'Notification click must open its conversation.')
+  assert.equal(await page.evaluate(() => window.notificationCalls.length), 1, 'Duplicate completion must not create a second notification.')
+  await page.getByRole('button', { name: 'Disable response notifications' }).click()
+  await page.getByRole('button', { name: 'Enable response notifications' }).waitFor()
+  await page.evaluate(() => Object.defineProperty(document, 'hasFocus', { configurable: true, value: () => true }))
 
   if (errors.length) throw new Error(errors.join('\n'))
   console.info('Saved docs/screenshots/chat-light.png and chat-dark.png (sample data).')

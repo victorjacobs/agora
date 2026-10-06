@@ -34,6 +34,8 @@ desktop packaging is deferred.
   conversation across login and reload using a stable URL where practical.
   Signed-out users see a dedicated sign-in screen with
   one prominent sign-in action; connection errors remain visible there.
+- Opt-in desktop completion notifications while Agora is open, connected, and
+  unfocused, with no conversation content in notifications. No background push.
 - Responsive layout, keyboard-accessible controls, visible focus, and sensible
   scrolling that does not drag a reader away from older messages.
 
@@ -53,7 +55,7 @@ states returned by Hermes, including work started from another client.
 
 Multiple-server/profile management, global model/provider settings, prompt editing or
 branching, non-image attachments, voice, terminal/file browser, tasks/boards, skills,
-MCP management, analytics, notifications, offline mode, and custom account
+MCP management, analytics, closed-app push notifications, offline mode, and custom account
 management. No feature parity with Hermes's dashboard, Conduit, or hermes-webui.
 
 ## Acceptance
