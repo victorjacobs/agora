@@ -950,7 +950,7 @@ export class ChatClient {
   }
 
   async stop() {
-    await this.action('session.interrupt', {}, result => {
+    await this.action('session.interrupt', { session_id: this.state.runtime, profile: this.state.profile }, result => {
       if ((result as { status: string }).status === 'not_interrupted') {
         this.state.activity = 'Hermes did not interrupt a turn. Recovering its current state.'
         void this.open(this.state.selected, this.state.profile)
@@ -963,7 +963,7 @@ export class ChatClient {
       const current = this.state.requests.find(entry => entry.id === request.id && entry.method === 'approval')
       if (!current || typeof result.choice !== 'string' || !approvalChoices(current.params as Approval).includes(result.choice)) return
     }
-    await this.action('request.answer', { id: request.id, result }, response => {
+    await this.action('request.answer', { id: request.id, result, profile: this.state.profile }, response => {
       if ((response as { status: string }).status === 'expired') this.state.error = 'This request expired or was already answered.'
       this.state.requests = this.state.requests.filter(entry => entry.id !== request.id)
       if (request.method === 'approval') {
@@ -975,7 +975,7 @@ export class ChatClient {
   async approve(approval: Approval, choice: string) {
     const current = this.state.approvals.find(entry => approval.request_id ? entry.request_id === approval.request_id : entry === approval)
     if (!current || !approvalChoices(current).includes(choice) || !approval.request_id && this.state.approvals[0] !== current) return
-    await this.action('approval.respond', { request_id: approval.request_id, choice }, response => {
+    await this.action('approval.respond', { session_id: this.state.runtime, profile: this.state.profile, request_id: approval.request_id, choice }, response => {
       if (!(response as { resolved: number }).resolved) this.state.error = 'This approval expired or was already answered.'
       this.state.approvals = this.state.approvals.filter(entry => entry.request_id !== approval.request_id)
       this.state.requests = this.state.requests.filter(entry => entry.params.request_id !== approval.request_id)
@@ -988,7 +988,7 @@ export class ChatClient {
     this.state.actionPending = true
     this.state.error = ''
     try {
-      const result = await this.gateway.request(method, { session_id: this.state.runtime, profile: this.state.profile, ...params }, 300_000)
+      const result = await this.gateway.request(method, params, 300_000)
       if (generation === this.selectionGeneration) apply?.(result)
     } catch (error) {
       if (generation === this.selectionGeneration) this.state.error = errorMessage(error)
