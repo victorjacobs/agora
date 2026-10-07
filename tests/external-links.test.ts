@@ -20,7 +20,7 @@ function setBrowser(userAgent = 'Mozilla/5.0 (iPhone; CPU iPhone OS 26_0 like Ma
 }
 
 describe('installed iOS PWA links', () => {
-  it.each([MarkdownMessage, ThinkingTrace])('opens an HTTPS link in Safari without rewriting its href (%s)', component => {
+  it.each([MarkdownMessage, ThinkingTrace])('opens an HTTPS link in Firefox without rewriting its href (%s)', component => {
     setBrowser()
     const open = vi.spyOn(window, 'open').mockReturnValue(null)
     const href = 'https://example.com/report?next=https://other.test/a&value=%2F#part'
@@ -29,7 +29,8 @@ describe('installed iOS PWA links', () => {
 
     link.querySelector('strong')!.dispatchEvent(event)
 
-    expect(open).toHaveBeenCalledWith(`x-safari-https://${href.slice('https://'.length)}`, '_blank', 'noopener,noreferrer')
+    expect(open).toHaveBeenCalledWith(`firefox://open-url?url=${encodeURIComponent(href)}`, '_blank', 'noopener,noreferrer')
+    expect(new URL(open.mock.calls[0]![0] as string).searchParams.get('url')).toBe(href)
     expect(event.defaultPrevented).toBe(true)
     expect(link.getAttribute('href')).toBe(href)
   })
@@ -39,7 +40,7 @@ describe('installed iOS PWA links', () => {
     vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true })))
     const open = vi.spyOn(window, 'open').mockReturnValue(null)
     mountLink(MarkdownMessage, 'https://example.com').click()
-    expect(open).toHaveBeenCalledWith('x-safari-https://example.com', '_blank', 'noopener,noreferrer')
+    expect(open).toHaveBeenCalledWith('firefox://open-url?url=https%3A%2F%2Fexample.com', '_blank', 'noopener,noreferrer')
   })
 
   it.each([
