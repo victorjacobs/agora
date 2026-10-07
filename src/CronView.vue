@@ -6,11 +6,13 @@ import type { Message } from './hermes/types'
 import ConversationTurn from './ConversationTurn.vue'
 import CronRunDialog from './CronRunDialog.vue'
 
-const props = defineProps<{ active: boolean; connected: boolean; profile?: string; api?: CronApi }>()
+const props = defineProps<{ active: boolean; connected: boolean; profile?: string; requestedJob?: string; api?: CronApi }>()
 const emit = defineEmits<{ jobs: [jobs: CronJob[]] }>()
 const api = props.api || new CronApi()
 const jobs = ref<CronJob[]>([])
 const selected = ref('')
+let requestedSelection = props.requestedJob || ''
+watch(() => props.requestedJob, id => { requestedSelection = id || '' })
 const profile = ref('')
 const runs = ref<CronRun[]>([])
 const loading = ref(false)
@@ -85,6 +87,11 @@ async function refresh() {
     profile.value = owner
     jobs.value = result
     emit('jobs', result)
+    if (requestedSelection) {
+      const requested = requestedSelection; requestedSelection = ''
+      selected.value = result.some(job => job.id === requested) ? requested : ''
+      if (!selected.value) { error.value = 'The requested job is no longer available.'; return }
+    }
     if (!editing.value && !result.some(job => job.id === selected.value)) selected.value = result[0]?.id || ''
     await loadRuns()
   } catch (value) { if (scope === generation) error.value = failure(value) }

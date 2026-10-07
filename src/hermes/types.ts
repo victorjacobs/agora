@@ -39,7 +39,7 @@ export interface HistoryPage {
   profile?: string
   messages: Array<{
     reasoning?: unknown; reasoning_content?: unknown; reasoning_details?: unknown; codex_reasoning_items?: unknown
-    id?: number; row_id?: number; role: string; content?: unknown; text?: string
+    id?: number; row_id?: number; role: string; content?: unknown; text?: string; tool_calls?: unknown[]
     display_content?: string; display_kind?: string; display_metadata?: Record<string, unknown>; name?: string; tool_name?: string
   }>
   pagination: { returned: number; offset: number; limit: number }
