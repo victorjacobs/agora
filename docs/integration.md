@@ -19,6 +19,59 @@ are advertised, and the provider is self-hosted OIDC. Its exact Hermes revision
 is unverified. Source inspection and synthetic tests do not establish successful
 authenticated live login or chat. Recheck contracts against another revision.
 
+## Passwords & Logins workspace
+
+Open the lock icon in the rail. **Saved logins** searches only metadata:
+label, exact origin, identifier/type, backend, and whether 2FA is configured.
+Payment/address items and secret payloads are not retained or rendered.
+**Login sources** shows installed, enabled, locked/unlocked readiness; locked
+external managers contribute no login entries. Source configuration and unlock
+are handled in Hermes, not this workspace.
+
+The installed Hermes package was inspected on 2026-10-07, using
+`tui_gateway/methods_vault.py`, the vault contracts in
+`tui_gateway/contracts/profiles_vault_complete_foreign_subagents.py`, and
+`agent/vault_store.py`. Only source was read, never saved vault data.
+
+| RPC | Parameters | Result |
+| --- | --- | --- |
+| `vault.list` | `{profile}` | `{items}`: metadata with `backend`, never passwords |
+| `vault.sources` | `{profile}` | `{sources}`: readiness booleans and display names |
+| `vault.add` | `{profile, kind: "login", label, origin, secret: {identifier, identifier_type, password}}` | `{id}` |
+| `vault.remove` | `{profile, id}` | `{removed: boolean}` for a local item |
+
+An omitted profile uses Hermes's launch profile. Requests use the already
+authenticated gateway and unchanged bridge; no new HTTP routes, API patches,
+database, or filesystem mount. Dashboard access is operator-level access, not
+per-user vault isolation. Remote connections require the existing HTTPS endpoint
+validation; use HTTPS for hosted Agora as documented below.
+
+Add validates an explicit canonical HTTPS origin (loopback HTTP allowed),
+without silently stripping paths, userinfo, or trailing slashes. The password
+is masked and goes directly to `vault.add`, never `prompt.submit` or
+`request.answer`. Inputs are transient and cleared on submission, cancel,
+navigation/section or profile changes, disconnect, logout, and unmount. Browser
+password managers may independently offer to save it; Agora writes no credential
+to browser storage, URLs, or logs. Mutation errors are generic, never upstream
+error text that could echo submitted secrets. Password reveal/copy, item editing,
+OTP-seed input, payment/address forms, and manager mutations are not implemented.
+
+Only local items have removal controls, and a separate confirmation is required.
+Acknowledged writes are followed by a metadata read: success is reported only
+when the returned new ID is present or the removed ID is absent. Writes never
+retry automatically. An ambiguous connection failure disables writes until a
+successful list refresh; check the list before repeating an action. Navigation
+invalidates late results but does not cancel a write already sent to Hermes.
+Older servers return an unavailable state, with no alternative storage or API.
+
+Tests cover metadata selection, exact payload/profile scope, masking and clearing,
+confirmation, generic errors, ambiguous failure without replay, readback, and
+out-of-order profile reads/writes. The Chromium fixture smoke verifies direct
+add/remove payloads and readback, read-only sources, drawer closure, mobile fit,
+44px touch actions, and 16px touch inputs; screenshots contain fictional data.
+No live personal vault was mutated. Authenticated live acceptance and physical
+iOS 15 keyboard/gesture testing remain unverified.
+
 ## Laptop connection
 
 Set `HERMES_ENDPOINT` in `.env.local`, then run `agora-dev` or build and run

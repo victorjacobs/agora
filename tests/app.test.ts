@@ -50,6 +50,24 @@ describe('chat interface', () => {
     expect(row.querySelector('.session-indicator')).toBeNull()
   })
 
+  it('opens Passwords through the authenticated gateway and removes its form on logout', async () => {
+    const request = vi.spyOn(ChatClient.prototype, 'vaultRequest').mockImplementation(async method => method === 'vault.list' ? { items: [] } : { sources: [] })
+    const { host, client } = mountApp()
+    client.state.identity = 'Synthetic operator'; client.state.authRequired = true
+    await nextTick()
+    expect(request).not.toHaveBeenCalled()
+    host.querySelector<HTMLButtonElement>('[aria-label="Passwords & Logins"]')!.click()
+    await vi.waitFor(() => expect(request).toHaveBeenCalledWith('vault.list', { profile: 'work' }))
+    expect(request).toHaveBeenCalledWith('vault.sources', { profile: 'work' })
+    await vi.waitFor(() => expect(host.querySelector<HTMLButtonElement>('.passwords-toolbar .primary')!.disabled).toBe(false))
+    host.querySelector<HTMLButtonElement>('.passwords-toolbar .primary')!.click(); await nextTick()
+    const input = host.querySelector<HTMLInputElement>('[name=password]')!
+    input.value = 'dummy-secret'; input.dispatchEvent(new Event('input')); await nextTick()
+    client.state.identity = ''; client.state.connection = 'expired'; await nextTick()
+    expect(host.querySelector('.passwords-view')).toBeNull()
+    expect(input.value).toBe('')
+    vi.restoreAllMocks()
+  })
   it('places Results between Chat and Memory, filters from its sidebar, and manages the exact loaded job', async () => {
     vi.spyOn(CronApi.prototype, 'profile').mockResolvedValue('work')
     vi.spyOn(CronApi.prototype, 'jobs').mockResolvedValue([{ id: 'a', name: 'First job' }, { id: 'b', name: 'Exact job' }])
@@ -57,7 +75,7 @@ describe('chat interface', () => {
     vi.spyOn(CronApi.prototype, 'history').mockImplementation(async id => ({ session_id: id, messages: [{ id: 1, role: 'assistant', content: 'Readable result' }], pagination: { offset: 0, returned: 1, limit: 50 } }))
     const { host, client } = mountApp()
     await nextTick()
-    expect([...host.querySelectorAll('.app-rail button')].map(button => button.getAttribute('aria-label'))).toEqual(['Chat', 'Results', 'Memory', 'Cron jobs'])
+    expect([...host.querySelectorAll('.app-rail button')].map(button => button.getAttribute('aria-label'))).toEqual(['Chat', 'Results', 'Memory', 'Cron jobs', 'Passwords & Logins'])
     host.querySelector<HTMLButtonElement>('[aria-label="Results"]')!.click()
     await vi.waitFor(() => expect(host.textContent).toContain('Readable result'))
     const nav = host.querySelector('nav[aria-label="Result jobs"]')!

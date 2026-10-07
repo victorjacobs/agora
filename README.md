@@ -53,6 +53,11 @@ sign-in. Agora provides the chat interface.
   request channel, not chat messages; Agora does not save them in browser storage.
   Inputs clear on submission, cancellation, or disconnection. Requires Hermes's
   vault server-request hooks; this does not embed or control a browser in Agora.
+- **Passwords & Logins** workspace: search saved login metadata, add a login
+  directly to Hermes's vault, confirm removal of local logins, and inspect source
+  readiness. Passwords are never revealed; external manager entries are read-only.
+  Requires Hermes's `vault.list`, `vault.sources`, `vault.add`, and `vault.remove`
+  gateway methods. No Hermes API changes or separate credential database.
 - New chats, history, rename, delete, and stop controls.
 - **Steer** a running turn with text from the composer, or press Enter. Hermes
   accepts the guidance without interrupting the turn and applies it when safe;
@@ -188,6 +193,8 @@ an installed Chrome/Chromium browser, automatically finding Chrome on macOS.
 Set `AGORA_BROWSER_PATH` if your browser executable is elsewhere. The command
 starts its own temporary server and mocks Hermes responses; it does not access
 your server or include your conversation history.
+Set `AGORA_SCREENSHOT_DIR` to save all screenshots outside `docs/screenshots`.
+The browser smoke also verifies Passwords & Logins with fictional credentials.
 
 ### Code layout
 
@@ -198,6 +205,7 @@ your server or include your conversation history.
 | `src/hermes/api.ts`, `gateway.ts`, `types.ts` | Hermes HTTP and WebSocket contracts. |
 | `src/hermes/transcript.ts`, `media.ts` | History normalization and image loading. |
 | `src/ResultsView.vue`, `src/hermes/results.ts` | Read-only scheduled outputs, evidence-based status, bounded reads, and run inspection. |
+| `src/PasswordsView.vue`, `src/hermes/vault.ts` | Profile-scoped login metadata, direct vault writes, and read-only source status. |
 | `src/theme.css`, `src/style.css` | System appearance and shared layout. |
 | `server/` | Local/hosted login, authenticated API/WebSocket forwarding, and production serving. |
 | `tests/` | Interface, transport, protocol, authentication, and recovery tests. |

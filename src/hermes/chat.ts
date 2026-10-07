@@ -264,6 +264,11 @@ export class ChatClient {
     if (['model', 'provider', 'reasoning_effort', 'reasoning_effort_wire'].some(key => typeof info[key as keyof SessionModelInfo] === 'string')) this.settingsRevision++
   }
 
+  vaultRequest<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
+    if (this.stopped || this.state.connection !== 'ready' || !this.state.identity) return Promise.reject(new ConnectionLost())
+    return this.gateway.request<T>(method, params)
+  }
+
   async inspectMemory(section: MemoryInspectionSection, profile?: string) {
     if (this.stopped || this.state.connection !== 'ready' || profile !== this.state.profile) throw new Error('Connect to Hermes to inspect memory.')
     return inspectMemory(this.api, this.gateway, section, profile, this.state.runtime)
