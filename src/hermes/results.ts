@@ -2,6 +2,48 @@ import type { CronRun } from './cron'
 import type { HistoryPage } from './types'
 import { historyMessages } from './transcript'
 
+function runDate(timestamp?: number): Date | undefined {
+  if (typeof timestamp !== 'number' || !Number.isFinite(timestamp)) return
+  const date = new Date(timestamp * 1000)
+  return Number.isNaN(date.getTime()) ? undefined : date
+}
+
+function dayKey(date: Date): string {
+  return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`
+}
+
+function dayDescription(date: Date, now: Date) {
+  const yesterday = new Date(now)
+  yesterday.setDate(yesterday.getDate() - 1)
+  const relative = dayKey(date) === dayKey(now) ? 'Today' : dayKey(date) === dayKey(yesterday) ? 'Yesterday' : ''
+  const calendar = date.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', ...(date.getFullYear() !== now.getFullYear() ? { year: 'numeric' } : {}) })
+  return { relative, calendar }
+}
+
+export function groupResultDays<T extends { run: CronRun }>(results: T[], now = new Date()) {
+  const groups = new Map<string, { key: string; label: string; results: T[] }>()
+  for (const result of results) {
+    const date = runDate(result.run.started_at)
+    const key = date ? dayKey(date) : 'undated'
+    let group = groups.get(key)
+    if (!group) {
+      const description = date ? dayDescription(date, now) : undefined
+      const label = description ? [description.relative, description.calendar].filter(Boolean).join(', ') : 'Date unavailable'
+      group = { key, label, results: [] }
+      groups.set(key, group)
+    }
+    group.results.push(result)
+  }
+  return [...groups.values()]
+}
+
+export function resultTime(timestamp?: number, now = new Date()): string {
+  const date = runDate(timestamp)
+  if (!date) return 'Date unavailable'
+  const { relative, calendar } = dayDescription(date, now)
+  return `${relative || calendar} at ${date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`
+}
+
 export function resultOutput(page: HistoryPage): string {
   const messages = historyMessages({ ...page, messages: page.messages
     .filter(row => !row.tool_calls?.length)

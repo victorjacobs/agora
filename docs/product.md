@@ -29,6 +29,9 @@ desktop packaging is deferred.
 - Results workspace between Chats and Memory with All results selected initially.
   Individual sidebar jobs filter a chronological output feed; no duplicate job
   dropdown. Render actual assistant output with safe Markdown, not run titles.
+  Group visible runs by their local calendar day, with dated Today/Yesterday
+  headings and horizontal divider lines. Card headings and footer actions carry
+  decorative document/settings icons; run times use readable relative-day labels.
   Running, Finished and Unknown describe per-run evidence; Finished does not imply
   success. Never apply a job’s latest status to older runs. Script-only runs show
   API previews with their full-output limitation. Conversations and older history

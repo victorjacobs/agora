@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { CronApi, type CronJob, type CronRun } from './hermes/cron'
-import { createResultReadQueue, resultOutput, resultStatus } from './hermes/results'
+import { createResultReadQueue, groupResultDays, resultOutput, resultStatus, resultTime } from './hermes/results'
 import MarkdownMessage from './MarkdownMessage.vue'
 import CronRunDialog from './CronRunDialog.vue'
 import ConversationTurn from './ConversationTurn.vue'
@@ -20,6 +20,7 @@ const error = ref('')
 const status = ref('All runs')
 const limit = ref(20)
 const count = ref(10)
+const currentDate = ref(new Date())
 const selectedResult = ref<Result>()
 const messages = ref<Message[]>([])
 const historyLoading = ref(false)
@@ -52,7 +53,8 @@ const pendingOutputs = new Set<string>()
 const current = (scope: number) => scope === generation && props.active && props.connected
 const filtered = computed(() => results.value.filter(result => (!props.jobId || result.job.id === props.jobId) && (status.value === 'All runs' || resultStatus(result.run) === status.value)))
 const visible = computed(() => filtered.value.slice(0, count.value))
-const date = (value?: number) => value == null ? 'Date unavailable' : new Date(value * 1000).toLocaleString()
+const dayGroups = computed(() => groupResultDays(visible.value, currentDate.value))
+const date = (value?: number) => resultTime(value, currentDate.value)
 const failure = (value: unknown) => value instanceof Error ? value.message : 'Results request failed.'
 async function loadOutput(result: Result, scope = generation) {
   if (!current(scope) || result.run.source === 'cron_output' || result.run.id.startsWith('cron_output:')) return
@@ -76,6 +78,7 @@ async function loadOutputs(scope: number) {
 }
 async function refresh() {
   if (!props.active || !props.connected || loading.value) return
+  currentDate.value = new Date()
   const scope = generation
   outputGeneration++
   loading.value = true; error.value = ''
@@ -132,16 +135,19 @@ onBeforeUnmount(() => { generation++; clearInterval(timer) })
       <p v-if="!connected" role="status">Connect to Hermes to load results.</p>
       <p v-if="loading" role="status">Loading results…</p>
       <p v-if="error" role="alert">{{ error }}</p>
-      <article v-for="result in visible" :key="result.key" class="result-card">
-        <header><div><h2>{{ result.job.name || result.job.id }}</h2><time>{{ date(result.run.started_at) }}</time></div><span class="result-status" :class="resultStatus(result.run).toLowerCase()">{{ resultStatus(result.run) }}</span></header>
+      <section v-for="group in dayGroups" :key="group.key" class="result-day" :aria-label="group.label">
+      <h2 class="result-day-heading">{{ group.label }}</h2>
+      <article v-for="result in group.results" :key="result.key" class="result-card">
+        <header><div class="result-job-heading"><svg class="result-job-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M5 3h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H9l-4 3V5a2 2 0 0 1 2-2Z" /><path d="M9 7h8M9 11h8M9 15h5" /></svg><div><h2>{{ result.job.name || result.job.id }}</h2><time>{{ date(result.run.started_at) }}</time></div></div><span class="result-status" :class="resultStatus(result.run).toLowerCase()">{{ resultStatus(result.run) }}</span></header>
         <div class="result-body">
         <div v-if="result.run.source === 'cron_output' || result.run.id.startsWith('cron_output:')" class="result-preview"><p class="muted">Output preview · Full output unavailable through the Hermes API</p><p>{{ result.run.preview || 'No output preview returned by Hermes.' }}</p></div>
         <div v-else-if="result.error" role="alert"><p>{{ result.error }}</p><button :disabled="!connected || !active" @click="loadOutput(result)">Retry output</button></div>
         <MarkdownMessage v-else-if="result.output" :text="result.output" :profile="result.run.profile || profile" />
         <p v-else class="muted">{{ result.output === undefined ? 'Loading output…' : 'No assistant output in the latest history page. Open the conversation to inspect older messages.' }}</p>
         </div>
-        <footer><button v-if="result.run.source !== 'cron_output' && !result.run.id.startsWith('cron_output:')" :disabled="!connected" @click="readDetails(result)">View conversation</button><button :disabled="!connected" @click="$emit('manage', result.job.id)">Manage job</button></footer>
+        <footer><button v-if="result.run.source !== 'cron_output' && !result.run.id.startsWith('cron_output:')" :disabled="!connected" @click="readDetails(result)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Z" /><path d="M14 3v6h6M8 13h8M8 17h5" /></svg>View conversation</button><button :disabled="!connected" @click="$emit('manage', result.job.id)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="m9 3-.5 3-2 1-2.5-1-2 3L4 11v2l-2 2 2 3 2.5-1 2 1 .5 3h6l.5-3 2-1 2.5 1 2-3-2-2v-2l2-2-2-3-2.5 1-2-1-.5-3Z" /><circle cx="12" cy="12" r="3" /></svg>Manage job</button></footer>
       </article>
+      </section>
       <button v-if="filtered.length > count" :disabled="loading || !connected" @click="count += 10">Load more results</button>
       <button v-if="limit < 100 && results.some(result => results.filter(row => row.job.id === result.job.id).length >= limit)" :disabled="loading || !connected" @click="limit = 100; refresh()">Show up to 100 runs per job</button>
       <p v-if="!loading && !error && !visible.length" class="muted">No matching results.</p>
@@ -166,8 +172,12 @@ onBeforeUnmount(() => { generation++; clearInterval(timer) })
 .results-controls select, .results-controls button { box-sizing: border-box; height: 38px; font-size: 13px; line-height: 1.4; }
 .results-controls select { width: auto; background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 7px; padding: 7px 10px; }
 .results-limit { font-size: 12px; color: var(--muted); line-height: 1.6; margin: 18px 0 24px; }
+.result-day-heading { display: flex; align-items: center; gap: 20px; margin: 28px 0 18px; font-size: 15px; font-weight: 550; color: var(--secondary-text); }
+.result-day-heading::after { content: ''; flex: 1; height: 1px; background: var(--border); }
 .result-card { border: 1px solid var(--border); border-radius: 12px; background: var(--surface); margin-bottom: 20px; overflow-wrap: anywhere; overflow: hidden; }
 .result-card header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 16px 22px; border-bottom: 1px solid var(--border); background: var(--panel); }
+.result-job-heading { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.result-job-icon { width: 24px; height: 24px; flex-shrink: 0; color: var(--link); }
 .result-card h2 { font-family: inherit; font-weight: 600; margin: 0 0 6px; font-size: 14px; }
 .result-card time { font-size: 12px; color: var(--muted); }
 .result-body { padding: 22px; line-height: 1.7; font-size: 15px; }
@@ -177,8 +187,11 @@ onBeforeUnmount(() => { generation++; clearInterval(timer) })
 .result-status { flex-shrink: 0; font-size: 11px; border: 1px solid var(--border); border-radius: 8px; padding: 5px 10px; color: var(--secondary-text); }
 .result-status.running { color: #9974d3; background: #9974d314; border-color: #9974d355; }
 .result-status.unknown { color: var(--muted); background: var(--panel); }
-.result-card footer { display: flex; gap: 8px; padding: 12px 18px; border-top: 1px solid var(--border); }
-.result-card footer button { background: transparent; border-color: transparent; font-size: 12px; color: var(--secondary-text); }
+.result-card footer { display: flex; gap: 8px; flex-wrap: wrap; padding: 12px 18px; border-top: 1px solid var(--border); }
+.result-card footer button { display: inline-flex; align-items: center; gap: 9px; background: transparent; border-color: transparent; font-size: 12px; color: var(--link); }
+.result-card footer button + button { border-left-color: var(--border); border-radius: 0; padding-left: 18px; }
+.result-card footer svg { width: 18px; height: 18px; flex-shrink: 0; }
 .result-card footer button:hover { background: var(--hover); }
-@media(max-width: 760px) { .results-view { padding: 20px 16px; } .result-body { padding: 18px; } .result-card header { padding: 14px 18px; } }
+@media(max-width: 760px) { .results-view { padding: 20px 16px; } .result-body { padding: 18px; } .result-card header { padding: 14px 18px; } .result-card footer { padding: 12px; } .result-card footer button { gap: 7px; padding: 6px 4px; } .result-card footer button + button { padding-left: 12px; } }
+@media(max-width: 360px) { .result-card footer { flex-direction: column; align-items: flex-start; } .result-card footer button + button { border-left-color: transparent; padding-left: 4px; } }
 </style>
