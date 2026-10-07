@@ -316,10 +316,14 @@ On touch devices, submitting a message or steer dismisses the keyboard without
 reopening it when Hermes responds. Desktop submissions keep composer focus.
 
 Links in messages and reasoning traces request a separate browser context instead
-of replacing Agora, including when installed as a PWA. The browser and OS control
-where that context opens: some mobile platforms use an in-app browser, and Agora
-cannot force the OS default browser. Sign-in stays in Agora's existing flow;
-image previews and downloads are unchanged.
+of replacing Agora. In an installed iOS/iPadOS PWA, ordinary HTTPS link clicks use
+the undocumented `x-safari-https://` scheme to request the separate Safari app,
+not the in-app browser. This targets Safari specifically, not the OS default
+browser; physical-device confirmation is still required and future iOS versions
+may change the behaviour. Original link destinations remain intact for copying
+and long-press menus. Ordinary browser tabs, other platforms, modified clicks,
+HTTP/relative links, and other URL schemes retain normal link behaviour.
+Sign-in stays in Agora's existing flow; image previews and downloads are unchanged.
 
 Agora keeps access/refresh tokens in the bridge process's memory. Drafts,
 transcripts, and unread markers are not persisted in browser storage. Hermes

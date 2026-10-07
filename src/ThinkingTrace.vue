@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { renderMarkdown } from './markdown'
+import { openIosSafariLink } from './external-links'
 const props = defineProps<{ text: string; active: boolean }>()
 const html = computed(() => renderMarkdown(props.text))
 </script>
@@ -15,7 +16,7 @@ const html = computed(() => renderMarkdown(props.text))
       <span class="trace-hint">{{ text ? 'View trace' : 'Waiting for trace' }}</span>
     </summary>
     <div class="trace-body">
-      <div v-if="text" class="trace-text markdown" v-html="html"></div>
+      <div v-if="text" class="trace-text markdown" @click="openIosSafariLink" v-html="html"></div>
       <p v-else>Hermes hasn’t provided a thinking trace.</p>
     </div>
   </details>
