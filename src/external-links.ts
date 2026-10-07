@@ -1,4 +1,4 @@
-export function openIosSafariLink(event: MouseEvent) {
+export function openIosFirefoxLink(event: MouseEvent) {
   if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
 
   const ios = /iPad|iPhone|iPod/.test(navigator.userAgent)
@@ -19,7 +19,6 @@ export function openIosSafariLink(event: MouseEvent) {
   try { url = new URL(href) } catch { return }
   if (url.username || url.password) return
 
-  // Change only the leading scheme; embedded URLs and encoded query values stay intact.
-  window.open(href.replace(/^https:/i, 'x-safari-https:'), '_blank', 'noopener,noreferrer')
+  window.open(`firefox://open-url?url=${encodeURIComponent(href)}`, '_blank', 'noopener,noreferrer')
   event.preventDefault()
 }
