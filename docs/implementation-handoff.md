@@ -12,7 +12,9 @@ Verified against the installed Hermes revision
   `{value: <master password>}`.
 - `vault.code` carries optional `{site, hint}`; answer with `{value: <code>}`.
 - Cancel any of these with `{value: ""}` through the existing `request.answer`
-  RPC, retaining request ID, runtime session ID, and profile.
+  RPC with `{id, result, profile}`. The request ID identifies the pending input;
+  do not send `session_id`, which `RequestAnswerParams` rejects. Runtime session
+  IDs remain necessary for session-scoped RPCs such as `approval.respond`.
 
 Agora renders masked input cards and does not put answers into its composer,
 transcript, or browser storage. Submitted cards prevent duplicate submission;

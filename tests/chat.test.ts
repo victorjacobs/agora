@@ -37,7 +37,11 @@ function setup(selected = '') {
     if (method === 'session.resume') return snapshot(String(params?.session_id))
     if (method === 'approval.pending') return { approvals: [] }
     if (method === 'session.create') return snapshot('new')
-    if (method === 'request.answer') return { status: 'ok' }
+    if (method === 'request.answer') {
+      const extra = Object.keys(params || {}).find(key => !['id', 'result', 'profile'].includes(key))
+      if (extra) throw new RpcError(-32602, `invalid params for request.answer: ${extra}: Extra inputs are not permitted`)
+      return { status: 'ok' }
+    }
     return { status: 'streaming' }
   })
   const chat = new ChatClient(state, api, gateway, {
@@ -600,7 +604,8 @@ describe('chat recovery and session ownership', () => {
     expect(state.actionPending).toBe(false)
     failed = false
     await chat.answer(request, { choice: 'deny' })
-    expect(gateway.request).toHaveBeenCalledWith('request.answer', { session_id: 'runtime-a', profile: 'work', id: 'command-request', result: { choice: 'deny' } }, 300_000)
+    expect(gateway.request).toHaveBeenCalledWith('request.answer', { profile: 'work', id: 'command-request', result: { choice: 'deny' } }, 300_000)
+    expect(state.error).toBe('')
     expect(state.requests).toEqual([])
     chat.dispose()
   })
@@ -1167,7 +1172,7 @@ describe('chat recovery and session ownership', () => {
     expect(state.requests[0].method).toBe('vault.code')
     const messages = JSON.stringify(state.messages)
     await chat.answer(state.requests[0], { value: 'synthetic-code' })
-    expect(gateway.request).toHaveBeenCalledWith('request.answer', { session_id: 'runtime-a', profile: 'work', id: 'vault-1', result: { value: 'synthetic-code' } }, 300_000)
+    expect(gateway.request).toHaveBeenCalledWith('request.answer', { profile: 'work', id: 'vault-1', result: { value: 'synthetic-code' } }, 300_000)
     expect(state.requests).toHaveLength(0)
     expect(JSON.stringify(state.messages)).toBe(messages)
     expect(state.draft).toBe('')
@@ -1193,7 +1198,7 @@ describe('chat recovery and session ownership', () => {
     expect(state.approvals[0].request_id).toBe('approval-1')
     expect(state.requests[0].id).toBe('clarify-1')
     await chat.answer(state.requests[0], { answers: { q1: 'one' } })
-    expect(gateway.request).toHaveBeenCalledWith('request.answer', { session_id: 'runtime-a', profile: 'work', id: 'clarify-1', result: { answers: { q1: 'one' } } }, 300_000)
+    expect(gateway.request).toHaveBeenCalledWith('request.answer', { profile: 'work', id: 'clarify-1', result: { answers: { q1: 'one' } } }, 300_000)
     expect(state.requests).toHaveLength(0)
     chat.dispose()
   })
