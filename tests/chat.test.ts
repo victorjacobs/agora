@@ -901,6 +901,32 @@ describe('chat recovery and session ownership', () => {
     chat.dispose()
   })
 
+  it('keeps the sidebar working for offscreen tasks when the main runtime is idle', async () => {
+    vi.useFakeTimers()
+    const { state, gateway, chat } = setup('a')
+    const ordinaryRequest = vi.mocked(gateway.request).getMockImplementation()!
+    vi.mocked(gateway.request).mockImplementation(async (method, params, timeout) => method === 'subagent.list'
+      ? { subagents: params?.session_id === 'runtime-a' ? [{ subagent_id: 'child', goal: 'Check logs', status: 'running' }] : [] }
+      : ordinaryRequest(method, params, timeout))
+    await chat.start('work')
+    await vi.advanceTimersByTimeAsync(0)
+    await chat.open('b', 'work')
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(state.running).toBe(false)
+    expect(state.tasks).toEqual([])
+    expect(chat.sessionStatus({ id: 'a', profile: 'work' })).toBe('working')
+    expect(chat.sessionStatus({ id: 'a', profile: 'other' })).toBeUndefined()
+    gateway.onEvent({ type: 'subagent.complete', session_id: 'runtime-a', seq: 1, payload: { subagent_id: 'child', status: 'completed' } })
+    expect(chat.sessionStatus({ id: 'a', profile: 'work' })).toBeUndefined()
+    expect(state.tasks).toEqual([])
+    gateway.onEvent({ type: 'subagent.start', session_id: 'runtime-a', seq: 2, payload: { subagent_id: 'second', goal: 'More checks' } })
+    expect(chat.sessionStatus({ id: 'a', profile: 'work' })).toBe('working')
+    gateway.onEvent({ type: 'subagent.complete', session_id: 'runtime-a', seq: 3, payload: { subagent_id: 'second', status: 'failed' } })
+    gateway.onEvent({ type: 'subagent.start', session_id: 'runtime-a', seq: 2, payload: { subagent_id: 'second' } })
+    expect(chat.sessionStatus({ id: 'a', profile: 'work' })).toBeUndefined()
+    chat.dispose()
+  })
+
   it('does not let a delayed roster overwrite a completion event or a different conversation', async () => {
     const { state, gateway, chat } = setup('a')
     const delayed = deferred<unknown>()

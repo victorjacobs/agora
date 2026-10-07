@@ -33,6 +33,23 @@ function mountApp(connection: 'ready' | 'connecting' = 'ready') {
 }
 
 describe('chat interface', () => {
+  it('reactively spins the sidebar indicator for background tasks in another chat', async () => {
+    const { host, client } = mountApp()
+    client.state.sessions = [{ id: 'stored', title: 'Current chat', profile: 'work' }, { id: 'another', title: 'Background chat', profile: 'work' }]
+    await nextTick()
+    const row = [...host.querySelectorAll<HTMLElement>('.session-row')].find(row => row.textContent?.includes('Background chat'))!
+    expect(row.querySelector('.session-indicator')).toBeNull()
+    const scope = JSON.stringify(['work', 'another'])
+    client.state.tasksBySession.set(scope, [{ key: 'child', goal: 'Check logs', status: 'running' }])
+    await nextTick()
+    expect(row.querySelector('.session-indicator')?.getAttribute('aria-label')).toBe('Running')
+    expect(row.querySelector('.session-indicator.waiting')).toBeNull()
+    expect(client.state.running).toBe(false)
+    client.state.tasksBySession.set(scope, [{ key: 'child', goal: 'Check logs', status: 'completed' }])
+    await nextTick()
+    expect(row.querySelector('.session-indicator')).toBeNull()
+  })
+
   it('places Results between Chat and Memory, filters from its sidebar, and manages the exact loaded job', async () => {
     vi.spyOn(CronApi.prototype, 'profile').mockResolvedValue('work')
     vi.spyOn(CronApi.prototype, 'jobs').mockResolvedValue([{ id: 'a', name: 'First job' }, { id: 'b', name: 'Exact job' }])

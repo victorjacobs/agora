@@ -30,6 +30,7 @@ export function initialState() {
     activeSessions: [] as Array<ActiveSession & { profile?: string }>,
     unreadReplies: [] as Array<{ id: string; profile?: string }>,
     tasks: [] as BackgroundTask[],
+    tasksBySession: new Map<string, BackgroundTask[]>(),
     taskError: '',
     total: 0,
     listLoading: false,
@@ -92,7 +93,7 @@ export class ChatClient {
   private promptSyncRevision = 0
   private taskRevision = 0
   private taskRequest?: object
-  private taskCache = new Map<string, BackgroundTask[]>()
+  private get taskCache() { return this.state.tasksBySession }
   private attempts = 0
   private stopped = false
   private recovering = false
@@ -494,7 +495,8 @@ export class ChatClient {
       return this.state.approvals.length || this.state.requests.length ? 'waiting' : 'working'
     }
     const active = this.state.activeSessions.find(session => session.session_key === row.id && session.profile === profile)
-    return active?.status === 'working' || active?.status === 'waiting' ? active.status : undefined
+    if (active?.status === 'working' || active?.status === 'waiting') return active.status
+    return this.taskCache.get(JSON.stringify([profile, row.id]))?.some(taskRunning) ? 'working' : undefined
   }
 
   private async refreshActiveSessions() {
@@ -556,7 +558,7 @@ export class ChatClient {
     if (this.state.runtime && this.state.selected) {
       const current: ActiveSession & { profile?: string } = {
         id: this.state.runtime, session_key: this.state.selected, profile: this.state.profile,
-        status: this.state.running || this.state.compressing || this.state.tasks.some(taskRunning) ? (this.state.approvals.length || this.state.requests.length ? 'waiting' : 'working') : 'idle',
+        status: this.state.running || this.state.compressing ? (this.state.approvals.length || this.state.requests.length ? 'waiting' : 'working') : 'idle',
       }
       this.state.activeSessions = [...this.state.activeSessions.filter(session => session.id !== current.id || session.profile !== current.profile), current]
       this.activeRevision++
@@ -1081,7 +1083,21 @@ export class ChatClient {
       this.state.title = payload.title
       void this.refreshSessions()
     }
-    if (!event.session_id || event.session_id !== this.state.runtime) return
+    if (!event.session_id) return
+    if (event.session_id !== this.state.runtime) {
+      const session = this.runtimeSessions.get(event.session_id)
+      if (!session) return
+      if (event.seq !== undefined) {
+        const last = this.sequence.get(event.session_id) || 0
+        if (event.seq <= last) return
+        this.sequence.set(event.session_id, event.seq)
+      }
+      const scope = JSON.stringify([session.profile, session.id])
+      const previous = this.taskCache.get(scope) || []
+      const tasks = taskEvent(previous, event)
+      if (tasks !== previous) this.taskCache.set(scope, tasks)
+      return
+    }
     if (event.seq !== undefined) {
       const last = this.sequence.get(event.session_id) || 0
       if (event.seq <= last) return
