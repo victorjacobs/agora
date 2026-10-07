@@ -634,6 +634,14 @@ try {
   assert.equal(await resultsView.locator('script').count(), 0)
   assert.equal(await resultsView.getByRole('combobox').count(), 1, 'The job filter belongs only in the sidebar.')
   assert.equal(await resultsView.getByRole('combobox', { name: 'Run status' }).locator('option').filter({ hasText: 'Failed' }).count(), 0)
+  async function assertResultsToolbarAlignment() {
+    const select = await resultsView.getByRole('combobox', { name: 'Run status' }).boundingBox()
+    const refresh = await resultsView.getByRole('button', { name: 'Refresh', exact: true }).boundingBox()
+    assert.ok(Math.abs(select.y - refresh.y) <= 1, 'Results status and Refresh must share their top edge.')
+    assert.ok(Math.abs(select.height - refresh.height) <= 1, 'Results status and Refresh must have the same height.')
+    assert.ok(select.x + select.width <= refresh.x, 'Results toolbar controls must stay side by side.')
+  }
+  await assertResultsToolbarAlignment()
   await page.screenshot({ path: `${output}/results-light.png` })
   await page.emulateMedia({ colorScheme: 'dark' })
   await page.screenshot({ path: `${output}/results-dark.png` })
@@ -668,6 +676,7 @@ try {
   await resultNavigation.getByRole('button', { name: 'All results', exact: true }).click()
   await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
   assert.ok(await resultsView.evaluate(element => element.scrollWidth <= element.clientWidth), 'Results must fit mobile.')
+  await assertResultsToolbarAlignment()
   assert.equal(await page.locator('nav[aria-label="Result jobs"] [aria-current="page"]').textContent(), 'All results')
   await page.screenshot({ path: `${output}/results-mobile-dark.png` })
   await page.emulateMedia({ colorScheme: 'light' })

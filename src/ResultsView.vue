@@ -127,7 +127,7 @@ onBeforeUnmount(() => { generation++; clearInterval(timer) })
   <section class="results-view" aria-label="Results">
     <div class="results-width">
       <p class="results-description">Outputs from your scheduled jobs.</p>
-      <div class="results-toolbar"><span class="muted">{{ profile ? `Profile: ${profile}` : '' }}</span><label>Show <select v-model="status" aria-label="Run status"><option>All runs</option><option>Running</option><option>Finished</option><option>Unknown</option></select></label><button :disabled="loading || !connected" @click="refresh">Refresh</button></div>
+      <div class="results-toolbar"><span class="muted">{{ profile ? `Profile: ${profile}` : '' }}</span><div class="results-controls"><select v-model="status" aria-label="Run status"><option>All runs</option><option>Running</option><option>Finished</option><option>Unknown</option></select><button :disabled="loading || !connected" @click="refresh">Refresh</button></div></div>
       <p class="results-limit">Showing up to {{ limit }} recent runs per job. Hermes does not provide older run pagination.</p>
       <p v-if="!connected" role="status">Connect to Hermes to load results.</p>
       <p v-if="loading" role="status">Loading results…</p>
@@ -162,8 +162,9 @@ onBeforeUnmount(() => { generation++; clearInterval(timer) })
 .results-description { margin: 0 0 18px; font-size: 14px; color: var(--secondary-text); }
 .results-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .results-toolbar > span { margin-right: auto; font-size: 12px; }
-.results-toolbar label { font-size: 13px; }
-.results-toolbar select { background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 7px; padding: 7px; }
+.results-controls { display: flex; align-items: center; gap: 12px; }
+.results-controls select, .results-controls button { box-sizing: border-box; height: 38px; font-size: 13px; line-height: 1.4; }
+.results-controls select { width: auto; background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 7px; padding: 7px 10px; }
 .results-limit { font-size: 12px; color: var(--muted); line-height: 1.6; margin: 18px 0 24px; }
 .result-card { border: 1px solid var(--border); border-radius: 12px; background: var(--surface); margin-bottom: 20px; overflow-wrap: anywhere; overflow: hidden; }
 .result-card header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 16px 22px; border-bottom: 1px solid var(--border); background: var(--panel); }
