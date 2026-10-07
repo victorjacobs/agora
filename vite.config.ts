@@ -20,6 +20,10 @@ export default defineConfig(({ mode }) => {
       },
     },
     preview: { host: '127.0.0.1', port: 5173, strictPort: true },
-    test: { include: ['tests/**/*.test.ts'], environment: 'jsdom', restoreMocks: true },
+    test: {
+      include: ['tests/**/*.test.ts'], environment: 'jsdom', restoreMocks: true,
+      // Panzoom's main points to UMD despite type: module; use Vite's ESM resolution.
+      server: { deps: { inline: ['@panzoom/panzoom'] } },
+    },
   }
 })

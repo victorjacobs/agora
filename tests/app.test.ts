@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createApp, nextTick } from 'vue'
 import App from '../src/App.vue'
 import { ChatClient } from '../src/hermes/chat'
@@ -6,6 +6,7 @@ import { HermesApi } from '../src/hermes/api'
 import { Gateway } from '../src/hermes/gateway'
 
 let cleanup = () => {}
+beforeEach(() => { vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false }))) })
 afterEach(() => { cleanup(); document.body.innerHTML = ''; localStorage.clear(); vi.unstubAllGlobals() })
 
 function renderApp() {
@@ -555,6 +556,31 @@ describe('chat interface', () => {
     expect(host.querySelector('.session-list')).toBeNull()
   })
 
+  it.each([false, true])('dismisses the touch keyboard on submission (steering: %s) without refocusing after the reply', async running => {
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true })))
+    const { host, client } = mountApp()
+    client.state.running = running
+    let complete!: () => void
+    const submit = vi.spyOn(client, running ? 'steer' : 'send').mockImplementation(() => new Promise<void>(resolve => { complete = resolve }))
+    await nextTick()
+    const input = host.querySelector<HTMLTextAreaElement>('textarea')!
+    const form = host.querySelector<HTMLFormElement>('.composer')!
+
+    input.focus()
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    expect(submit).not.toHaveBeenCalled()
+    expect(document.activeElement).toBe(input)
+
+    client.state.draft = 'synthetic question'
+    await nextTick()
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    expect(submit).toHaveBeenCalledOnce()
+    expect(document.activeElement).not.toBe(input)
+    complete()
+    await nextTick()
+    expect(document.activeElement).not.toBe(input)
+  })
+
   it('sends on Enter, preserves Shift+Enter, and steers while running', async () => {
     const { host, client } = mountApp()
     const send = vi.spyOn(client, 'send').mockResolvedValue()
@@ -569,6 +595,8 @@ describe('chat interface', () => {
     input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
     expect(send).toHaveBeenCalledOnce()
     client.state.sessions = [{ id: 'stored', profile: 'work', title: 'Synthetic conversation' }]
+    await nextTick()
+    expect(document.activeElement).toBe(input)
     client.state.running = true
     await nextTick()
     input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))

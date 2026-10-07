@@ -145,15 +145,16 @@ async function send() {
     state.draft = draft
     state.images = images
   }
-  if (state.running) {
-    await chat.steer()
-    composer.value?.focus()
-    return
+  if (state.running ? !chat.canSteer() : !chat.canSend()) return
+  const touchKeyboard = window.matchMedia('(pointer: coarse)').matches
+  if (touchKeyboard) composer.value?.blur()
+
+  if (state.running) await chat.steer()
+  else {
+    following.value = true
+    await chat.send()
   }
-  if (!chat.canSend()) return
-  following.value = true
-  await chat.send()
-  composer.value?.focus()
+  if (!touchKeyboard) composer.value?.focus()
 }
 
 function composerKey(event: KeyboardEvent) {
