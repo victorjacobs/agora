@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { markdownImages, renderMarkdown } from './markdown'
+import { openIosSafariLink } from './external-links'
 import ImageViewer from './ImageViewer.vue'
 import { imageSource, loadImage } from './hermes/media'
 
@@ -42,6 +43,6 @@ onBeforeUnmount(() => { disposed = true })
 </script>
 
 <template>
-  <div class="markdown" @load.capture="$emit('imageLoad')" @click="openImage" @keydown="openImage" v-html="html"></div>
+  <div class="markdown" @load.capture="$emit('imageLoad')" @click="openImage($event); openIosSafariLink($event)" @keydown="openImage" v-html="html"></div>
   <ImageViewer v-if="viewing" :src="viewing.src" :alt="viewing.alt" @close="viewing = undefined" />
 </template>
