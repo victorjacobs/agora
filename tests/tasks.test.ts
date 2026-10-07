@@ -11,6 +11,28 @@ describe('delegated background tasks', () => {
     messages.push({ key: 'question', role: 'user', text: 'Another question' })
     expect(anchorFinishedTasks(finished, messages)[0]?.completedAfter?.key).toBe('reply')
   })
+  it('places a roster-recovered missing child at its stored delegation notice without inferring its outcome', () => {
+    const live = reconcileTasks([], { subagents: [{ subagent_id: 'child', delegation_id: 'batch', goal: 'Check logs' }] })
+    const messages = [
+      { key: 'notice', role: 'system', text: 'Delegation failed after restart', kind: 'async_delegation_complete', metadata: { delegation_id: 'batch', task_count: 1, failed_count: 1 } },
+      { key: 'later', role: 'user', text: 'Later question' },
+    ]
+    const missing = anchorFinishedTasks(reconcileTasks(live, { subagents: [] }), messages)
+    expect(missing[0]).toMatchObject({ status: 'unknown', completedAfter: { key: 'notice' } })
+    expect(missing[0]?.summary).toBeUndefined()
+    expect(anchorFinishedTasks(missing, [...messages, { key: 'new', role: 'assistant', text: 'New reply' }])[0]?.completedAfter?.key).toBe('notice')
+  })
+  it('clears an orphan anchor when authoritative live activity recovers the child', () => {
+    const orphan = [{ key: 'child', goal: 'Check logs', status: 'unknown', completedAfter: { key: 'old', role: 'user', text: 'Old question' } }]
+    const roster = reconcileTasks(orphan, { subagents: [{ subagent_id: 'child', status: 'running' }] })
+    const event = taskEvent(orphan, { type: 'subagent.progress', payload: { subagent_id: 'child' } })
+    for (const recovered of [roster, event]) {
+      expect(taskRunning(recovered[0]!)).toBe(true)
+      expect(recovered[0]?.completedAfter).toBeUndefined()
+      const finished = anchorFinishedTasks(reconcileTasks(recovered, { subagents: [] }), [{ key: 'new', role: 'assistant', text: 'New reply' }])
+      expect(finished[0]?.completedAfter?.key).toBe('new')
+    }
+  })
   it('tracks lifecycle without exposing reasoning or reviving finished tasks', () => {
     let tasks = taskEvent([], { type: 'subagent.spawn_requested', payload: { subagent_id: 'child', goal: 'Check the logs' } })
     expect(tasks[0]?.status).toBe('queued')

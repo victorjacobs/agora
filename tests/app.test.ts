@@ -375,6 +375,19 @@ describe('chat interface', () => {
     expect(palette.open).toBe(false)
     expect(client.state.searchQuery).toBe('deployment')
   })
+  it('keeps an unanchored orphan card before new conversation messages', async () => {
+    const { host, client } = mountApp()
+    client.state.messages = [{ key: 'reply', role: 'assistant', text: 'Initial reply' }]
+    client.state.tasks = [{ key: 'child', goal: 'Interrupted check', status: 'unknown' }]
+    await nextTick()
+    expect(host.textContent).toContain('No longer in live roster')
+    client.state.messages.push({ key: 'question', role: 'user', text: 'Next question' })
+    await nextTick()
+    const transcript = host.querySelector('.transcript')!
+    expect(transcript.textContent!.indexOf('Interrupted check')).toBeLessThan(transcript.textContent!.indexOf('Next question'))
+    expect(host.querySelector('.pinned-tasks')).toBeNull()
+    expect(host.querySelectorAll('.background-tasks')).toHaveLength(1)
+  })
   it('pins only running tasks and leaves finished tasks before subsequent messages', async () => {
     const { host, client } = mountApp()
     client.state.messages = [{ key: 'reply', role: 'assistant', text: 'Initial reply' }]
