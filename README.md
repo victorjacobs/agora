@@ -23,6 +23,12 @@ sign-in. Agora provides the chat interface.
   a click outside the image viewer.
 - Memory view with saved notes, user preferences, soul and custom instructions,
   provider status, readable inline approvals, and staged-write previews.
+- Results between Chats and Memory: a read-only, newest-first feed of scheduled
+  job outputs, with **All results** or a single sidebar job and run-status filtering.
+  Assistant replies use safe Markdown; run conversations and older messages open
+  on demand. **Manage job** opens that exact job in Cron. Script-only output is
+  labeled as a limited preview, not a full result. Hermes returns at most 100
+  recent runs per job, not an unlimited archive.
 - Cron workspace to create/edit scheduled jobs, pause/resume, run now, delete,
   and inspect recent runs and their conversations.
 - On-demand provider quota and credit balances, with a picker for multiple providers.
@@ -186,6 +192,7 @@ your server or include your conversation history.
 | `src/hermes/chat.ts` | Conversation state, streaming, recovery, approvals, and session switching. |
 | `src/hermes/api.ts`, `gateway.ts`, `types.ts` | Hermes HTTP and WebSocket contracts. |
 | `src/hermes/transcript.ts`, `media.ts` | History normalization and image loading. |
+| `src/ResultsView.vue`, `src/hermes/results.ts` | Read-only scheduled outputs, evidence-based status, bounded reads, and run inspection. |
 | `src/theme.css`, `src/style.css` | System appearance and shared layout. |
 | `server/` | Local/hosted login, authenticated API/WebSocket forwarding, and production serving. |
 | `tests/` | Interface, transport, protocol, authentication, and recovery tests. |

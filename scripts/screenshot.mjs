@@ -44,6 +44,26 @@ const imagePrompts = []
 const steers = []
 let editedMemory = ''
 let memoryDeleted = false
+let resultsFixture = false
+const resultHistoryReads = []
+const resultJobs = [cronJob,
+  { id: 'infrastructure', name: 'Infrastructure check', last_status: 'failed' },
+  { id: 'prices', name: 'Price watch' },
+  { id: 'weekly', name: 'Weekly review' },
+  { id: 'script', name: 'Script report', no_agent: true },
+]
+const resultRuns = {
+  briefing: [{ id: 'cron-briefing', started_at: now - 3600, ended_at: now - 3500 }],
+  infrastructure: [{ id: 'cron-infrastructure', started_at: now - 5400, ended_at: now - 5300 }],
+  prices: [{ id: 'cron-prices', started_at: now - 7200, scheduler_owned: true, is_active: false }, { id: 'cron-stale', started_at: now - 9000, scheduler_owned: false, is_active: true }],
+  weekly: [{ id: 'cron-weekly', started_at: now - 86400, ended_at: now - 86300 }],
+  script: [{ id: 'cron_output:script:latest', source: 'cron_output', started_at: now - 10000, ended_at: now - 9900, preview: 'Generated the short script report. This API only supplies a collapsed preview.' }],
+}
+const resultAnswers = {
+  'cron-briefing': '## Your morning briefing\n\nThree things worth your attention today.\n\n- Review the pending deployment.\n- Reply to the supplier question.\n- Your afternoon is free of meetings.',
+  'cron-infrastructure': '## Check could not finish\n\nThe monitoring endpoint did not respond. No health verdict is available.\n\n<script>Untrusted markup stays text.</script>',
+  'cron-weekly': '## Weekly review\n\nThe release checklist is ready for review. Documentation and tests were updated.\n\nNext week: verify the deployment and follow up on the open questions.',
+}
 try {
   await server.listen()
   const origin = `http://127.0.0.1:${server.httpServer.address().port}`
@@ -66,7 +86,14 @@ try {
     const url = new URL(route.request().url())
     let result
     if (url.pathname === '/api/agora/connection') result = { mode: 'local', endpoint: 'https://hermes.example.com' }
-    else if (url.pathname === '/api/cron/jobs') result = [cronJob]
+    else if (url.pathname === '/api/cron/jobs') result = resultsFixture ? resultJobs : [cronJob]
+    else if (resultsFixture && /^\/api\/cron\/jobs\/[^/]+\/runs$/.test(url.pathname)) result = { runs: resultRuns[url.pathname.split('/')[4]], limit: Number(url.searchParams.get('limit')) }
+    else if (resultsFixture && /^\/api\/sessions\/cron-[^/]+\/messages$/.test(url.pathname)) {
+      const id = url.pathname.split('/')[3], offset = Number(url.searchParams.get('offset'))
+      resultHistoryReads.push({ id, offset })
+      const answer = resultAnswers[id]
+      result = { session_id: id, profile: 'default', messages: offset ? [{ id: 1, role: 'user', content: 'Earlier request' }, { id: 2, role: 'assistant', content: 'Older run history is readable here.' }] : [{ id: 51, role: 'user', content: 'Run the scheduled job.' }, { id: 52, role: 'tool', content: 'Diagnostic activity, not final output.' }, ...(answer ? [{ id: 53, role: 'assistant', content: answer }] : [])], pagination: { returned: id === 'cron-briefing' && !offset ? 50 : 2, offset, limit: 50 } }
+    }
     else if (url.pathname === '/api/cron/jobs/briefing/runs') result = { runs: [{ id: 'release', title: 'Daily briefing', profile: 'default', started_at: now - 3600, ended_at: now - 3500, message_count: 5, input_tokens: 1200, output_tokens: 320 }], limit: 20 }
     else if (url.pathname === '/api/cron/jobs/briefing/pause') { cronJob.enabled = false; result = cronJob }
     else if (url.pathname === '/api/cron/jobs/briefing' && route.request().method() === 'PUT') { Object.assign(cronJob, route.request().postDataJSON().updates); result = cronJob }
@@ -591,7 +618,63 @@ try {
     assert.ok(await page.locator('input:not([type=checkbox]):not([type=radio]):not([type=file]), textarea, select').evaluateAll(elements => elements.every(element => parseFloat(getComputedStyle(element).fontSize) >= 16)), 'Touch form controls must use readable text to avoid iOS focus zoom.')
   }
   if (errors.length) throw new Error(errors.join('\n'))
-  console.info('Saved docs/screenshots/chat-light.png and chat-dark.png (sample data).')
+  await touchSession.send('Emulation.setTouchEmulationEnabled', { enabled: false })
+  await page.setViewportSize({ width: 1280, height: 960 })
+  await page.emulateMedia({ colorScheme: 'light' })
+  resultsFixture = true
+  assert.deepEqual(await page.locator('.app-rail button').evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label'))), ['Chat', 'Results', 'Memory', 'Cron jobs'])
+  await page.getByRole('button', { name: 'Results', exact: true }).click()
+  const resultsView = page.getByRole('region', { name: 'Results', exact: true })
+  const resultNavigation = page.getByRole('navigation', { name: 'Result jobs', exact: true })
+  await resultsView.getByRole('heading', { name: 'Your morning briefing', exact: true }).waitFor()
+  await resultsView.getByRole('heading', { name: 'Weekly review', exact: true }).last().waitFor()
+  assert.equal(await resultNavigation.locator('[aria-current="page"]').innerText(), 'All results')
+  assert.equal(await resultsView.locator('.result-card').count(), 6)
+  assert.deepEqual(await resultsView.locator('.result-card header h2').allTextContents(), ['Morning briefing', 'Infrastructure check', 'Price watch', 'Price watch', 'Script report', 'Weekly review'])
+  assert.equal(await resultsView.locator('script').count(), 0)
+  assert.equal(await resultsView.getByRole('combobox').count(), 1, 'The job filter belongs only in the sidebar.')
+  assert.equal(await resultsView.getByRole('combobox', { name: 'Run status' }).locator('option').filter({ hasText: 'Failed' }).count(), 0)
+  await page.screenshot({ path: `${output}/results-light.png` })
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await page.screenshot({ path: `${output}/results-dark.png` })
+  await resultsView.getByRole('combobox', { name: 'Run status' }).selectOption('Running')
+  assert.equal(await resultsView.locator('.result-card').count(), 1)
+  assert.equal(await resultsView.locator('.result-status').innerText(), 'Running')
+  await resultsView.getByRole('combobox', { name: 'Run status' }).selectOption('Unknown')
+  assert.equal(await resultsView.locator('.result-card').count(), 1)
+  await resultsView.getByRole('combobox', { name: 'Run status' }).selectOption('All runs')
+  await resultNavigation.getByRole('button', { name: 'Script report', exact: true }).click()
+  assert.equal(await resultsView.locator('.result-card').count(), 1)
+  assert.ok((await resultsView.innerText()).includes('Full output unavailable through the Hermes API'))
+  assert.equal(await resultsView.getByRole('button', { name: 'View conversation' }).count(), 0)
+  await resultNavigation.getByRole('button', { name: 'Morning briefing', exact: true }).click()
+  await resultsView.getByRole('button', { name: 'View conversation', exact: true }).click()
+  const resultDialog = page.getByRole('dialog', { name: 'Run conversation', exact: true })
+  await resultDialog.getByRole('heading', { name: 'Your morning briefing', exact: true }).waitFor()
+  assert.ok(await resultDialog.getByRole('button', { name: 'Close', exact: true }).evaluate(element => element === document.activeElement))
+  await resultDialog.getByRole('button', { name: 'Load older messages', exact: true }).click()
+  await resultDialog.getByText('Older run history is readable here.', { exact: true }).waitFor()
+  assert.ok(resultHistoryReads.some(read => read.id === 'cron-briefing' && read.offset === 50))
+  await page.keyboard.press('Escape')
+  await resultDialog.waitFor({ state: 'detached' })
+  assert.ok(await resultsView.getByRole('button', { name: 'View conversation', exact: true }).evaluate(element => element === document.activeElement))
+  await resultNavigation.getByRole('button', { name: 'Weekly review', exact: true }).click()
+  await resultsView.getByRole('button', { name: 'Manage job', exact: true }).click()
+  await page.locator('.cron-job-heading h2').filter({ hasText: 'Weekly review' }).waitFor()
+  assert.ok((await page.getByRole('navigation', { name: 'Scheduled jobs' }).locator('.selected').innerText()).includes('Weekly review'))
+  await page.getByRole('button', { name: 'Results', exact: true }).click()
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.getByRole('button', { name: 'Open results navigation', exact: true }).click()
+  await resultNavigation.getByRole('button', { name: 'All results', exact: true }).click()
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+  assert.ok(await resultsView.evaluate(element => element.scrollWidth <= element.clientWidth), 'Results must fit mobile.')
+  assert.equal(await page.locator('nav[aria-label="Result jobs"] [aria-current="page"]').textContent(), 'All results')
+  await page.screenshot({ path: `${output}/results-mobile-dark.png` })
+  await page.emulateMedia({ colorScheme: 'light' })
+  await page.screenshot({ path: `${output}/results-mobile-light.png` })
+  if (errors.length) throw new Error(errors.join('\n'))
+  console.info('Results fixture navigation, output, status, preview, details, paging, management and mobile checks passed.')
+  console.info('Saved chat and Results desktop/mobile screenshots in docs/screenshots (sample data).')
 } finally {
   await browser?.close()
   await server.close()

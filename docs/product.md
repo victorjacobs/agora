@@ -26,6 +26,15 @@ desktop packaging is deferred.
 - Memory workspace with pending-update review, inspection and explicit editing/deletion
   of saved notes and user-profile entries, and read-only soul/instructions and
   memory-provider status exposed by Hermes.
+- Results workspace between Chats and Memory with All results selected initially.
+  Individual sidebar jobs filter a chronological output feed; no duplicate job
+  dropdown. Render actual assistant output with safe Markdown, not run titles.
+  Running, Finished and Unknown describe per-run evidence; Finished does not imply
+  success. Never apply a job’s latest status to older runs. Script-only runs show
+  API previews with their full-output limitation. Conversations and older history
+  load on demand, read-only. Manage job opens the exact Cron job after loading.
+  Limit the feed to recent runs supported by Hermes, with bounded output pages
+  and concurrent reads; refresh only an active, connected, visible workspace.
 - Cron workspace for creating/editing jobs, pause/resume, confirmed manual runs
   and deletion, and read-only recent run history through the dashboard APIs.
 - Explicit controls for agent approval/clarification requests needed to finish

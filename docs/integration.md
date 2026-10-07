@@ -310,6 +310,60 @@ show an unavailable notice. Viewing a chat never reads Hermes files directly.
 The sidebar requests sessions with `exclude_sources=cron`, so scheduled-job
 conversations are excluded by Hermes before pagination and counting.
 
+### Results workspace
+
+The application rail order is Chats, Results, Memory, Cron. Results uses only the
+existing read-only dashboard contracts: `GET /api/cron/jobs?profile=…`,
+`GET /api/cron/jobs/<id>/runs?profile=…&limit=…`, and the existing profile-scoped
+session-message history. No session is resumed, created, steered or mutated by
+viewing Results. Manage job is navigation to Cron, not a job mutation.
+
+The default sidebar selection is All results; selecting a job filters the feed.
+Run metadata is sorted newest-first by `started_at`. The initial catalog requests
+20 recent runs per job, with an explicit option to increase to the API maximum
+100. The API has no run-list offsets, so this is not an unlimited archive.
+The feed reveals ten cards at a time. Only displayed agent runs fetch the latest
+50-message history page; older messages load explicitly inside the existing
+read-only run dialog. A shared queue permits at most three reads at once, skips
+obsolete queued work, and discards replies after profile/view/connection changes.
+Available jobs remain visible when another job’s run listing fails; output errors
+have a separate explicit retry.
+
+The last nonempty ordinary assistant message in the latest turn supplies card
+content through the shared history parser and safe Markdown renderer. Tool-call
+preambles, reasoning-only content, hidden rows and delegated/background completion
+artifacts do not become final answers. No output in the bounded latest page is
+reported honestly, with the conversation available for further inspection.
+Running and unknown outputs are not labeled final. Script-only `cron_output`
+rows (including synthetic `cron_output:` IDs) are escaped output previews only;
+Hermes collapses/truncates these to 180 characters. No verified full-output API
+exists, and Agora never sends synthetic IDs to session history or reads internal
+output files.
+
+An explicit `ended_at` means Finished, not successful. Without an end timestamp,
+`scheduler_owned` is authoritative when present: true means Running even when
+`is_active` is false; false means Unknown rather than inferring an active owner.
+Only when ownership is absent does `is_active` supply legacy Running evidence.
+There is no Failed filter because the verified agent-run contract does not expose
+reliable structured per-run failure status. Job `last_status`/`last_error` never
+stamp arbitrary historical runs.
+
+Polling runs every 15 seconds only while the workspace is active, connected and
+`document.visibilityState` is visible. Unchanged finished output is retained in
+component memory, keyed by job/run and completion/message/token metadata, so it
+is not fetched on every tick. A profile change clears that cache. Details refresh
+is explicit and independent of feed polling. No output or query is saved in
+browser storage; Results does not implement full-archive output search.
+
+Source behavior rechecked against installed Hermes revision
+`d526f14714ce8a95cafd7f3a95d1eab5b6e0b910`, `hermes_cli/web_routers/cron.py`
+and `sessions.py`. Unit tests exercise navigation order, chronological real
+answers, filtering, lifecycle races, ownership evidence, partial failures,
+concurrency/page limits, cache reuse, preview restrictions and older details.
+`npm run screenshot` also checks Results navigation/filter/details/manage/mobile
+behavior and writes light/dark desktop/mobile fixture screenshots. These are
+mock-only checks, not authenticated live Hermes acceptance.
+
 ### Conversation search
 
 Sidebar search combines title/ID matches from loaded chats with Hermes’s

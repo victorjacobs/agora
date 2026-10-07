@@ -4,6 +4,7 @@ import App from '../src/App.vue'
 import { ChatClient } from '../src/hermes/chat'
 import { HermesApi } from '../src/hermes/api'
 import { Gateway } from '../src/hermes/gateway'
+import { CronApi } from '../src/hermes/cron'
 
 let cleanup = () => {}
 beforeEach(() => { vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false }))) })
@@ -32,6 +33,42 @@ function mountApp(connection: 'ready' | 'connecting' = 'ready') {
 }
 
 describe('chat interface', () => {
+  it('places Results between Chat and Memory, filters from its sidebar, and manages the exact loaded job', async () => {
+    vi.spyOn(CronApi.prototype, 'profile').mockResolvedValue('work')
+    vi.spyOn(CronApi.prototype, 'jobs').mockResolvedValue([{ id: 'a', name: 'First job' }, { id: 'b', name: 'Exact job' }])
+    const runs = vi.spyOn(CronApi.prototype, 'runs').mockImplementation(async (_owner, id) => ({ runs: [{ id: `run-${id}`, started_at: id === 'b' ? 200 : 100, ended_at: 210 }], limit: 20 }))
+    vi.spyOn(CronApi.prototype, 'history').mockImplementation(async id => ({ session_id: id, messages: [{ id: 1, role: 'assistant', content: 'Readable result' }], pagination: { offset: 0, returned: 1, limit: 50 } }))
+    const { host, client } = mountApp()
+    await nextTick()
+    expect([...host.querySelectorAll('.app-rail button')].map(button => button.getAttribute('aria-label'))).toEqual(['Chat', 'Results', 'Memory', 'Cron jobs'])
+    host.querySelector<HTMLButtonElement>('[aria-label="Results"]')!.click()
+    await vi.waitFor(() => expect(host.textContent).toContain('Readable result'))
+    const nav = host.querySelector('nav[aria-label="Result jobs"]')!
+    expect(nav.querySelector('[aria-current="page"]')?.textContent).toContain('All results')
+    const jobButton = [...nav.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.includes('Exact job'))!
+    jobButton.click(); await nextTick()
+    expect(host.querySelectorAll('.result-card')).toHaveLength(1)
+    expect(nav.querySelector('[aria-current="page"]')?.textContent).toContain('Exact job')
+    const draft = host.querySelector<HTMLTextAreaElement>('textarea')!
+    draft.value = 'Unsent draft'; draft.dispatchEvent(new Event('input'))
+    runs.mockClear()
+    host.querySelector<HTMLButtonElement>('.result-card footer button:last-child')!.click()
+    await vi.waitFor(() => expect(runs).toHaveBeenCalledWith('work', 'b', 20))
+    await vi.waitFor(() => expect(host.querySelector('.cron-job-heading')?.textContent).toContain('Exact job'))
+    expect(runs).toHaveBeenCalledWith('work', 'b', 20)
+    expect(runs).not.toHaveBeenCalledWith('work', 'a', 20)
+    host.querySelector<HTMLButtonElement>('[aria-label="Chat"]')!.click(); await nextTick()
+    expect(draft.value).toBe('Unsent draft')
+    expect(client.state.selected).toBe('stored')
+    host.querySelector<HTMLButtonElement>('[aria-label="Results"]')!.click()
+    await vi.waitFor(() => expect(host.querySelector('.result-card')?.textContent).toContain('Exact job'))
+    runs.mockClear()
+    host.querySelector<HTMLButtonElement>('.result-card footer button:last-child')!.click()
+    await vi.waitFor(() => expect(runs).toHaveBeenCalledWith('work', 'b', 20))
+    await vi.waitFor(() => expect(host.querySelector('.cron-job-heading')?.textContent).toContain('Exact job'))
+    expect(runs).not.toHaveBeenCalledWith('work', 'a', 20)
+    vi.restoreAllMocks()
+  })
   it('fits the application to the keyboard viewport and releases its listeners on unmount', async () => {
     const viewport = Object.assign(new EventTarget(), { height: 844, offsetTop: 0, scale: 1 })
     vi.stubGlobal('visualViewport', viewport)
