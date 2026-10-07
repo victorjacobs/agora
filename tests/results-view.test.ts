@@ -21,6 +21,23 @@ function mount() {
   return { api, props, host, jobs, manage, click }
 }
 describe('Results feed', () => {
+  it('shows day dividers and decorative icons without empty groups after filtering', async () => {
+    const { api, props, host } = mount()
+    const today = new Date(); today.setHours(8, 0, 0, 0)
+    const yesterday = new Date(today); yesterday.setDate(yesterday.getDate() - 1)
+    api.runs.mockImplementation(async (_owner, id) => ({ runs: [{ id, started_at: (id === 'a' ? today : yesterday).getTime() / 1000, ended_at: Date.now() / 1000 }], limit: 20 }))
+    props.active = true
+    await vi.waitFor(() => expect(host.querySelectorAll('.result-card')).toHaveLength(2))
+    expect([...host.querySelectorAll('.result-day-heading')].map(heading => heading.textContent)).toEqual([
+      expect.stringContaining('Today,'), expect.stringContaining('Yesterday,'),
+    ])
+    expect(host.querySelector('.result-card time')?.textContent).toBe('Today at 08:00')
+    expect(host.querySelector('.result-card header svg[aria-hidden="true"]')).not.toBeNull()
+    expect(host.querySelectorAll('.result-card footer svg[aria-hidden="true"]')).toHaveLength(4)
+    props.jobId = 'b'; await nextTick()
+    expect(host.querySelectorAll('.result-day-heading')).toHaveLength(1)
+    expect(host.querySelector('.result-day-heading')?.textContent).toContain('Yesterday,')
+  })
   it('never reuses finished output when the resolved launch profile changes', async () => {
     const { api, props, host, click } = mount()
     props.profile = undefined; props.active = true
