@@ -148,6 +148,7 @@ try {
   await page.locator('textarea:not([disabled])').waitFor()
   await page.locator('select[aria-label="Model"]:not([disabled])').waitFor()
   const composer = page.locator('textarea')
+  assert.equal(await composer.evaluate(element => getComputedStyle(element).fontSize), '15px', 'Desktop composer typography must stay unchanged.')
   assert.equal(await page.locator('body').evaluate(element => getComputedStyle(element).position), 'fixed', 'The document must be pinned; overflow hidden alone is not sufficient in iOS standalone.')
   const railTop = await page.locator('.app-rail').evaluate(element => element.getBoundingClientRect().top)
   await page.evaluate(() => window.scrollTo(0, innerHeight))
@@ -165,6 +166,7 @@ try {
   })
   assert.equal(await composer.evaluate(element => getComputedStyle(element).resize), 'none')
   await page.setViewportSize({ width: 844, height: 390 })
+
   await page.waitForFunction(() => document.querySelector('.shell').clientHeight === 390)
   assert.ok(await page.locator('.composer-footer').evaluate(element => element.getBoundingClientRect().bottom <= innerHeight), 'A long draft and pinned tasks must not push the composer below a short landscape viewport.')
   await page.setViewportSize({ width: 1280, height: 960 })
@@ -581,6 +583,13 @@ try {
   assert.ok(incomingTurns.findIndex(text => text.includes('Sent from another interface.')) < incomingTurns.findIndex(text => text.includes('Received your message.')), 'Incoming prompts must precede the live response.')
   await page.screenshot({ path: '/tmp/agora-incoming-message-dark.png' })
 
+  const touchSession = await page.context().newCDPSession(page)
+  await touchSession.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 1 })
+  assert.ok(await page.evaluate(() => matchMedia('(pointer: coarse)').matches))
+  for (const viewport of [{ width: 390, height: 844 }, { width: 844, height: 390 }]) {
+    await page.setViewportSize(viewport)
+    assert.ok(await page.locator('input:not([type=checkbox]):not([type=radio]):not([type=file]), textarea, select').evaluateAll(elements => elements.every(element => parseFloat(getComputedStyle(element).fontSize) >= 16)), 'Touch form controls must use readable text to avoid iOS focus zoom.')
+  }
   if (errors.length) throw new Error(errors.join('\n'))
   console.info('Saved docs/screenshots/chat-light.png and chat-dark.png (sample data).')
 } finally {

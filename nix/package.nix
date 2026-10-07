@@ -6,7 +6,7 @@ buildNpmPackage {
   src = nix-gitignore.gitignoreFilterSourcePure lib.cleanSourceFilter ../.gitignore ../.;
 
   nodejs = nodejs_24;
-  npmDepsHash = "sha256-AzL5P9vY1v+6tciGOzx2IMKr1Kz84wIE6DBL3lQq2Cg=";
+  npmDepsHash = "sha256-EJR866N2M5JjVEBK2ifkRc71OMY2SSnXpMP7JKhOzyw=";
   nativeBuildInputs = [ makeWrapper ];
 
   env = lib.optionalAttrs (hermesProfile != null) {

@@ -304,6 +304,17 @@ Static hosting through Hermes's browser-cookie flow is also described in the
 
 ## Behavior and compatibility
 
+Touchscreen page zoom is intentionally disabled throughout Agora. In the image
+viewer, pinch or use the zoom buttons/wheel to enlarge only the image, drag to
+pan, and use **Fit** to reset. The viewer controls and the rest of the UI stay
+the same size. Single-finger scrolling outside the image viewer and desktop
+keyboard/browser zoom remain available. Touch-device text fields use at least
+16px text to avoid iOS focus zoom. Physical iPhone/iPad gesture behavior still
+needs confirmation.
+
+On touch devices, submitting a message or steer dismisses the keyboard without
+reopening it when Hermes responds. Desktop submissions keep composer focus.
+
 Agora keeps access/refresh tokens in the bridge process's memory. Drafts,
 transcripts, and unread markers are not persisted in browser storage. Hermes
 retains saved conversation history.

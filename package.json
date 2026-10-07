@@ -13,6 +13,7 @@
     "screenshot": "node scripts/screenshot.mjs"
   },
   "dependencies": {
+    "@panzoom/panzoom": "4.6.2",
     "dompurify": "3.4.16",
     "markdown-it": "14.3.2",
     "sirv": "3.0.2",
