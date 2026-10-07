@@ -571,6 +571,16 @@ try {
   await page.getByRole('button', { name: 'Enable response notifications' }).waitFor()
   await page.evaluate(() => Object.defineProperty(document, 'hasFocus', { configurable: true, value: () => true }))
 
+  messages.push({ id: 7, role: 'user', content: 'Sent from another interface.' })
+  liveSocket.send(JSON.stringify({ jsonrpc: '2.0', method: 'event', params: { type: 'message.start', session_id: 'runtime-notes', seq: 902 } }))
+  liveSocket.send(JSON.stringify({ jsonrpc: '2.0', method: 'event', params: { type: 'message.delta', session_id: 'runtime-notes', seq: 903, payload: { text: 'Received your message.' } } }))
+  await page.getByText('Sent from another interface.', { exact: true }).waitFor()
+  await page.getByText('Received your message.', { exact: true }).waitFor()
+  assert.equal(await page.getByText('Sent from another interface.', { exact: true }).count(), 1)
+  const incomingTurns = await page.locator('.message').evaluateAll(turns => turns.map(turn => turn.textContent))
+  assert.ok(incomingTurns.findIndex(text => text.includes('Sent from another interface.')) < incomingTurns.findIndex(text => text.includes('Received your message.')), 'Incoming prompts must precede the live response.')
+  await page.screenshot({ path: '/tmp/agora-incoming-message-dark.png' })
+
   if (errors.length) throw new Error(errors.join('\n'))
   console.info('Saved docs/screenshots/chat-light.png and chat-dark.png (sample data).')
 } finally {

@@ -89,6 +89,7 @@ export class ChatClient {
   private activeRevision = 0
   private runtimeSessions = new Map<string, { id: string; profile?: string }>()
   private replySequences = new Map<string, number>()
+  private promptSyncRevision = 0
   private taskRevision = 0
   private taskRequest?: object
   private taskCache = new Map<string, BackgroundTask[]>()
@@ -1042,6 +1043,34 @@ export class ChatClient {
     } catch (error) { if (!this.handleAuth(error)) this.state.error = errorMessage(error) }
   }
 
+  private async syncTurnPrompt(anchor: Message, optimistic?: Message) {
+    const revision = ++this.promptSyncRevision
+    const generation = this.selectionGeneration
+    const connection = this.connectionGeneration
+    const selected = this.state.selected
+    const profile = this.state.profile
+    try {
+      // Hermes broadcasts turn starts without prompt text; read its durable display row.
+      const page = await this.api.history(selected, profile)
+      if (this.stopped || generation !== this.selectionGeneration || connection !== this.connectionGeneration || revision !== this.promptSyncRevision || page.session_id !== selected) return
+      const index = this.state.messages.findIndex(message => message.key === anchor.key)
+      if (index < 0) return
+      const row = page.messages.findLast(message => message.role === 'user')
+      if (!row || row.display_kind === 'hidden') return
+      const prompt = historyMessages({ ...page, messages: [row] })[0]!
+      if (this.state.messages.some(message => prompt.rowId !== undefined && message.rowId === prompt.rowId || message.key === prompt.key)) return
+      if (optimistic && optimistic.text === prompt.text && this.state.messages.includes(optimistic)) {
+        optimistic.rowId = prompt.rowId
+        optimistic.kind = prompt.kind
+        optimistic.metadata = prompt.metadata
+      } else this.state.messages.splice(index, 0, prompt)
+    } catch (error) {
+      if (!this.stopped && generation === this.selectionGeneration && connection === this.connectionGeneration && revision === this.promptSyncRevision && !this.handleAuth(error)) {
+        this.state.error = `Could not sync the incoming message: ${errorMessage(error)}`
+      }
+    }
+  }
+
   private receiveEvent(event: GatewayEvent) {
     if (event.type === 'gateway.ready') return
     this.observeReply(event)
@@ -1084,11 +1113,16 @@ export class ChatClient {
       case 'thinking.delta':
         if (typeof payload.text === 'string') this.state.activity = payload.text
         break
-      case 'message.start':
+      case 'message.start': {
         finishReasoning(this.state.messages)
+        const previous = this.state.messages.at(-1)
+        const optimistic = previous?.role === 'user' && previous.rowId === undefined ? previous : undefined
         this.state.running = true
-        this.state.messages.push({ key: `live-${crypto.randomUUID()}`, role: 'assistant', text: '' })
+        const anchor: Message = { key: `live-${crypto.randomUUID()}`, role: 'assistant', text: '' }
+        this.state.messages.push(anchor)
+        void this.syncTurnPrompt(anchor, optimistic)
         break
+      }
       case 'message.delta': {
         finishReasoning(this.state.messages)
         this.clearCompression()

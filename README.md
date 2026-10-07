@@ -15,6 +15,7 @@ sign-in. Agora provides the chat interface.
 > Laptop mode works with unmodified Hermes.
 
 - Streamed replies, Markdown, code, and inline generated images.
+  Messages sent through another client appear in the open chat when its turn starts.
 - Attach images with the paperclip, paste from your clipboard, or drop files onto
   the composer. Review/remove previews before sending; image-only messages work.
   Supports PNG, JPEG, WebP, and GIF, up to 8 images of 10 MB each.

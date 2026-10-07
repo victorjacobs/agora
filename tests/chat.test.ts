@@ -49,6 +49,95 @@ function setup(selected = '') {
 afterEach(() => vi.useRealTimers())
 
 describe('chat recovery and session ownership', () => {
+  it('inserts another client’s prompt before live output without replacing the stream', async () => {
+    const { chat, state, api, gateway } = setup('a')
+    await chat.start('work')
+    const delayed = deferred<HistoryPage>()
+    vi.mocked(api.history).mockReturnValueOnce(delayed.promise)
+    gateway.onEvent({ type: 'message.start', session_id: 'runtime-a', seq: 1 })
+    gateway.onEvent({ type: 'message.delta', session_id: 'runtime-a', seq: 2, payload: { text: 'Looking into it.' } })
+    gateway.onEvent({ type: 'tool.start', session_id: 'runtime-a', seq: 3, payload: { tool_id: 'check', name: 'search' } })
+    delayed.resolve({ ...history('a'), messages: [
+      { id: 1, role: 'user', content: 'question-a' },
+      { id: 2, role: 'user', content: 'From another client\n@image:/tmp/example.png' },
+    ] })
+    await vi.waitFor(() => expect(state.messages.filter(message => message.role === 'user')).toHaveLength(2))
+    expect(state.messages[1]).toMatchObject({ rowId: 2, text: 'From another client', images: ['/tmp/example.png'] })
+    expect(state.messages[2]).toMatchObject({ role: 'assistant', text: 'Looking into it.' })
+    expect(state.messages[3].tool?.id).toBe('check')
+    expect(state.running).toBe(true)
+    expect(api.history).toHaveBeenLastCalledWith('a', 'work')
+    chat.dispose()
+  })
+
+  it('reconciles a local prompt echo without adding another bubble or losing image previews', async () => {
+    const { chat, state, api, gateway } = setup('a')
+    await chat.start('work')
+    state.draft = 'Same question'
+    await chat.send()
+    const local = state.messages.at(-1)!
+    local.images = ['data:image/png;base64,aGVsbG8=']
+    vi.mocked(api.history).mockResolvedValueOnce({ ...history('a'), messages: [{ id: 2, role: 'user', content: 'Same question' }] })
+    gateway.onEvent({ type: 'message.start', session_id: 'runtime-a', seq: 1 })
+    await vi.waitFor(() => expect(local.rowId).toBe(2))
+    expect(state.messages.filter(message => message.text === 'Same question')).toHaveLength(1)
+    expect(local.images).toEqual(['data:image/png;base64,aGVsbG8='])
+    chat.dispose()
+  })
+
+  it('keeps identical prompts from distinct turns and ignores duplicate turn-start events', async () => {
+    const { chat, state, api, gateway } = setup('a')
+    await chat.start('work')
+    vi.mocked(api.history).mockResolvedValueOnce({ ...history('a'), messages: [{ id: 2, role: 'user', content: 'question-a' }] })
+    const event = { type: 'message.start', session_id: 'runtime-a', seq: 1 }
+    gateway.onEvent(event)
+    gateway.onEvent(event)
+    await vi.waitFor(() => expect(state.messages.filter(message => message.role === 'user')).toHaveLength(2))
+    expect(state.messages.filter(message => message.role === 'assistant')).toHaveLength(1)
+    chat.dispose()
+  })
+
+  it('discards a delayed external prompt after switching conversations', async () => {
+    const { chat, state, api, gateway } = setup('a')
+    await chat.start('work')
+    const delayed = deferred<HistoryPage>()
+    vi.mocked(api.history).mockReturnValueOnce(delayed.promise)
+    gateway.onEvent({ type: 'message.start', session_id: 'runtime-a', seq: 1 })
+    await chat.open('b', 'work')
+    delayed.resolve({ ...history('a'), messages: [{ id: 2, role: 'user', content: 'Wrong conversation' }] })
+    await Promise.resolve()
+    expect(state.messages.map(message => message.text)).toEqual(['question-b'])
+    chat.dispose()
+  })
+
+  it('does not render hidden incoming prompts or duplicate a persisted prompt', async () => {
+    const { chat, state, api, gateway } = setup('a')
+    await chat.start('work')
+    vi.mocked(api.history).mockResolvedValueOnce({ ...history('a'), messages: [
+      { id: 1, role: 'user', content: 'question-a' },
+      { id: 2, role: 'user', content: 'Internal wake-up', display_kind: 'hidden' },
+    ] })
+    gateway.onEvent({ type: 'message.start', session_id: 'runtime-a', seq: 1 })
+    await Promise.resolve()
+    gateway.onEvent({ type: 'message.start', session_id: 'runtime-a', seq: 2 })
+    await Promise.resolve()
+    expect(state.messages.filter(message => message.role === 'user').map(message => message.text)).toEqual(['question-a'])
+    chat.dispose()
+  })
+
+  it('keeps streamed output and exposes incoming prompt sync failures', async () => {
+    const { chat, state, api, gateway } = setup('a')
+    await chat.start('work')
+    vi.mocked(api.history).mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    gateway.onEvent({ type: 'message.start', session_id: 'runtime-a', seq: 1 })
+    gateway.onEvent({ type: 'message.delta', session_id: 'runtime-a', seq: 2, payload: { text: 'Still streaming' } })
+    await vi.waitFor(() => expect(state.error).toContain('Could not sync the incoming message'))
+    expect(state.messages.at(-1)?.text).toBe('Still streaming')
+    expect(state.connection).toBe('ready')
+    expect(state.running).toBe(true)
+    chat.dispose()
+  })
+
   it('steers through the dedicated RPC without interrupting or submitting another prompt', async () => {
     const { chat, state, gateway } = setup('a')
     await chat.start('work')
