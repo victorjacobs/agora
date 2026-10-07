@@ -1153,6 +1153,28 @@ describe('chat recovery and session ownership', () => {
     chat.dispose()
   })
 
+  it('restores a vault prompt and sends its value only through request.answer', async () => {
+    const { state, gateway, chat } = setup('a')
+    const ordinary = vi.mocked(gateway.request).getMockImplementation()!
+    vi.mocked(gateway.request).mockImplementation(async (method, params, timeout) => {
+      if (method === 'session.resume') return {
+        ...snapshot('a'), running: true,
+        open_requests: [{ id: 'vault-1', method: 'vault.code', params: { session_id: 'runtime-a', site: 'Example' } }],
+      }
+      return ordinary(method, params, timeout)
+    })
+    await chat.start('work')
+    expect(state.requests[0].method).toBe('vault.code')
+    const messages = JSON.stringify(state.messages)
+    await chat.answer(state.requests[0], { value: 'synthetic-code' })
+    expect(gateway.request).toHaveBeenCalledWith('request.answer', { session_id: 'runtime-a', profile: 'work', id: 'vault-1', result: { value: 'synthetic-code' } }, 300_000)
+    expect(state.requests).toHaveLength(0)
+    expect(JSON.stringify(state.messages)).toBe(messages)
+    expect(state.draft).toBe('')
+    expect(vi.mocked(gateway.request).mock.calls.some(([method]) => method === 'prompt.submit')).toBe(false)
+    chat.dispose()
+  })
+
   it('restores running state, pending approvals, and clarification IDs', async () => {
     const { state, gateway, chat } = setup('a')
     const ordinaryRequest = vi.mocked(gateway.request).getMockImplementation()!
