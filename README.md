@@ -42,6 +42,11 @@ sign-in. Agora provides the chat interface.
 - Command approval cards with readable command text, **Allow once**, and **Reject**.
   Remembered approvals appear only when Hermes offers them. Clarification questions
   can be answered directly in chat.
+- Masked browser-login prompts for saving a website login, unlocking a password
+  manager, and entering a verification/2FA code. Values go through Hermes's input
+  request channel, not chat messages; Agora does not save them in browser storage.
+  Inputs clear on submission, cancellation, or disconnection. Requires Hermes's
+  vault server-request hooks; this does not embed or control a browser in Agora.
 - New chats, history, rename, delete, and stop controls.
 - **Steer** a running turn with text from the composer, or press Enter. Hermes
   accepts the guidance without interrupting the turn and applies it when safe;

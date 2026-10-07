@@ -1,5 +1,28 @@
 # Implementation handoff
 
+## Browser credential prompts
+
+Verified against the installed Hermes revision
+`d526f14714ce8a95cafd7f3a95d1eab5b6e0b910` in
+`tui_gateway/contracts/server_requests.py` and `tui_gateway/agent_callbacks.py`:
+
+- `vault.save_login` carries `{origin, site}`; answer with
+  `{value: JSON.stringify({identifier, password})}`.
+- `vault.unlock_prompt` carries `{backend, display_name}`; answer with
+  `{value: <master password>}`.
+- `vault.code` carries optional `{site, hint}`; answer with `{value: <code>}`.
+- Cancel any of these with `{value: ""}` through the existing `request.answer`
+  RPC, retaining request ID, runtime session ID, and profile.
+
+Agora renders masked input cards and does not put answers into its composer,
+transcript, or browser storage. Submitted cards prevent duplicate submission;
+inputs clear when disconnected or replaced. Resume snapshots restore pending
+requests, never previously typed secrets. Hermes owns encrypted login storage,
+origin binding, manager unlock, and browser filling. No vault-management panel,
+browser-preview bridge, or Hermes API patch is introduced. Unknown requests
+remain explicitly unsupported. Component and protocol tests use synthetic
+credentials; live browser-login/2FA acceptance remains unverified.
+
 The initial client is now implemented. See [integration.md](integration.md) for
 implementation behavior and validation limits. This document retains the original
 research baseline and planning observations. The implemented UI now uses `/`,

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { createApp, nextTick } from 'vue'
+import { createApp, h, nextTick, reactive } from 'vue'
 import RequestCard from '../src/RequestCard.vue'
 import type { ServerRequest } from '../src/hermes/types'
 
@@ -10,10 +10,11 @@ function mountRequest(request: ServerRequest, disabled = false) {
   const answers: Record<string, unknown>[] = []
   const host = document.createElement('div')
   document.body.append(host)
-  const app = createApp(RequestCard, { request, disabled, onAnswer: (answer: Record<string, unknown>) => answers.push(answer) })
+  const props = reactive({ request, disabled })
+  const app = createApp({ render: () => h(RequestCard, { ...props, onAnswer: (answer: Record<string, unknown>) => answers.push(answer) }) })
   app.mount(host)
   cleanup = () => app.unmount()
-  return { host, answers }
+  return { host, answers, props }
 }
 
 describe('request controls', () => {
@@ -67,9 +68,67 @@ describe('request controls', () => {
     expect(answers).toEqual([{ answers: { q1: 'One, Two', q2: 'Because' } }])
   })
 
+  it('saves a login through the masked vault request without adding chat text', async () => {
+    const { host, answers } = mountRequest({ id: 'login', method: 'vault.save_login', params: { site: 'Example', origin: 'https://example.com' } })
+    expect(host.textContent).toContain('https://example.com')
+    expect(answers).toEqual([])
+    const identifier = host.querySelector<HTMLInputElement>('input[autocomplete=username]')!
+    const password = host.querySelector<HTMLInputElement>('input[type=password]')!
+    expect(password).not.toBeNull()
+    identifier.value = 'synthetic-user'
+    identifier.dispatchEvent(new Event('input', { bubbles: true }))
+    password.value = 'synthetic-password'
+    password.dispatchEvent(new Event('input', { bubbles: true }))
+    await nextTick()
+    host.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    await nextTick()
+    expect(answers).toEqual([{ value: JSON.stringify({ identifier: 'synthetic-user', password: 'synthetic-password' }) }])
+    expect(password.value).toBe('')
+    expect(host.textContent).not.toContain('synthetic-password')
+  })
+
+  it.each(['vault.unlock_prompt', 'vault.code'])('answers %s with a masked value and explicit cancellation', async method => {
+    const { host, answers } = mountRequest({ id: 'secure', method, params: { display_name: 'Bitwarden', site: 'Example', hint: 'Read your authenticator' } })
+    expect(answers).toEqual([])
+    const input = host.querySelector<HTMLInputElement>('input[type=password]')!
+    expect(input).not.toBeNull()
+    input.value = 'synthetic-value'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    await nextTick()
+    host.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    await nextTick()
+    expect(answers).toEqual([{ value: 'synthetic-value' }])
+    expect(input.value).toBe('')
+    expect([...host.querySelectorAll('button')].every(button => button.disabled)).toBe(true)
+    cleanup()
+    const cancelled = mountRequest({ id: 'cancel', method, params: {} })
+    ;([...cancelled.host.querySelectorAll('button')].find(button => button.textContent === 'Cancel') as HTMLButtonElement).click()
+    expect(cancelled.answers).toEqual([{ value: '' }])
+  })
+
+  it('clears secure input when disconnected or replaced and never submits while disabled', async () => {
+    const { host, answers, props } = mountRequest({ id: 'secure', method: 'vault.code', params: {} })
+    const input = host.querySelector<HTMLInputElement>('input[type=password]')!
+    input.value = 'synthetic-code'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    props.disabled = true
+    await nextTick()
+    expect(input.value).toBe('')
+    host.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    expect(answers).toEqual([])
+    props.disabled = false
+    await nextTick()
+    input.value = 'synthetic-code'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    props.request = { id: 'replacement', method: 'vault.code', params: {} }
+    await nextTick()
+    expect(host.querySelector<HTMLInputElement>('input[type=password]')!.value).toBe('')
+    expect(answers).toEqual([])
+  })
+
   it('shows unsupported interactions explicitly and disables supported actions while recovering', () => {
-    const unsupported = mountRequest({ id: 'req', method: 'vault.code', params: {} })
-    expect(unsupported.host.textContent).toContain('Unsupported request: vault.code')
+    const unsupported = mountRequest({ id: 'req', method: 'vault.future', params: {} })
+    expect(unsupported.host.textContent).toContain('Unsupported request: vault.future')
     expect(unsupported.answers).toHaveLength(0)
     cleanup()
     const recovering = mountRequest({ id: 'req', method: 'approval', params: { choices: ['once', 'deny'] } }, true)

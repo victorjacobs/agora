@@ -2,6 +2,7 @@
 import { computed, reactive, watch } from 'vue'
 import CommandApprovalCard from './CommandApprovalCard.vue'
 import MemoryApprovalCard from './MemoryApprovalCard.vue'
+import VaultRequestCard from './VaultRequestCard.vue'
 import { isMemoryApproval } from './hermes/memory'
 import type { Approval, ServerRequest } from './hermes/types'
 
@@ -32,6 +33,7 @@ function submit() {
 <template>
   <MemoryApprovalCard v-if="request.method === 'approval' && isMemoryApproval(approval)" :approval="approval" :disabled="disabled" @decide="emit('answer', { choice: $event })" />
   <CommandApprovalCard v-else-if="request.method === 'approval'" :approval="approval" :disabled="disabled" @decide="emit('answer', { choice: $event })" />
+  <VaultRequestCard v-else-if="['vault.save_login', 'vault.unlock_prompt', 'vault.code'].includes(request.method)" :key="request.id" :request="request" :disabled="disabled" @answer="emit('answer', $event)" />
   <section v-else class="request-card" :aria-label="`${request.method} request`">
     <form v-if="request.method === 'clarify' && questions.length" @submit.prevent="submit">
       <h3>Hermes needs your input</h3>
