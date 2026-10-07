@@ -3,6 +3,13 @@ import DOMPurify from 'dompurify'
 import { imageSource } from './hermes/media'
 
 const markdown = new MarkdownIt({ html: false, linkify: false, breaks: true })
+markdown.renderer.rules.link_open = (tokens, index, options, _env, renderer) => {
+  const token = tokens[index]!
+  token.attrSet('target', '_blank')
+  token.attrSet('rel', 'noopener noreferrer')
+  return renderer.renderToken(tokens, index, options)
+}
+
 markdown.core.ruler.after('inline', 'hermes-media', state => {
   for (const block of state.tokens) {
     if (!block.children) continue
@@ -64,5 +71,6 @@ export function renderMarkdown(text: string, images: Record<string, string> = {}
     USE_PROFILES: { html: true },
     FORBID_TAGS: ['style', 'form', 'input', 'iframe'],
     FORBID_ATTR: ['style'],
+    ADD_ATTR: ['target'],
   })
 }

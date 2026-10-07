@@ -315,6 +315,12 @@ needs confirmation.
 On touch devices, submitting a message or steer dismisses the keyboard without
 reopening it when Hermes responds. Desktop submissions keep composer focus.
 
+Links in messages and reasoning traces request a separate browser context instead
+of replacing Agora, including when installed as a PWA. The browser and OS control
+where that context opens: some mobile platforms use an in-app browser, and Agora
+cannot force the OS default browser. Sign-in stays in Agora's existing flow;
+image previews and downloads are unchanged.
+
 Agora keeps access/refresh tokens in the bridge process's memory. Drafts,
 transcripts, and unread markers are not persisted in browser storage. Hermes
 retains saved conversation history.
