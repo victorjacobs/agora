@@ -14,7 +14,7 @@ sign-in. Agora provides the chat interface.
 > allowlist patch in your Hermes build before using hosted bridge login.
 > Laptop mode works with unmodified Hermes.
 
-- Streamed replies, Markdown, code, and inline generated images.
+- Streamed replies, Markdown in user messages and replies, code, and inline generated images.
   Messages sent through another client appear in the open chat when its turn starts.
 - Attach images with the paperclip, paste from your clipboard, or drop files onto
   the composer. Review/remove previews before sending; image-only messages work.

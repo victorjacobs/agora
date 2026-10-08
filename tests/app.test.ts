@@ -33,6 +33,43 @@ function mountApp(connection: 'ready' | 'connecting' = 'ready') {
 }
 
 describe('chat interface', () => {
+  it('renders Markdown in user messages without changing their source text', async () => {
+    const { host, client } = mountApp()
+    const text = '**Important** and *emphasis* with `inline code`.\n\n- First item\n- Second item\n\n[Reference](https://example.com)\n\n```ts\nconst answer = 42\n```\n\nFirst line\nSecond line'
+    client.state.messages = [{ key: 'question', role: 'user', text }]
+    await nextTick()
+    const message = host.querySelector('.message.user')!
+    expect(message.getAttribute('aria-label')).toBe('You')
+    expect(message.querySelector('strong')?.textContent).toBe('Important')
+    expect(message.querySelector('em')?.textContent).toBe('emphasis')
+    expect(message.querySelector('p code')?.textContent).toBe('inline code')
+    expect([...message.querySelectorAll('li')].map(item => item.textContent)).toEqual(['First item', 'Second item'])
+    expect(message.querySelector('a')?.getAttribute('href')).toBe('https://example.com')
+    expect(message.querySelector('a')?.getAttribute('rel')).toBe('noopener noreferrer')
+    expect(message.querySelector('pre code')?.textContent).toBe('const answer = 42\n')
+    expect(message.querySelector('p:last-child')?.innerHTML).toContain('First line<br>\nSecond line')
+    expect(client.state.messages[0]?.text).toBe(text)
+  })
+
+  it('keeps raw HTML and unsafe links inert in user Markdown', async () => {
+    const { host, client } = mountApp()
+    client.state.messages = [{ key: 'question', role: 'user', text: '**Safe** <script>alert(1)</script> <img src=x onerror=alert(1)> [Unsafe](javascript:alert(1))' }]
+    await nextTick()
+    const message = host.querySelector('.message.user')!
+    expect(message.querySelector('strong')?.textContent).toBe('Safe')
+    expect(message.querySelector('script, img, [onerror], a')).toBeNull()
+    expect(message.textContent).toContain('<script>alert(1)</script>')
+  })
+
+  it.each(['**Image caption**', ''])('preserves user image attachments with caption %j', async text => {
+    const { host, client } = mountApp()
+    const source = 'data:image/png;base64,aGVsbG8='
+    client.state.messages = [{ key: 'question', role: 'user', text, images: [source] }]
+    await vi.waitFor(() => expect(host.querySelector('.message.user .user-images img')?.getAttribute('src')).toBe(source))
+    expect(host.querySelectorAll('.message.user img')).toHaveLength(1)
+    expect(host.querySelector('.message.user strong')?.textContent).toBe(text ? 'Image caption' : undefined)
+  })
+
   it('reactively spins the sidebar indicator for background tasks in another chat', async () => {
     const { host, client } = mountApp()
     client.state.sessions = [{ id: 'stored', title: 'Current chat', profile: 'work' }, { id: 'another', title: 'Background chat', profile: 'work' }]
@@ -277,9 +314,9 @@ describe('chat interface', () => {
     expect(trace.open).toBe(true)
     expect(host.textContent).toContain('The answer')
     expect(trace.textContent).not.toContain('The answer')
-    expect(host.querySelector('.message-block > .markdown')?.textContent?.trim()).toBe('The answer')
+    expect(host.querySelector('.message.assistant .message-block > .markdown')?.textContent?.trim()).toBe('The answer')
     trace.open = false
-    expect(host.querySelector('.message-block > .markdown')?.closest('details')).toBeNull()
+    expect(host.querySelector('.message.assistant .message-block > .markdown')?.closest('details')).toBeNull()
   })
 
   it('explains missing traces without inventing reasoning text', async () => {
