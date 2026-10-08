@@ -691,6 +691,10 @@ describe('chat recovery and session ownership', () => {
     await chat.chooseModel({ model: 'unknown', provider: 'configured' })
     expect(vi.mocked(gateway.request).mock.calls.filter(call => call[0] === 'config.set')).toHaveLength(0)
     await chat.chooseModel({ model: 'second', provider: 'configured' })
+    expect(gateway.request).toHaveBeenCalledWith('config.set', {
+      key: 'model', value: 'second --provider configured --session', session_id: 'runtime-a',
+      profile: 'work', scope: 'session', confirm_expensive_model: false,
+    }, 300_000)
     expect(state.model).toBe('second')
     expect(state.provider).toBe('configured')
     expect(state.reasoning).toBe('high')
@@ -725,7 +729,7 @@ describe('chat recovery and session ownership', () => {
     expect(state.model).toBe('first')
     expect(state.settingsNotice).toContain('queued for the next turn')
     expect(gateway.request).toHaveBeenLastCalledWith('config.get', expect.anything())
-    expect(vi.mocked(gateway.request).mock.calls.filter(call => call[0] === 'config.set').at(-1)?.[1]).toMatchObject({ value: "'second' --provider 'configured' --session", session_id: 'runtime-a', scope: 'session', confirm_expensive_model: true })
+    expect(vi.mocked(gateway.request).mock.calls.filter(call => call[0] === 'config.set').at(-1)?.[1]).toMatchObject({ value: 'second --provider configured --session', session_id: 'runtime-a', scope: 'session', confirm_expensive_model: true })
     chat.dispose()
   })
 
