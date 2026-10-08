@@ -34,6 +34,8 @@ export interface SessionModelInfo {
 export const reasoningEfforts = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra']
 
 export function modelSwitchValue(choice: ModelChoice) {
-  const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`
-  return `${quote(choice.model)} --provider ${quote(choice.provider)} --session`
+  if ([choice.model, choice.provider].some(value => !value || /\s/u.test(value) || value.startsWith('--'))) {
+    throw new Error('Model and provider IDs must be nonempty single tokens without flag prefixes.')
+  }
+  return `${choice.model} --provider ${choice.provider} --session`
 }
