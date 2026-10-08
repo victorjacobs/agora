@@ -375,6 +375,72 @@ describe('chat interface', () => {
     expect(palette.open).toBe(false)
     expect(client.state.searchQuery).toBe('deployment')
   })
+  it.each(['running', 'unknown', 'tail-anchored'])('recovers a cached %s orphan before unrelated latest replies', async retained => {
+    const { host, client } = mountApp()
+    const latest = { key: 'row-20', rowId: 20, role: 'assistant', text: 'Unrelated Paperless answer' }
+    client.state.tasks = [{
+      key: 'old-child', delegationId: 'old-batch', goal: 'Old password workspace', status: retained === 'running' ? 'running' : 'unknown',
+      ...(retained === 'tail-anchored' ? { completedAfter: latest } : {}),
+    }]
+    vi.spyOn(HermesApi.prototype, 'history').mockImplementation(async id => ({
+      session_id: id, profile: 'work', messages: [{ id: 20, role: 'assistant', content: latest.text }],
+      pagination: { returned: 1, offset: 0, limit: 50 },
+    }))
+    let transport!: Gateway
+    vi.spyOn(Gateway.prototype, 'request').mockImplementation(async function (this: Gateway, method, params) {
+      transport = this
+      if (method === 'session.resume') return { session_id: `runtime-${params?.session_id}`, stored_session_id: params?.session_id, info: { running: false } }
+      if (method === 'approval.pending') return { approvals: [] }
+      if (method === 'subagent.list') return { subagents: [] }
+      if (method === 'model.options') return { providers: [], model: '', provider: '' }
+      return { value: 'medium' }
+    })
+    await client.open('another', 'work')
+    await client.open('stored', 'work')
+    await vi.waitFor(() => expect(client.state.tasks[0]?.status).toBe('unknown'))
+    await nextTick()
+    const transcript = host.querySelector('.transcript')!
+    expect(transcript.textContent!.indexOf('Old password workspace')).toBeLessThan(transcript.textContent!.indexOf(latest.text))
+    expect(client.state.tasks[0]?.completedAfter).toBeNull()
+    expect(client.state.tasksBySession.get(JSON.stringify(['work', 'stored']))?.[0]?.completedAfter).toBeNull()
+    expect(host.querySelector('.pinned-tasks')).toBeNull()
+    expect(host.querySelectorAll('.background-tasks')).toHaveLength(1)
+    client.state.messages.push({ key: 'next', role: 'user', text: 'Next unrelated question' })
+    await nextTick()
+    expect(transcript.textContent!.indexOf('Old password workspace')).toBeLessThan(transcript.textContent!.indexOf(latest.text))
+    vi.mocked(HermesApi.prototype.history).mockResolvedValueOnce({
+      session_id: 'stored', profile: 'work',
+      messages: [{ id: 10, role: 'system', content: 'Historical batch notice', display_kind: 'async_delegation_complete', display_metadata: { delegation_id: 'old-batch', failed_count: 1 } }],
+      pagination: { returned: 1, offset: 1, limit: 50 },
+    })
+    client.state.hasOlder = true
+    await client.older()
+    await nextTick()
+    expect(client.state.tasks[0]).toMatchObject({ status: 'unknown', completedAfter: { key: 'row-10' } })
+    expect(transcript.textContent!.indexOf('Historical batch notice')).toBeLessThan(transcript.textContent!.indexOf('Old password workspace'))
+    expect(transcript.textContent!.indexOf('Old password workspace')).toBeLessThan(transcript.textContent!.indexOf(latest.text))
+    expect(client.state.tasksBySession.get(JSON.stringify(['work', 'stored']))?.[0]?.completedAfter?.key).toBe('row-10')
+    await client.open('another', 'work')
+    await client.open('stored', 'work')
+    expect(client.state.tasks[0]?.completedAfter?.key).toBe('row-10')
+    transport.onEvent({ type: 'subagent.progress', session_id: 'runtime-stored', payload: { subagent_id: 'old-child' } })
+    await nextTick()
+    expect(client.state.tasks[0]?.completedAfter).toBeUndefined()
+    expect(host.querySelector('.pinned-tasks')?.textContent).toContain('Old password workspace')
+    expect(host.querySelector('.transcript .background-tasks')).toBeNull()
+    transport.onEvent({ type: 'subagent.complete', session_id: 'runtime-stored', payload: { subagent_id: 'old-child', status: 'completed' } })
+    await nextTick()
+    expect(client.state.tasks[0]?.completedAfter?.key).toBe('row-20')
+    expect(host.querySelector('.pinned-tasks')).toBeNull()
+    const recoveredTranscript = host.querySelector('.transcript')!
+    expect(recoveredTranscript.textContent!.indexOf(latest.text)).toBeLessThan(recoveredTranscript.textContent!.indexOf('Old password workspace'))
+    await client.open('another', 'work')
+    await client.open('stored', 'work')
+    expect(client.state.tasks[0]).toMatchObject({ status: 'completed', completedAfter: { key: 'row-20' } })
+    transport.onEvent({ type: 'subagent.progress', session_id: 'runtime-stored', payload: { subagent_id: 'old-child' } })
+    await nextTick()
+    expect(host.querySelector('.pinned-tasks')).toBeNull()
+  })
   it('keeps an unanchored orphan card before new conversation messages', async () => {
     const { host, client } = mountApp()
     client.state.messages = [{ key: 'reply', role: 'assistant', text: 'Initial reply' }]

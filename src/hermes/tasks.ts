@@ -11,7 +11,7 @@ export interface BackgroundTask {
   toolCount?: number
   tool?: string
   summary?: string
-  completedAfter?: Pick<Message, 'key' | 'rowId' | 'role' | 'text'> | null
+  completedAfter?: Pick<Message, 'key' | 'rowId' | 'role' | 'text' | 'kind' | 'metadata'> | null
 }
 
 export interface SubagentRoster {
@@ -30,16 +30,20 @@ export function anchorFinishedTasks(tasks: BackgroundTask[], messages: Message[]
   const message = messages.findLast(message => message.text.trim())
   return tasks.map(task => {
     if (taskRunning(task)) return task
-    const notice = task.status === 'unknown' ? messages.findLast(message => {
+    const matchesNotice = (message: Pick<Message, 'kind' | 'metadata'>) => {
       const id = message.metadata?.delegation_id
       return message.kind === 'async_delegation_complete' && typeof id === 'string' && id.length > 0
         && (task.delegationId === id || task.delegationKey?.startsWith(`${id}:`))
-    }) : undefined
-    if (!notice && task.completedAfter !== undefined) return task
-    const anchor = notice || message
+    }
+    const notice = task.status === 'unknown' ? messages.findLast(matchesNotice) : undefined
+    if (task.status !== 'unknown' && task.completedAfter !== undefined) return task
+    // Roster disappearance is not a completion observed at the latest reply.
+    const anchor = task.status === 'unknown'
+      ? notice || (task.completedAfter && matchesNotice(task.completedAfter) ? task.completedAfter : undefined)
+      : message
     return {
       ...task,
-      completedAfter: anchor ? { key: anchor.key, rowId: anchor.rowId, role: anchor.role, text: anchor.text } : null,
+      completedAfter: anchor ? { key: anchor.key, rowId: anchor.rowId, role: anchor.role, text: anchor.text, kind: anchor.kind, metadata: anchor.metadata } : null,
     }
   })
 }
@@ -77,7 +81,7 @@ export function taskEvent(tasks: BackgroundTask[], event: GatewayEvent): Backgro
   if (typeof p.tool_name === 'string' && event.type !== 'subagent.complete') task.tool = p.tool_name
   if (complete && typeof p.summary === 'string') task.summary = p.summary
   else if (complete && typeof p.text === 'string') task.summary = p.text
-  if (taskRunning(task)) task.completedAfter = undefined
+  if (taskRunning(task) || existing?.status === 'unknown' && task.status !== 'unknown') task.completedAfter = undefined
   return existing ? tasks.map(row => row.key === key ? task : row) : [...tasks, task]
 }
 
@@ -90,7 +94,7 @@ export function reconcileTasks(tasks: BackgroundTask[], roster: SubagentRoster):
       delegationId: row.delegation_id || existing?.delegationId,
       model: row.model, parentId: row.parent_id, toolCount: typeof row.tool_count === 'number' ? row.tool_count : undefined, tool: row.last_tool,
     }
-    if (taskRunning(task)) task.completedAfter = undefined
+    if (taskRunning(task) || existing?.status === 'unknown' && task.status !== 'unknown') task.completedAfter = undefined
     return task
   })
   const retained = tasks.filter(task => !live.some(row => row.key === task.key)).map(task =>

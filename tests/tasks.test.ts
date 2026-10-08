@@ -29,8 +29,18 @@ describe('delegated background tasks', () => {
     for (const recovered of [roster, event]) {
       expect(taskRunning(recovered[0]!)).toBe(true)
       expect(recovered[0]?.completedAfter).toBeUndefined()
-      const finished = anchorFinishedTasks(reconcileTasks(recovered, { subagents: [] }), [{ key: 'new', role: 'assistant', text: 'New reply' }])
+      const missing = anchorFinishedTasks(reconcileTasks(recovered, { subagents: [] }), [{ key: 'new', role: 'assistant', text: 'New reply' }])
+      expect(missing[0]?.completedAfter).toBeNull()
+      const finished = anchorFinishedTasks(taskEvent(recovered, { type: 'subagent.complete', payload: { subagent_id: 'child' } }), [{ key: 'new', role: 'assistant', text: 'New reply' }])
       expect(finished[0]?.completedAfter?.key).toBe('new')
+    }
+  })
+  it.each([null, { key: 'notice', role: 'system', text: 'Historical notice', kind: 'async_delegation_complete', metadata: { delegation_id: 'batch' } }])('anchors an authoritative completion of an unknown child at its new observation', completedAfter => {
+    const orphan = [{ key: 'child', goal: 'Check logs', status: 'unknown', completedAfter }]
+    const event = taskEvent(orphan, { type: 'subagent.complete', payload: { subagent_id: 'child', status: 'failed' } })
+    const roster = reconcileTasks(orphan, { subagents: [{ subagent_id: 'child', status: 'completed' }] })
+    for (const completed of [event, roster]) {
+      expect(anchorFinishedTasks(completed, [{ key: 'new', role: 'assistant', text: 'Current reply' }])[0]?.completedAfter?.key).toBe('new')
     }
   })
   it('tracks lifecycle without exposing reasoning or reviving finished tasks', () => {

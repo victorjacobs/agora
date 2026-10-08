@@ -278,8 +278,12 @@ timeline notices after reload. A child disappearing from the live roster is mark
 as no longer listed, not assumed successful. Its card is anchored during history
 recovery even if the roster probe fails; matching stored delegation notices provide
 its historical placement without inferring an individual child's outcome from
-aggregate completion counts. Unanchored cards stay before the loaded transcript,
-not after each new message. A live child recovered from an unknown state returns
+aggregate completion counts. Unknown cards without a matching notice stay before
+the loaded transcript; recovery also discards older cached anchors to unrelated
+replies. Loading older messages can place the card after a newly found matching
+notice, and that verified notice anchor survives later bounded history recovery.
+Observed terminal-task anchors remain unchanged. A live child recovered from an
+unknown state returns
 to the pinned roster and clears its obsolete transcript anchor.
 Older gateways without `subagent.list`
 show a status-unavailable notice and can still display supported live events.
