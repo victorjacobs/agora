@@ -6,6 +6,7 @@ export interface BackgroundTask {
   status: string
   model?: string
   delegationKey?: string
+  delegationId?: string
   parentId?: string
   toolCount?: number
   tool?: string
@@ -27,9 +28,19 @@ export function taskRunning(task: BackgroundTask) {
 
 export function anchorFinishedTasks(tasks: BackgroundTask[], messages: Message[]): BackgroundTask[] {
   const message = messages.findLast(message => message.text.trim())
-  return tasks.map(task => taskRunning(task) || task.completedAfter !== undefined ? task : {
-    ...task,
-    completedAfter: message ? { key: message.key, rowId: message.rowId, role: message.role, text: message.text } : null,
+  return tasks.map(task => {
+    if (taskRunning(task)) return task
+    const notice = task.status === 'unknown' ? messages.findLast(message => {
+      const id = message.metadata?.delegation_id
+      return message.kind === 'async_delegation_complete' && typeof id === 'string' && id.length > 0
+        && (task.delegationId === id || task.delegationKey?.startsWith(`${id}:`))
+    }) : undefined
+    if (!notice && task.completedAfter !== undefined) return task
+    const anchor = notice || message
+    return {
+      ...task,
+      completedAfter: anchor ? { key: anchor.key, rowId: anchor.rowId, role: anchor.role, text: anchor.text } : null,
+    }
   })
 }
 
@@ -56,22 +67,32 @@ export function taskEvent(tasks: BackgroundTask[], event: GatewayEvent): Backgro
     status: complete ? typeof p.status === 'string' ? p.status : 'completed'
       : event.type === 'subagent.spawn_requested' ? 'queued' : 'running',
   }
-  if (typeof p.delegation_id === 'string') task.delegationKey = `${p.delegation_id}:${p.task_index ?? 0}`
+  if (typeof p.delegation_id === 'string') {
+    task.delegationId = p.delegation_id
+    task.delegationKey = `${p.delegation_id}:${p.task_index ?? 0}`
+  }
   if (typeof p.model === 'string') task.model = p.model
   if (typeof p.parent_id === 'string') task.parentId = p.parent_id
   if (typeof p.tool_count === 'number') task.toolCount = p.tool_count
   if (typeof p.tool_name === 'string' && event.type !== 'subagent.complete') task.tool = p.tool_name
   if (complete && typeof p.summary === 'string') task.summary = p.summary
   else if (complete && typeof p.text === 'string') task.summary = p.text
+  if (taskRunning(task)) task.completedAfter = undefined
   return existing ? tasks.map(row => row.key === key ? task : row) : [...tasks, task]
 }
 
 export function reconcileTasks(tasks: BackgroundTask[], roster: SubagentRoster): BackgroundTask[] {
-  const live = roster.subagents.map(row => ({
-    ...tasks.find(task => task.key === row.subagent_id),
-    key: row.subagent_id, goal: row.goal || 'Background task', status: row.status || 'running',
-    model: row.model, parentId: row.parent_id, toolCount: typeof row.tool_count === 'number' ? row.tool_count : undefined, tool: row.last_tool,
-  }))
+  const live = roster.subagents.map(row => {
+    const existing = tasks.find(task => task.key === row.subagent_id)
+    const task: BackgroundTask = {
+      ...existing,
+      key: row.subagent_id, goal: row.goal || 'Background task', status: row.status || 'running',
+      delegationId: row.delegation_id || existing?.delegationId,
+      model: row.model, parentId: row.parent_id, toolCount: typeof row.tool_count === 'number' ? row.tool_count : undefined, tool: row.last_tool,
+    }
+    if (taskRunning(task)) task.completedAfter = undefined
+    return task
+  })
   const retained = tasks.filter(task => !live.some(row => row.key === task.key)).map(task =>
     taskRunning(task) ? { ...task, status: 'unknown' } : task)
   const failed = (roster.delegations || []).map(row => ({

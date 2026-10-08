@@ -275,7 +275,13 @@ Roster replies are guarded against session changes and newer live events.
 Observed completions remain in memory when switching conversations; Hermes's
 stored `async_delegation_complete` and `process_complete` rows appear as expandable
 timeline notices after reload. A child disappearing from the live roster is marked
-as no longer listed, not assumed successful. Older gateways without `subagent.list`
+as no longer listed, not assumed successful. Its card is anchored during history
+recovery even if the roster probe fails; matching stored delegation notices provide
+its historical placement without inferring an individual child's outcome from
+aggregate completion counts. Unanchored cards stay before the loaded transcript,
+not after each new message. A live child recovered from an unknown state returns
+to the pinned roster and clears its obsolete transcript anchor.
+Older gateways without `subagent.list`
 show a status-unavailable notice and can still display supported live events.
 `background.complete` side-agent results are also displayed when received.
 This is task visibility within chat, not a task-management interface or a global

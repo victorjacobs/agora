@@ -653,6 +653,8 @@ export class ChatClient {
       this.applyModelInfo(snapshot.info)
       this.state.title = snapshot.info.title || this.state.title
       this.state.messages = this.restoreCommandOutputs(restoreReasoning(restoreInflight(historyMessages(page), snapshot), this.reasoningCache.get(JSON.stringify([stored, this.state.profile])) || []), stored, this.state.profile)
+      this.state.tasks = anchorFinishedTasks(this.state.tasks, this.state.messages)
+      this.taskCache.set(this.taskScope(), this.state.tasks)
       this.state.historyOffset = page.pagination.returned
       this.state.hasOlder = page.pagination.returned === page.pagination.limit
       this.state.running = Boolean(snapshot.running ?? snapshot.info.running)

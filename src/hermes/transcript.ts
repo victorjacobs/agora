@@ -71,7 +71,7 @@ export function conversationTimeline(messages: Message[], tasks: BackgroundTask[
   const finished = new Map<number, BackgroundTask[]>()
   for (const task of tasks.filter(task => !taskRunning(task))) {
     const anchor = task.completedAfter
-    let index = anchor === null ? -1 : messages.length - 1
+    let index = -1
     if (anchor) {
       const keyed = messages.findIndex(message => message.key === anchor.key || anchor.rowId !== undefined && message.rowId === anchor.rowId)
       // Recovery replaces temporary streaming IDs with stored history IDs.

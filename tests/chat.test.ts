@@ -880,6 +880,27 @@ describe('chat recovery and session ownership', () => {
     chat.dispose()
   })
 
+  it('anchors a cached orphan during history recovery even when the roster is unavailable', async () => {
+    const { state, api, gateway, chat } = setup('a')
+    await chat.start('work')
+    state.tasks = [{ key: 'child', delegationKey: 'batch:0', goal: 'Check logs', status: 'unknown' }]
+    await chat.open('b', 'work')
+    vi.mocked(api.history).mockResolvedValueOnce({ ...history('a'), messages: [
+      { id: 1, role: 'user', content: 'question-a' },
+      { id: 2, role: 'system', content: 'Restart failure', display_kind: 'async_delegation_complete', display_metadata: { delegation_id: 'batch', task_count: 1, failed_count: 1 } },
+      { id: 3, role: 'user', content: 'Later question' },
+    ] })
+    const ordinary = vi.mocked(gateway.request).getMockImplementation()!
+    vi.mocked(gateway.request).mockImplementation((method, params, timeout) => method === 'subagent.list'
+      ? Promise.reject(new RpcError(-32601, 'Method not found')) : ordinary(method, params, timeout))
+    await chat.open('a', 'work')
+    expect(state.tasks[0]).toMatchObject({ status: 'unknown', completedAfter: { key: 'row-2' } })
+    state.messages.push({ key: 'new', role: 'user', text: 'Another question' })
+    expect(state.tasks[0]?.completedAfter?.key).toBe('row-2')
+    await vi.waitFor(() => expect(state.taskError).toBe('Background task status unavailable.'))
+    chat.dispose()
+  })
+
   it('recovers background tasks independently of the main turn and scopes them to each conversation', async () => {
     const { state, gateway, chat } = setup('a')
     const ordinaryRequest = vi.mocked(gateway.request).getMockImplementation()!
