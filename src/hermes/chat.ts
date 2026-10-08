@@ -1009,6 +1009,8 @@ export class ChatClient {
       if (generation !== this.selectionGeneration) return
       if (page.session_id !== id) { await this.open(id, this.state.profile); return }
       this.state.messages = mergeHistory(historyMessages(page), this.state.messages)
+      this.state.tasks = anchorFinishedTasks(this.state.tasks, this.state.messages)
+      this.taskCache.set(this.taskScope(), this.state.tasks)
       this.state.historyOffset += page.pagination.returned
       this.state.hasOlder = page.pagination.returned === page.pagination.limit
     } catch (error) {
