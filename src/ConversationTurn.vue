@@ -60,8 +60,8 @@ function toolContext(messages: Message[]) {
       </section>
       <template v-else>
         <span v-if="block.message.kind" class="message-kind">{{ block.message.kind.replaceAll('_', ' ') }}</span>
-        <MarkdownMessage :profile="profile" v-if="turn.role === 'assistant' && block.message.text.trim()" :text="block.message.text" @image-load="$emit('imageLoad')" />
-        <div v-else-if="turn.role !== 'assistant'" :class="turn.role === 'user' ? 'user-text' : 'muted'">{{ block.message.text }}</div>
+        <MarkdownMessage :profile="profile" v-if="['assistant', 'user'].includes(turn.role) && block.message.text.trim()" :text="block.message.text" @image-load="$emit('imageLoad')" />
+        <div v-else-if="turn.role === 'other'" class="muted">{{ block.message.text }}</div>
 
       </template>
     </div>

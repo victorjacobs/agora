@@ -58,7 +58,6 @@ h1 { font-size: 17px; font-weight: 550; margin: 0; overflow: hidden; text-overfl
 .message.user { width: fit-content; max-width: 82%; margin-left: auto; background: var(--user); padding: 12px 17px; border-radius: 18px 18px 5px 18px; }
 .message.assistant { width: 100%; margin-right: auto; }
 .message-kind { font-size: 10px; font-weight: normal; }
-.user-text { white-space: pre-wrap; }
 .markdown > :first-child { margin-top: 0; }
 .markdown > :last-child { margin-bottom: 0; }
 .markdown p { margin: 0 0 1rem; }
