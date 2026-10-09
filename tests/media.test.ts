@@ -1,12 +1,62 @@
 import { describe, expect, it, vi } from 'vitest'
 import { HermesApi } from '../src/hermes/api'
-import { generatedImage, imageSource, loadImage } from '../src/hermes/media'
+import { fileReference, generatedImage, imageSource, loadImage } from '../src/hermes/media'
 import { markdownImages, renderMarkdown } from '../src/markdown'
 import { historyMessages } from '../src/hermes/transcript'
 
 const data = 'data:image/png;base64,aGVsbG8='
 
 describe('inline agent images', () => {
+  it('renders the generated PDF MEDIA marker as an authenticated download card', () => {
+    const path = '/var/lib/hermes/workspace/artifacts/tob-IE00B4L5Y983-2026-10-09/Belgian-TOB-IE00B4L5Y983-proof-2026-10-09.pdf'
+    const container = document.createElement('div')
+    container.innerHTML = renderMarkdown(`Here is your proof.\nMEDIA:${path}`)
+    const link = container.querySelector<HTMLAnchorElement>('.media-file a')
+
+    expect(link).not.toBeNull()
+    expect(link!.getAttribute('href')).toBe(`/api/fs/download?${new URLSearchParams({ path })}`)
+    expect(link!.download).toBe('Belgian-TOB-IE00B4L5Y983-proof-2026-10-09.pdf')
+    expect(container.textContent).toContain('Here is your proof.')
+    expect(container.textContent).toContain('Belgian-TOB-IE00B4L5Y983-proof-2026-10-09.pdf')
+    expect(container.textContent).not.toContain('MEDIA:')
+    expect(markdownImages(`MEDIA:${path}`)).toEqual([])
+  })
+
+  it.each([
+    ['MEDIA: "/workspace/a & b.csv"', '/workspace/a & b.csv', 'a & b.csv'],
+    ["MEDIA:\n'sandbox:/workspace/a report.docx'", '/workspace/a report.docx', 'a report.docx'],
+    ['MEDIA:~/exports/archive.zip', '~/exports/archive.zip', 'archive.zip'],
+    ['MEDIA:"/workspace/report.pdf!"', '/workspace/report.pdf!', 'report.pdf!'],
+  ])('preserves quoted and non-image file paths: %s', (text, path, name) => {
+    const container = document.createElement('div')
+    container.innerHTML = renderMarkdown(text, {}, [], 'work')
+    const link = container.querySelector<HTMLAnchorElement>('.media-file a')!
+    expect(link).not.toBeNull()
+    const url = new URL(link.href)
+    expect(url.searchParams.get('path')).toBe(path)
+    expect(url.searchParams.get('profile')).toBe('work')
+    expect(link.download).toBe(name)
+    expect(container.querySelector('img')).toBeNull()
+  })
+
+  it('keeps file markers in code and link labels literal', () => {
+    const container = document.createElement('div')
+    container.innerHTML = renderMarkdown('`MEDIA:/workspace/inline.pdf`\n\n```\nMEDIA:/workspace/fenced.pdf\n```\n\n[MEDIA:/workspace/label.pdf](https://example.com)')
+    expect(container.querySelector('.media-file')).toBeNull()
+    expect(container.querySelectorAll('code')).toHaveLength(2)
+    expect(container.querySelectorAll('a')).toHaveLength(1)
+    expect(container.querySelector('a')?.textContent).toBe('MEDIA:/workspace/label.pdf')
+  })
+
+  it('uses safe remote file links and rejects unsupported download sources', () => {
+    expect(fileReference('https://example.com/report.pdf?download=1', 'work')).toEqual({ name: 'report.pdf', url: 'https://example.com/report.pdf?download=1' })
+    for (const source of ['javascript:alert(1)', 'file:///etc/passwd', '//evil.test/report.pdf', 'data:text/html;base64,aGVsbG8=', data, 'https://user:password@evil.test/report.pdf', '/workspace/']) {
+      expect(fileReference(source)).toBeUndefined()
+      expect(renderMarkdown(`MEDIA:${source}`)).not.toContain('class="media-file"')
+    }
+    expect(renderMarkdown('<script>alert(1)</script>\nMEDIA:"/workspace/<img onerror=x>.pdf"')).not.toMatch(/<script|<img|onerror="/)
+  })
+
   it('extracts Markdown and MEDIA images without treating code as images', () => {
     const text = '![A cat](https://fal.media/cat.png)\n\nMEDIA:"/home/hermes/images/a cat.png"\n\n`MEDIA:/tmp/example.png`\n\n```\n![Code](https://fal.media/code.png)\n```'
     expect(markdownImages(text)).toEqual(['https://fal.media/cat.png', '/home/hermes/images/a cat.png'])

@@ -25,6 +25,18 @@ export async function loadImage(source: string, api = new HermesApi(), profile?:
   return data
 }
 
+export function fileReference(source: string, profile?: string): { name: string; url: string } | undefined {
+  const normalized = imageSource(source)
+  if (!normalized || normalized.startsWith('data:')) return undefined
+  const remote = /^https?:/.test(normalized)
+  const name = (remote ? new URL(normalized).pathname : normalized).split('/').at(-1)
+  if (!name) return undefined
+
+  const query = new URLSearchParams({ path: normalized })
+  if (profile) query.set('profile', profile)
+  return { name, url: remote ? normalized : `/api/fs/download?${query}` }
+}
+
 export function generatedImage(text: string, name?: string): string | undefined {
   if (name !== 'image_generate') return undefined
   try {

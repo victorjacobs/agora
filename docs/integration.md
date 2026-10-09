@@ -317,6 +317,24 @@ Images are rendered from validated image data URLs, kept only in component memor
 Raw HTML images and unsupported URL schemes remain blocked. Failed image requests
 show an unavailable notice. Viewing a chat never reads Hermes files directly.
 
+### Generated file downloads
+
+Non-image `MEDIA:` markers render as filename cards with Download links, in both
+live replies and saved history. Quoted paths, whitespace after the marker,
+`sandbox:` paths, and `~/` paths are supported. Markers inside inline/fenced code
+or existing Markdown link labels stay literal. Files are not fetched merely by
+viewing a message, and inline PDF preview is not implemented.
+
+Local links use Hermes's existing authenticated
+`GET /api/fs/download?path=…&profile=…`. The bridge allows only GET on this route,
+uses its server-held bearer grant, preserves the binary response and attachment
+filename, disables caching, and sets `X-Content-Type-Options: nosniff` on successful
+downloads. Upstream permission/not-found errors are preserved; Agora never opens
+the Hermes filesystem itself or puts grants in download URLs. Profile changes
+update links immediately. HTTP(S) remote files use direct links rather than the
+image CDN proxy. Unsupported schemes and raw HTML remain inert. This does not
+add document uploads or a file browser.
+
 The sidebar requests sessions with `exclude_sources=cron`, so scheduled-job
 conversations are excluded by Hermes before pagination and counting.
 

@@ -62,6 +62,13 @@ async function fixture(publicOrigin?: string) {
     if (url.pathname === '/api/learning/node' && ['PUT', 'DELETE'].includes(request.method || '')) return send({ ok: true, value: await body() })
     if (['/api/profiles/active', '/api/memory', '/api/learning/graph', '/api/learning/node'].includes(url.pathname)) return send({ inspected: true })
     if (url.pathname === '/api/fs/read-data-url') return send({ dataUrl: 'data:image/png;base64,aGVsbG8=' })
+    if (url.pathname === '/api/fs/download') {
+      if (url.searchParams.get('path') !== '/workspace/report.pdf') return send({ detail: 'File not found' }, 404)
+      expect(url.searchParams.get('profile')).toBe('work')
+      response.writeHead(200, { 'Content-Type': 'application/pdf', 'Content-Disposition': 'attachment; filename="report.pdf"' })
+      response.end(Buffer.from([0x25, 0x50, 0x44, 0x46, 0x2d, 0x00, 0xff]))
+      return
+    }
     if (['/api/media', '/api/media/proxy'].includes(url.pathname)) return send({ data_url: 'data:image/png;base64,aGVsbG8=' })
     if (url.pathname === '/api/sessions/test' && request.method === 'GET') return send({ id: 'test', title: 'Pinned chat', profile: url.searchParams.get('profile') })
     if (url.pathname === '/api/sessions/search') return send({ results: [{ id: 'old', title: 'Older chat' }] })
@@ -229,6 +236,28 @@ describe('local remote-Hermes connection', () => {
     expect(await response.json()).toEqual({ results: [{ id: 'old', title: 'Older chat' }] })
     expect(test.records.findLast(record => record.path === '/api/sessions/search')?.authorization).toBe('Bearer access-1')
     expect((await fetch(`${test.origin}/api/sessions/search`, { method: 'POST', headers: { Cookie: cookie, Origin: test.origin } })).status).toBe(404)
+  })
+
+  it.each([undefined, 'https://agora.example.test'])('delivers generated files with authenticated binary downloads (%s)', async publicOrigin => {
+    const test = await fixture(publicOrigin)
+    const route = '/api/fs/download?path=%2Fworkspace%2Freport.pdf&profile=work'
+    expect((await test.request(route)).status).toBe(401)
+    const { cookie } = await test.login()
+    const response = await test.request(route, { headers: { Cookie: cookie } })
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toBe('application/pdf')
+    expect(response.headers.get('content-disposition')).toBe('attachment; filename="report.pdf"')
+    expect(response.headers.get('cache-control')).toBe('no-store')
+    expect(response.headers.get('x-content-type-options')).toBe('nosniff')
+    expect(Buffer.from(await response.arrayBuffer())).toEqual(Buffer.from([0x25, 0x50, 0x44, 0x46, 0x2d, 0x00, 0xff]))
+    expect(test.records.at(-1)?.authorization).toBe('Bearer access-1')
+    expect(test.records.at(-1)?.cookie).toBeUndefined()
+    expect((await test.request(route, { method: 'POST', headers: { Cookie: cookie, Origin: publicOrigin || test.origin } })).status).toBe(404)
+    const missing = await test.request('/api/fs/download?path=%2Fworkspace%2Fmissing.pdf&profile=work', { headers: { Cookie: cookie } })
+    expect(missing.status).toBe(404)
+    expect(missing.headers.get('content-disposition')).toBeNull()
+    expect(await missing.json()).toEqual({ detail: 'File not found' })
   })
 
   it('proxies media reads with server-held grants and requires a browser session', async () => {
