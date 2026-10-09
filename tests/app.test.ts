@@ -34,6 +34,76 @@ function mountApp(connection: 'ready' | 'connecting' = 'ready') {
 }
 
 describe('chat interface', () => {
+  it('keeps processes beside pinned tasks, collapsed by default with individual output and Stop controls', async () => {
+    const { host, client } = mountApp()
+    client.state.processes = [{ id: 'p', command: 'sleep 100', status: 'running', uptime: 12, output: '<script>inert</script>\nready' }]
+    client.state.tasks = [{ key: 'child', goal: 'Check logs', status: 'running' }]
+    const stopProcess = vi.spyOn(client, 'stopProcess').mockResolvedValue()
+    const stopAssistant = vi.spyOn(client, 'stop').mockResolvedValue()
+    client.state.running = true
+    await nextTick()
+    const panel = host.querySelector<HTMLDetailsElement>('.composer-footer .chat-processes')!
+    expect(panel).not.toBeNull()
+    expect(panel.open).toBe(false)
+    expect(panel.querySelector('summary')?.textContent).toContain('1 running process')
+    expect(host.querySelector('.pinned-tasks')).not.toBeNull()
+    panel.open = true
+    expect(panel.textContent).toContain('sleep 100')
+    expect(panel.textContent).toContain('12s')
+    const output = panel.querySelector<HTMLDetailsElement>('.process-output')!
+    expect(output.open).toBe(false)
+    expect(output.querySelector('summary')?.textContent).toBe('View output')
+    output.open = true
+    expect(output.querySelector('pre')?.textContent).toContain('<script>inert</script>')
+    expect(output.querySelector('script')).toBeNull()
+    panel.querySelector<HTMLButtonElement>('button')!.click()
+    expect(stopProcess).toHaveBeenCalledExactlyOnceWith('p')
+    expect(stopAssistant).not.toHaveBeenCalled()
+    host.querySelector<HTMLButtonElement>('.composer .stop')!.click()
+    expect(stopAssistant).toHaveBeenCalledOnce()
+    client.state.identity = 'Synthetic account'
+    client.state.connection = 'reconnecting'
+    await nextTick()
+    expect(panel.querySelector<HTMLButtonElement>('button')?.disabled).toBe(true)
+    vi.restoreAllMocks()
+  })
+
+  it('shows the oldest running elapsed time in the collapsed process summary', async () => {
+    const { host, client } = mountApp()
+    client.state.processes = [
+      { id: 'new', command: 'new', status: 'running', uptime: 12, output: '' },
+      { id: 'old', command: 'old', status: 'running', uptime: 125, output: '' },
+      { id: 'unknown', command: 'unknown', status: 'unknown', uptime: 999, output: '' },
+    ]
+    await nextTick()
+    const panel = host.querySelector<HTMLDetailsElement>('.chat-processes')!
+    const summary = panel.querySelector('summary')!
+    expect(panel.open).toBe(false)
+    expect(summary.textContent).toContain('2 running processes · oldest 2m 5s')
+    expect(summary.textContent).toContain('1 status unknown')
+    expect(summary.querySelector('.session-indicator')).not.toBeNull()
+    client.state.processes = client.state.processes.filter(row => row.status === 'unknown')
+    await nextTick()
+    expect(summary.textContent).not.toContain('oldest')
+    expect(summary.querySelector('.session-indicator')).toBeNull()
+  })
+
+  it('reactively keeps offscreen process activity separate from the idle assistant and profile', async () => {
+    const { host, client } = mountApp()
+    client.state.sessions = [{ id: 'another', title: 'Process chat', profile: 'work' }, { id: 'another', title: 'Other profile', profile: 'personal' }]
+    await nextTick()
+    const rows = [...host.querySelectorAll('.session-row')]
+    const scope = JSON.stringify(['work', 'another'])
+    client.state.processesBySession.set(scope, [{ id: 'p', command: 'sleep', status: 'running', uptime: 1, output: '' }])
+    await nextTick()
+    expect(rows[0].querySelector('.session-indicator')).not.toBeNull()
+    expect(rows[1].querySelector('.session-indicator')).toBeNull()
+    expect(client.state.running).toBe(false)
+    client.state.processesBySession.set(scope, [{ id: 'p', command: 'sleep', status: 'exited', uptime: 1, output: '', exitCode: 0 }])
+    await nextTick()
+    expect(rows[0].querySelector('.session-indicator')).toBeNull()
+  })
+
   it('renders Markdown in user messages without changing their source text', async () => {
     const { host, client } = mountApp()
     const text = '**Important** and *emphasis* with `inline code`.\n\n- First item\n- Second item\n\n[Reference](https://example.com)\n\n```ts\nconst answer = 42\n```\n\nFirst line\nSecond line'

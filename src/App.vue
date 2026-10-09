@@ -13,6 +13,7 @@ import SlashCommands from './SlashCommands.vue'
 import ComposerSettings from './ComposerSettings.vue'
 import ConversationSwitcher from './ConversationSwitcher.vue'
 import BackgroundTasks from './BackgroundTasks.vue'
+import ChatProcesses from './ChatProcesses.vue'
 import ProviderQuota from './ProviderQuota.vue'
 import MemoryStateView from './MemoryStateView.vue'
 import { memorySections, type MemorySection } from './hermes/memory-state'
@@ -77,6 +78,7 @@ const displayedRequests = computed(() => state.requests)
 const showingThinking = computed(() => state.running && !state.compressing && !state.activity && !state.messages.some(message => message.tool?.status === 'running'))
 const displayedItems = computed(() => conversationTimeline(state.messages, state.tasks, showingThinking.value))
 const runningTasks = computed(() => state.tasks.filter(taskRunning))
+const activeProcesses = computed(() => state.processes.filter(process => process.status !== 'exited'))
 const displayedApprovals = computed(() => state.approvals.filter(approval =>
   !state.requests.some(request => request.method === 'approval' && approval.request_id && request.params.request_id === approval.request_id),
 ))
@@ -354,8 +356,12 @@ onBeforeUnmount(() => { releaseViewport(); clearInterval(dateTimer); window.remo
 
       <footer v-show="view === 'chat'" class="composer-footer">
         <div v-if="state.compressing" class="compression-status conversation-width" role="status" :title="state.compressionDetail"><span class="session-indicator" aria-hidden="true"></span><span>Compressing context…</span></div>
-        <div v-if="runningTasks.length" class="pinned-tasks conversation-width">
-          <BackgroundTasks :tasks="runningTasks" :error="state.taskError" :connected="state.connection === 'ready'" />
+        <div v-if="runningTasks.length || activeProcesses.length || state.processError" class="pinned-work conversation-width">
+          <div v-if="runningTasks.length" class="pinned-tasks">
+            <BackgroundTasks :tasks="runningTasks" :error="state.taskError" :connected="state.connection === 'ready'" />
+          </div>
+          <ChatProcesses v-if="activeProcesses.length" :key="JSON.stringify([state.profile, state.selected])" :processes="activeProcesses" :connected="state.connection === 'ready'" :error="state.processError" :stopping="state.processStops" :scope="JSON.stringify([state.profile, state.selected])" @stop="chat.stopProcess($event)" @retry="chat.refreshProcesses()" />
+          <p v-else-if="state.processError" class="process-status-error" role="status">{{ state.processError }} <button :disabled="state.connection !== 'ready'" @click="chat.refreshProcesses()">Retry status</button></p>
         </div>
         <form class="composer conversation-width" style="position: relative" @submit.prevent="send" @paste="attachments?.paste($event)" @dragover.prevent @drop="attachments?.drop($event)">
           <ImageAttachments ref="attachments" :images="state.images" :scope="JSON.stringify([state.selected, state.profile])" :disabled="state.sending || state.readingImages || state.running || state.compressing || state.connection !== 'ready'" @add="state.images.push($event)" @remove="state.images = state.images.filter(image => image.id !== $event)" @error="state.error = $event" @busy="state.readingImages = $event" />

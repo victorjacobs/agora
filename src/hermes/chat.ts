@@ -1,4 +1,5 @@
 import type { ImageAttachment } from './attachments'
+import { reconcileProcesses, processOutputLimit, type ChatProcess } from './processes'
 import { appendReasoning, excludeReplyFromReasoning, finishReasoning, restoreReasoning } from './reasoning'
 import { compressionStatus } from './compression'
 import { approvalChoices, eventApproval } from './approvals'
@@ -32,6 +33,11 @@ export function initialState() {
     tasks: [] as BackgroundTask[],
     tasksBySession: new Map<string, BackgroundTask[]>(),
     taskError: '',
+    processes: [] as ChatProcess[],
+    processesBySession: new Map<string, ChatProcess[]>(),
+    processError: '',
+    processErrorsBySession: new Map<string, string>(),
+    processStops: new Set<string>(),
     total: 0,
     listLoading: false,
     selected: '',
@@ -93,6 +99,11 @@ export class ChatClient {
   private promptSyncRevision = 0
   private taskRevision = 0
   private taskRequest?: object
+  private processRequests = new Map<string, object>()
+  private processStopRequests = new Map<string, object>()
+  private processRevisions = new Map<string, Map<string, number>>()
+  private processResults = new Map<string, Array<{ message: Message; after?: Message }>>()
+  private processVerified = new Set<string>()
   private get taskCache() { return this.state.tasksBySession }
   private attempts = 0
   private stopped = false
@@ -129,6 +140,7 @@ export class ChatClient {
     }
     this.gateway.onDisconnect = code => {
       if (this.stopped) return
+      this.invalidateProcesses()
       clearInterval(this.activeTimer)
       finishReasoning(this.state.messages)
       this.clearCompression()
@@ -174,6 +186,8 @@ export class ChatClient {
     clearTimeout(this.retryTimer)
     clearInterval(this.activeTimer)
     const connectionGeneration = ++this.connectionGeneration
+    this.processRequests.clear()
+    this.processVerified.clear()
     this.selectionGeneration++
     this.recovering = false
     this.state.connection = this.attempts ? 'reconnecting' : 'connecting'
@@ -204,7 +218,7 @@ export class ChatClient {
       if (this.state.selected) await this.open(this.state.selected, this.state.profile)
       else { this.state.connection = 'ready'; this.state.activity = ''; void this.refreshSettings() }
       if (connectionGeneration !== this.connectionGeneration || this.state.connection !== 'ready') return
-      this.activeTimer = setInterval(() => { void this.refreshActiveSessions(); void this.refreshTasks() }, 5000)
+      this.activeTimer = setInterval(() => { void this.refreshActiveSessions(); void this.refreshTasks(); void this.refreshProcesses() }, 5000)
       this.attempts = 0
       if (this.state.searchQuery.trim()) this.searchConversations(this.state.searchQuery)
     } catch (error) {
@@ -464,7 +478,20 @@ export class ChatClient {
   }
 
   private rememberRuntime() {
-    if (this.state.runtime && this.state.selected) this.runtimeSessions.set(this.state.runtime, { id: this.state.selected, profile: this.state.profile })
+    if (this.state.runtime && this.state.selected) this.registerRuntime(this.state.runtime, this.state.selected, this.state.profile)
+  }
+
+  private registerRuntime(runtime: string, id: string, profile?: string) {
+    const scope = JSON.stringify([profile, id])
+    for (const [previous, session] of this.runtimeSessions) {
+      if (previous !== runtime && session.id === id && session.profile === profile) {
+        this.runtimeSessions.delete(previous)
+        this.processRequests.delete(scope)
+        this.processVerified.delete(scope)
+        this.invalidateProcessStops(scope)
+      }
+    }
+    this.runtimeSessions.set(runtime, { id, profile })
   }
 
   private markReplyRead() {
@@ -491,12 +518,13 @@ export class ChatClient {
   sessionStatus(row: SessionRow): 'working' | 'waiting' | undefined {
     const profile = row.profile || this.configuredProfile || this.state.profile
     if (row.id === this.state.selected && this.state.runtime && profile === this.state.profile) {
-      if (!this.state.running) return this.state.compressing || this.state.tasks.some(taskRunning) ? 'working' : undefined
+      if (!this.state.running) return this.state.compressing || this.state.tasks.some(taskRunning) || this.state.processes.some(process => process.status === 'running') ? 'working' : undefined
       return this.state.approvals.length || this.state.requests.length ? 'waiting' : 'working'
     }
     const active = this.state.activeSessions.find(session => session.session_key === row.id && session.profile === profile)
     if (active?.status === 'working' || active?.status === 'waiting') return active.status
-    return this.taskCache.get(JSON.stringify([profile, row.id]))?.some(taskRunning) ? 'working' : undefined
+    const scope = JSON.stringify([profile, row.id])
+    return this.taskCache.get(scope)?.some(taskRunning) || this.state.processesBySession.get(scope)?.some(process => process.status === 'running') ? 'working' : undefined
   }
 
   private async refreshActiveSessions() {
@@ -510,7 +538,7 @@ export class ChatClient {
       const result = await this.gateway.request<{ sessions: ActiveSession[] }>('session.active_list', { profile })
       if (!this.stopped && generation === this.connectionGeneration && revision === this.activeRevision && Array.isArray(result.sessions)) {
         this.state.activeSessions = result.sessions.map(session => ({ ...session, profile }))
-        for (const session of result.sessions) this.runtimeSessions.set(session.id, { id: session.session_key, profile })
+        for (const session of result.sessions) this.registerRuntime(session.id, session.session_key, profile)
       }
     } catch {
       // Older gateways may not support this optional read-only status probe.
@@ -521,6 +549,115 @@ export class ChatClient {
   }
 
   private taskScope() { return JSON.stringify([this.state.profile, this.state.selected]) }
+
+  private processError(scope: string, error: string) {
+    this.state.processErrorsBySession.set(scope, error)
+    if (scope === this.taskScope()) this.state.processError = error
+  }
+
+  private invalidateProcessStops(scope: string) {
+    for (const key of this.processStopRequests.keys()) {
+      if ((JSON.parse(key) as [string, string])[0] !== scope) continue
+      this.processStopRequests.delete(key)
+      this.state.processStops.delete(key)
+    }
+  }
+
+  private invalidateProcesses() {
+    for (const [scope, processes] of this.state.processesBySession) {
+      const unknown = processes.map(process => process.status === 'running' ? { ...process, status: 'unknown' as const } : process)
+      this.state.processesBySession.set(scope, unknown)
+      if (scope === this.taskScope()) this.state.processes = unknown
+    }
+    for (const key of this.state.processStops) {
+      const [scope] = JSON.parse(key) as [string, string]
+      this.processError(scope, 'The process stop may have reached Hermes. Reconnect to check; it will not be retried automatically.')
+    }
+  }
+
+  async refreshProcesses() {
+    if (this.stopped || this.state.connection !== 'ready') return
+    const connection = this.connectionGeneration
+    const sessions = [...this.runtimeSessions].sort(([, a], [, b]) => Number(b.id === this.state.selected && b.profile === this.state.profile) - Number(a.id === this.state.selected && a.profile === this.state.profile))
+    for (let offset = 0; offset < sessions.length; offset += 4) {
+      if (this.stopped || connection !== this.connectionGeneration || this.state.connection !== 'ready') return
+      await Promise.all(sessions.slice(offset, offset + 4).map(([runtime, session]) => this.refreshProcessScope(runtime, session)))
+    }
+  }
+
+  private async refreshProcessScope(runtime: string, session: { id: string; profile?: string }) {
+    const scope = JSON.stringify([session.profile, session.id])
+    if (this.stopped || this.state.connection !== 'ready' || this.processRequests.has(scope) || this.runtimeSessions.get(runtime) !== session) return
+    const request = {}
+    this.processRequests.set(scope, request)
+    const connection = this.connectionGeneration
+    const selection = this.selectionGeneration
+    const liveObservation = scope === this.taskScope() && this.processVerified.has(scope)
+    const revisions = new Map(this.processRevisions.get(scope))
+    try {
+      const result = await this.gateway.request<{ processes: unknown[] }>('process.list', { session_id: runtime, profile: session.profile })
+      if (this.stopped || connection !== this.connectionGeneration || this.processRequests.get(scope) !== request) return
+      if (!Array.isArray(result.processes)) throw new Error('Process status is unavailable from this Hermes gateway.')
+      const preserveOutput = new Set([...this.processRevisions.get(scope) || []].filter(([id, revision]) => revision !== revisions.get(id)).map(([id]) => id))
+      const processes = reconcileProcesses(this.state.processesBySession.get(scope) || [], result.processes, preserveOutput)
+      this.applyProcesses(scope, processes, liveObservation && selection === this.selectionGeneration)
+      this.processVerified.add(scope)
+      this.processError(scope, '')
+    } catch {
+      if (!this.stopped && connection === this.connectionGeneration && this.processRequests.get(scope) === request) this.processError(scope, 'Process status unavailable. Reconnect or retry to check.')
+    } finally { if (this.processRequests.get(scope) === request) this.processRequests.delete(scope) }
+  }
+
+  private applyProcessEvent(scope: string, event: GatewayEvent) {
+    if (this.stopped || !['agent.terminal.output', 'terminal.close'].includes(event.type)) return
+    const payload = event.payload || {}
+    if (typeof payload.process_id !== 'string') return
+    const previous = this.state.processesBySession.get(scope) || []
+    const process = previous.find(process => process.id === payload.process_id)
+    if (event.type === 'agent.terminal.output' && typeof payload.chunk === 'string' && process && process.status !== 'exited') {
+      const revisions = this.processRevisions.get(scope) || new Map<string, number>()
+      revisions.set(process.id, (revisions.get(process.id) || 0) + 1)
+      this.processRevisions.set(scope, revisions)
+      const processes = previous.map(row => row === process ? { ...row, status: 'running' as const, output: (row.output + payload.chunk).slice(-processOutputLimit) } : row)
+      this.state.processesBySession.set(scope, processes)
+      if (scope === this.taskScope()) this.state.processes = processes
+    } else void this.refreshProcesses()
+  }
+
+  private applyProcesses(scope: string, processes: ChatProcess[], liveObservation = this.processVerified.has(scope)) {
+    const previous = this.state.processesBySession.get(scope) || []
+    const results = this.processResults.get(scope) || []
+    for (const process of processes) {
+      if (process.status !== 'exited') continue
+      const existing = results.find(result => result.message.metadata?.process_id === process.id)
+      const observed = previous.some(row => row.id === process.id && row.status !== 'exited')
+      const message: Message = {
+        key: existing?.message.key || `process-${crypto.randomUUID()}`, role: 'system', kind: 'process_complete', text: process.output,
+        metadata: { process_id: process.id, exit_code: process.exitCode, display_text: `${process.command} · ${process.reason || 'exited'}${process.exitCode === undefined ? '' : ` · exit ${process.exitCode}`}` },
+      }
+      if (existing) existing.message = message
+      else results.push({ message, after: liveObservation && observed && scope === this.taskScope() && this.state.connection === 'ready' ? this.state.messages.at(-1) : undefined })
+    }
+    this.processResults.set(scope, results)
+    this.state.processesBySession.set(scope, processes)
+    if (scope === this.taskScope()) {
+      this.state.processes = processes
+      this.state.messages = this.restoreProcessResults(this.state.messages, scope)
+    }
+  }
+
+  private restoreProcessResults(messages: Message[], scope: string) {
+    const cached = this.processResults.get(scope) || []
+    const keys = new Set(cached.map(result => result.message.key))
+    const result = messages.filter(row => !keys.has(row.key))
+    for (const { message, after } of cached) {
+      if (result.some(row => row.key === message.key || row.kind === 'process_complete' && row.metadata?.process_id === message.metadata?.process_id)) continue
+      const index = after ? result.findLastIndex(row => row.key === after.key || after.rowId !== undefined && row.rowId === after.rowId || row.role === after.role && row.text === after.text) : -1
+      const streamingTail = this.state.running && scope === this.taskScope() && index === result.length - 1 && result[index]?.role === 'assistant'
+      result.splice(streamingTail ? index : index + 1, 0, message)
+    }
+    return result
+  }
 
   private async refreshTasks() {
     if (this.stopped || this.state.connection !== 'ready' || !this.state.runtime || this.taskRequest) return
@@ -578,6 +715,8 @@ export class ChatClient {
     this.state.selected = id
     this.state.profile = profile
     this.state.tasks = this.taskCache.get(this.taskScope()) || []
+    this.state.processes = this.state.processesBySession.get(this.taskScope()) || []
+    this.state.processError = this.state.processErrorsBySession.get(this.taskScope()) || ''
     this.state.taskError = ''
     this.taskRequest = undefined
     this.state.runtime = ''
@@ -656,8 +795,9 @@ export class ChatClient {
       this.state.tasks = anchorFinishedTasks(this.state.tasks, this.state.messages)
       this.taskCache.set(this.taskScope(), this.state.tasks)
       this.state.historyOffset = page.pagination.returned
-      this.state.hasOlder = page.pagination.returned === page.pagination.limit
       this.state.running = Boolean(snapshot.running ?? snapshot.info.running)
+      this.state.messages = this.restoreProcessResults(this.state.messages, this.taskScope())
+      this.state.hasOlder = page.pagination.returned === page.pagination.limit
       this.state.activity = this.state.running ? 'Hermes is working' : ''
       this.state.error = snapshot.inflight?.error || ''
       this.state.approvals = snapshot.pending_approval ? [snapshot.pending_approval] : []
@@ -697,6 +837,7 @@ export class ChatClient {
       }
       for (const event of eventsAfterSnapshot) this.receiveEvent(event)
       void this.refreshTasks()
+      void this.refreshProcesses()
       void this.refreshSettings()
     } catch (error) {
       if (generation !== this.selectionGeneration) return
@@ -731,6 +872,8 @@ export class ChatClient {
       this.applyModelInfo(result.info)
       this.state.messages = []
       this.state.tasks = []
+      this.state.processes = []
+      this.state.processError = ''
       this.state.taskError = ''
       this.taskRequest = undefined
       this.state.approvals = []
@@ -962,6 +1105,45 @@ export class ChatClient {
     })
   }
 
+  async stopProcess(processId: string) {
+    const scope = this.taskScope(), runtime = this.state.runtime, profile = this.state.profile
+    const key = JSON.stringify([scope, processId])
+    const process = this.state.processes.find(row => row.id === processId && row.status === 'running')
+    if (this.stopped || this.state.connection !== 'ready' || !runtime || !process || this.state.processStops.has(key)) return
+    const connection = this.connectionGeneration
+    const selection = this.selectionGeneration
+    const request = {}
+    this.processStopRequests.set(key, request)
+    const ownsRequest = () => {
+      const owner = this.runtimeSessions.get(runtime)
+      return !this.stopped && connection === this.connectionGeneration && this.processStopRequests.get(key) === request && Boolean(owner && JSON.stringify([owner.profile, owner.id]) === scope)
+    }
+    this.state.processStops.add(key)
+    this.processError(scope, '')
+    try {
+      const response = await this.gateway.request<unknown>('process.kill', { session_id: runtime, process_id: processId, profile })
+      if (!ownsRequest()) return
+      const result = response && typeof response === 'object' ? response as Record<string, unknown> : {}
+      if (result.status !== 'killed' && result.status !== 'already_exited') throw new Error(typeof result.error === 'string' && result.error || 'Hermes did not confirm the process stopped. Check its status before retrying.')
+      this.processRequests.delete(scope)
+      const processes = this.state.processesBySession.get(scope) || []
+      this.applyProcesses(scope, processes.map(row => row.id === processId ? {
+        ...row, status: 'exited', output: (typeof result.output === 'string' ? result.output : row.output).slice(-processOutputLimit),
+        exitCode: typeof result.exit_code === 'number' && Number.isFinite(result.exit_code) ? result.exit_code : undefined,
+        reason: typeof result.completion_reason === 'string' && result.completion_reason || result.status as string,
+      } : row), selection === this.selectionGeneration)
+      await this.refreshProcesses()
+    } catch (error) {
+      if (ownsRequest()) this.processError(scope, error instanceof ConnectionLost
+        ? 'The process stop may have reached Hermes. Reconnect to check; it will not be retried automatically.' : errorMessage(error))
+    } finally {
+      if (this.processStopRequests.get(key) === request) {
+        this.processStopRequests.delete(key)
+        this.state.processStops.delete(key)
+      }
+    }
+  }
+
   async answer(request: ServerRequest, result: Record<string, unknown>) {
     if (request.method === 'approval') {
       const current = this.state.requests.find(entry => entry.id === request.id && entry.method === 'approval')
@@ -1009,6 +1191,7 @@ export class ChatClient {
       if (generation !== this.selectionGeneration) return
       if (page.session_id !== id) { await this.open(id, this.state.profile); return }
       this.state.messages = mergeHistory(historyMessages(page), this.state.messages)
+      this.state.messages = this.restoreProcessResults(this.state.messages, this.taskScope())
       this.state.tasks = anchorFinishedTasks(this.state.tasks, this.state.messages)
       this.taskCache.set(this.taskScope(), this.state.tasks)
       this.state.historyOffset += page.pagination.returned
@@ -1029,15 +1212,28 @@ export class ChatClient {
 
   async deleteSelected() {
     const id = this.state.selected
+    const profile = this.state.profile
+    const scope = this.taskScope()
     try {
-      await this.api.delete(id, this.state.profile)
-      if (this.state.selected === id) {
+      await this.api.delete(id, profile)
+      this.processRequests.delete(scope)
+      this.processResults.delete(scope)
+      this.processVerified.delete(scope)
+      this.processRevisions.delete(scope)
+      this.invalidateProcessStops(scope)
+      this.state.processesBySession.delete(scope)
+      this.state.processErrorsBySession.delete(scope)
+      for (const [runtime, session] of this.runtimeSessions) {
+        if (session.id === id && session.profile === profile) this.runtimeSessions.delete(runtime)
+      }
+      if (this.state.selected === id && this.state.profile === profile) {
         this.selectionGeneration++
         this.drafts.delete(id)
         this.uncertain.delete(id)
         this.markReplyRead()
         Object.assign(this.state, {
           selected: '', runtime: '', title: 'New conversation', messages: [], tasks: [], taskError: '',
+          processes: [], processError: '',
           approvals: [], requests: [], draft: '', running: false, uncertain: false,
           activity: '', compressing: false, compressionDetail: '', hasOlder: false,
         })
@@ -1097,6 +1293,7 @@ export class ChatClient {
         this.sequence.set(event.session_id, event.seq)
       }
       const scope = JSON.stringify([session.profile, session.id])
+      this.applyProcessEvent(scope, event)
       const previous = this.taskCache.get(scope) || []
       const tasks = taskEvent(previous, event)
       if (tasks !== previous) this.taskCache.set(scope, tasks)
@@ -1108,6 +1305,7 @@ export class ChatClient {
       this.sequence.set(event.session_id, event.seq)
     }
     this.applyTaskEvent(event)
+    this.applyProcessEvent(this.taskScope(), event)
     switch (event.type) {
       case 'reasoning.delta':
       case 'reasoning.available': {
