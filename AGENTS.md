@@ -20,8 +20,13 @@ suggestions and unresolved details. Recheck them against the target Hermes versi
 - Laptop and hosted bridge modes use Hermes's native PKCE broker, configured
   by HERMES_ENDPOINT. Hosted mode also sets AGORA_PUBLIC_ORIGIN and requires an
   operator-maintained Hermes HTTPS callback allowlist patch outside this project.
-  Keep tokens in server memory, outside the browser. Static same-origin deployments
-  can still use Hermes's browser OIDC flow and session cookies.
+  Keep access/refresh tokens server-side, outside the browser. Completed logins
+  use the disposable SQLite session cache by default; AGORA_SESSION_DB=:memory:
+  opts out of disk persistence. Pending PKCE logins remain memory-only.
+  Protect cached plaintext tokens with private filesystem permissions and exclude
+  the cache from ordinary backups. Persistence must not bypass logout, idle expiry,
+  or upstream token expiry/revocation. Static same-origin deployments can still use
+  Hermes's browser OIDC flow and session cookies.
   Do not create an Agora identity store or independent authentication provider.
 - Keep v1 focused on chat and sessions. Do not reproduce the management dashboard.
 - Treat dashboard access as access to the operator's Hermes installation; do not
