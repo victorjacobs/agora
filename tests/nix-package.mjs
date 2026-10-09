@@ -20,7 +20,7 @@ await writeFile(join(directory, '.env.local'), 'HERMES_ENDPOINT=invalid\nAGORA_P
 
 const child = spawn(join(packagePath, 'bin/agora'), [], {
   cwd: directory,
-  env: { ...process.env, HERMES_ENDPOINT: 'http://127.0.0.1:9', AGORA_PORT: String(port), AGORA_PUBLIC_ORIGIN: publicOrigin || '' },
+  env: { ...process.env, HERMES_ENDPOINT: 'http://127.0.0.1:9', AGORA_PORT: String(port), AGORA_PUBLIC_ORIGIN: publicOrigin || '', AGORA_SESSION_DB: join(directory, 'sessions.sqlite') },
   stdio: ['ignore', 'pipe', 'pipe'],
 })
 let output = ''

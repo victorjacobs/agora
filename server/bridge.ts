@@ -3,6 +3,7 @@ import type { IncomingMessage, Server, ServerResponse } from 'node:http'
 import type { Duplex } from 'node:stream'
 import WebSocket, { WebSocketServer } from 'ws'
 import { BridgeError, createAuthorization, endpointURL, NativeSession, upstreamURL } from './native-session.ts'
+import { DEFAULT_SESSION_IDLE_SECONDS, SessionStore, type StoredSession } from './session-store.ts'
 
 const CALLBACK_PATH = '/auth/native/callback'
 const LOGIN_TTL = 5 * 60_000
@@ -104,28 +105,60 @@ export class HermesBridge {
   private socketServer = new WebSocketServer({ noServer: true, maxPayload: MAX_BODY })
   private cleanupTimer: ReturnType<typeof setInterval>
   private fetcher: typeof fetch
+  private store: SessionStore
+  private disposed = false
+  private servers = new Set<Server>()
+  private sessionIdleSeconds: number
 
-  constructor(endpoint: string, fetcher: typeof fetch = fetch, options: { publicOrigin?: string } = {}) {
+  constructor(endpoint: string, fetcher: typeof fetch = fetch, options: { publicOrigin?: string; sessionDb?: string; sessionIdleSeconds?: number } = {}) {
     this.endpoint = endpointURL(endpoint)
     this.publicOrigin = options.publicOrigin === undefined ? undefined : publicOriginURL(options.publicOrigin)
     this.sessionCookie = this.publicOrigin ? '__Host-agora_session' : 'agora_local_session'
     this.loginCookie = this.publicOrigin ? '__Host-agora_login' : 'agora_local_login'
     this.fetcher = fetcher
+    this.sessionIdleSeconds = options.sessionIdleSeconds ?? DEFAULT_SESSION_IDLE_SECONDS
+    if (!Number.isSafeInteger(this.sessionIdleSeconds) || this.sessionIdleSeconds <= 0 || !Number.isSafeInteger(this.sessionIdleSeconds * 1000)) {
+      throw new Error('AGORA_SESSION_IDLE_SECONDS must be a positive integer number of seconds.')
+    }
+    this.store = new SessionStore(options.sessionDb || ':memory:', JSON.stringify([this.endpoint.href, this.publicOrigin?.origin || '']))
+    this.store.prune(Date.now() - this.sessionIdleSeconds * 1000)
     this.cleanupTimer = setInterval(() => this.cleanup(), 60_000)
     this.cleanupTimer.unref()
   }
 
   attach(server: Server) {
+    this.servers.add(server)
     server.on('upgrade', this.upgrade)
-    server.once('close', () => this.dispose())
+    server.once('close', this.dispose)
   }
 
-  dispose() {
+  dispose = () => {
+    if (this.disposed) return
+    this.disposed = true
     clearInterval(this.cleanupTimer)
+    for (const server of this.servers) {
+      server.off('upgrade', this.upgrade)
+      server.off('close', this.dispose)
+    }
+    this.servers.clear()
     for (const session of this.sessions.values()) this.closeSession(session)
     this.sessions.clear()
     this.logins.clear()
     this.socketServer.close()
+    this.store.close()
+  }
+
+  private createSession(id: string, stored?: StoredSession): BrowserSession {
+    const native = new NativeSession(this.endpoint, this.fetcher, {
+      tokens: stored?.tokens,
+      onTokens: tokens => {
+        if (this.disposed) throw new BridgeError(503, 'The Agora service is shutting down.')
+        if (tokens) { session.lastUsed = Date.now(); this.store.save(id, tokens, session.lastUsed) }
+        else this.removeSession(id)
+      },
+    })
+    const session = { native, sockets: new Set<WebSocket>(), lastUsed: stored?.lastUsed ?? Date.now() }
+    return session
   }
 
   middleware = (request: IncomingMessage, response: ServerResponse, next: () => void) => {
@@ -169,13 +202,13 @@ export class HermesBridge {
         throw new BridgeError(400, 'Invalid or expired login callback. Return to Agora and start sign-in again.')
       }
       this.logins.delete(loginId!)
-      const native = new NativeSession(this.endpoint, this.fetcher)
-      await native.exchange(code, pending.verifier)
+      const id = randomBytes(32).toString('base64url')
+      const session = this.createSession(id)
+      await session.native.exchange(code, pending.verifier)
       const previous = cookie(request, this.sessionCookie)
       if (previous) this.removeSession(previous)
-      const id = randomBytes(32).toString('base64url')
-      this.sessions.set(id, { native, sockets: new Set(), lastUsed: Date.now() })
-      return redirect(response, pending.next, [this.browserCookie(this.sessionCookie, id), this.browserCookie(this.loginCookie, '', 0)])
+      this.sessions.set(id, session)
+      return redirect(response, pending.next, [this.browserCookie(this.sessionCookie, id, this.sessionIdleSeconds), this.browserCookie(this.loginCookie, '', 0)])
     }
     checkOrigin(request, origin, !['GET', 'HEAD'].includes(method))
 
@@ -215,15 +248,29 @@ export class HermesBridge {
     const native = session?.native || new NativeSession(this.endpoint, this.fetcher)
     const upstream = await native.request(url.pathname + url.search, { method, body: await readBody(request) }, !publicRoute)
     if (upstream.status >= 300 && upstream.status < 400) throw new BridgeError(502, 'Hermes unexpectedly redirected an API request.')
+    const sessionId = cookie(request, this.sessionCookie)
+    if (session && sessionId && upstream.ok && this.sessions.get(sessionId) === session) {
+      response.setHeader('Set-Cookie', this.browserCookie(this.sessionCookie, sessionId, this.sessionIdleSeconds))
+    }
     response.writeHead(upstream.status, { 'Content-Type': upstream.headers.get('content-type') || 'application/json', 'Cache-Control': 'no-store' })
     response.end(Buffer.from(await upstream.arrayBuffer()))
   }
 
   private browserSession(request: IncomingMessage): BrowserSession {
+    if (this.disposed) throw new BridgeError(401, 'This Agora service has stopped.')
     const id = cookie(request, this.sessionCookie)
-    const session = id ? this.sessions.get(id) : undefined
+    let session = id ? this.sessions.get(id) : undefined
+    if (id && !session) {
+      const stored = this.store.get(id)
+      if (stored) { session = this.createSession(id, stored); this.sessions.set(id, session) }
+    }
     if (!session) throw new BridgeError(401, 'Sign in to your Hermes server to continue.')
+    if (session.lastUsed <= Date.now() - this.sessionIdleSeconds * 1000) {
+      this.removeSession(id!)
+      throw new BridgeError(401, 'Your Agora login expired after inactivity. Sign in again.')
+    }
     session.lastUsed = Date.now()
+    this.store.touch(id!, session.lastUsed)
     return session
   }
 
@@ -279,6 +326,7 @@ export class HermesBridge {
   }
 
   private removeSession(id: string) {
+    this.store.delete(id)
     const session = this.sessions.get(id)
     if (session) this.closeSession(session)
     this.sessions.delete(id)
@@ -293,7 +341,9 @@ export class HermesBridge {
     const now = Date.now()
     for (const [id, login] of this.logins) if (login.expires < now) this.logins.delete(id)
     for (const [id, session] of this.sessions) {
-      if (!session.sockets.size && session.lastUsed < now - 24 * 60 * 60_000) this.removeSession(id)
+      if (session.sockets.size) { session.lastUsed = now; this.store.touch(id, now) }
+      else if (session.lastUsed <= now - this.sessionIdleSeconds * 1000) this.removeSession(id)
     }
+    this.store.prune(now - this.sessionIdleSeconds * 1000)
   }
 }

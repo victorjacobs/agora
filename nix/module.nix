@@ -34,6 +34,18 @@ in
       description = "HTTP port on 127.0.0.1. In hosted mode, proxy the public origin to this port.";
     };
 
+    sessionPersistence = mkOption {
+      type = types.bool;
+      default = true;
+      description = "Persist disposable server-side login sessions in SQLite across service restarts. Contains plaintext authentication tokens, not conversations or identities.";
+    };
+
+    sessionIdleSeconds = mkOption {
+      type = types.ints.positive;
+      default = 2592000;
+      description = "Rolling login-session idle limit in seconds, renewed by authenticated HTTP activity. Does not extend upstream token expiry or revocation.";
+    };
+
     profile = mkOption {
       type = types.nullOr types.str;
       default = null;
@@ -63,6 +75,8 @@ in
       environment = {
         HERMES_ENDPOINT = cfg.hermesEndpoint;
         AGORA_PORT = toString cfg.port;
+        AGORA_SESSION_DB = if cfg.sessionPersistence then "/var/lib/agora/sessions.sqlite" else ":memory:";
+        AGORA_SESSION_IDLE_SECONDS = toString cfg.sessionIdleSeconds;
         NODE_ENV = "production";
       } // lib.optionalAttrs (cfg.publicOrigin != null) {
         AGORA_PUBLIC_ORIGIN = cfg.publicOrigin;
@@ -82,6 +96,9 @@ in
         RestrictSUIDSGID = true;
         LockPersonality = true;
         RestrictAddressFamilies = [ "AF_UNIX" "AF_INET" "AF_INET6" ];
+      } // lib.optionalAttrs cfg.sessionPersistence {
+        StateDirectory = "agora";
+        StateDirectoryMode = "0700";
       };
     };
   };

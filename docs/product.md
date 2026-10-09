@@ -44,6 +44,12 @@ desktop packaging is deferred.
   an ordinary chat. Show unsupported requests clearly; never silently accept them.
 - Login/logout and a clear expired-session state. Preserve the selected
   conversation across login and reload using a stable URL where practical.
+  Completed bridge logins survive process restarts through a disposable
+  server-side SQLite cache with a rolling 30-day idle limit by default.
+  Tokens never enter browser storage; Hermes still controls grant expiry and
+  revocation. Logout and idle expiry clear the cached login, not conversations.
+  Memory-only storage remains an explicit opt-out; pending sign-ins must restart
+  after a process restart. This cache is not an identity or transcript database.
   Signed-out users see a dedicated sign-in screen with
   one prominent sign-in action; connection errors remain visible there.
 - Opt-in desktop completion notifications while Agora is open, connected, and

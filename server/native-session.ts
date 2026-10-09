@@ -9,7 +9,7 @@ export class BridgeError extends Error {
   }
 }
 
-interface Tokens {
+export interface Tokens {
   access_token: string
   refresh_token: string
   expires_at: number
@@ -45,13 +45,16 @@ export class NativeSession {
   private tokens?: Tokens
   private refreshPromise?: Promise<void>
   private disposed = false
+  private onTokens?: (tokens: Tokens | undefined) => void
 
   readonly endpoint: URL
   private fetcher: typeof fetch
 
-  constructor(endpoint: URL, fetcher: typeof fetch = fetch) {
+  constructor(endpoint: URL, fetcher: typeof fetch = fetch, options: { tokens?: Tokens; onTokens?: (tokens: Tokens | undefined) => void } = {}) {
     this.endpoint = endpoint
     this.fetcher = fetcher
+    this.onTokens = options.onTokens
+    if (options.tokens) this.tokens = this.parseTokens(options.tokens)
   }
 
   async exchange(code: string, verifier: string) {
@@ -63,6 +66,7 @@ export class NativeSession {
     if (!response.ok) throw new BridgeError(400, 'Hermes rejected the login code. Start sign-in again.')
     const tokens = this.parseTokens(await response.json())
     if (this.disposed) throw new BridgeError(401, 'This Agora login was cancelled.')
+    this.onTokens?.(tokens)
     this.tokens = tokens
   }
 
@@ -115,10 +119,15 @@ export class NativeSession {
         body: JSON.stringify({ refresh_token: tokens.refresh_token, provider: tokens.provider }),
         redirect: 'manual', signal: AbortSignal.timeout(20_000),
       })
-      if (response.status === 401) { this.tokens = undefined; throw new BridgeError(401, 'Your Hermes login has expired. Sign in again.') }
+      if (response.status === 401) {
+        this.tokens = undefined
+        this.onTokens?.(undefined)
+        throw new BridgeError(401, 'Your Hermes login has expired. Sign in again.')
+      }
       if (!response.ok) throw new BridgeError(503, 'Hermes could not refresh your login. Try again.')
       const refreshed = this.parseTokens(await response.json())
       if (this.disposed) throw new BridgeError(401, 'This Agora login was cancelled.')
+      this.onTokens?.(refreshed)
       this.tokens = refreshed
     })()
     try { await this.refreshPromise }

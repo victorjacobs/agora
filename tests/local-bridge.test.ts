@@ -1,14 +1,17 @@
 // @vitest-environment node
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createServer, request as httpRequest } from 'node:http'
 import type { Server } from 'node:http'
 import { createHash } from 'node:crypto'
 import { once } from 'node:events'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import WebSocket, { WebSocketServer } from 'ws'
 import { HermesBridge, publicOriginURL } from '../server/bridge'
 
 let cleanup: Array<() => Promise<void> | void> = []
-afterEach(async () => { for (const close of cleanup.reverse()) await close(); cleanup = [] })
+afterEach(async () => { for (const close of cleanup.reverse()) await close(); cleanup = []; vi.restoreAllMocks() })
 
 async function listen(server: Server) {
   server.listen(0, '127.0.0.1')
@@ -18,13 +21,23 @@ async function listen(server: Server) {
   return `http://127.0.0.1:${port}`
 }
 
-async function fixture(publicOrigin?: string) {
+function sessionDatabase() {
+  const directory = mkdtempSync(join(tmpdir(), 'agora-session-test-'))
+  cleanup.push(() => rmSync(directory, { recursive: true, force: true }))
+  return join(directory, 'sessions.sqlite')
+}
+
+async function fixture(publicOrigin?: string, options: { sessionDb?: string; sessionIdleSeconds?: number } = {}) {
   let challenge = ''
   let token = 'access-1'
+  let refreshToken = 'refresh-1'
   let refreshes = 0
   let patches = 0
   let rejectMutation = false
   let rejectRefresh = false
+  let transientRefreshFailure = false
+  let pauseIdentity: (() => Promise<void>) | undefined
+  let pauseRefresh: (() => Promise<void>) | undefined
   let refreshedExpiry = false
   const records: Array<{ path: string; authorization?: string; cookie?: string }> = []
   const upstreamServer = createServer(async (request, response) => {
@@ -48,14 +61,17 @@ async function fixture(publicOrigin?: string) {
     if (url.pathname === '/auth/native/token') {
       const value = await body()
       if (value.code !== 'synthetic-code' || createHash('sha256').update(value.code_verifier).digest('base64url') !== challenge) return send({}, 400)
-      return send({ access_token: token, refresh_token: 'refresh-1', provider: 'self-hosted', expires_at: Date.now() / 1000 + 3600 })
+      return send({ access_token: token, refresh_token: refreshToken, provider: 'self-hosted', expires_at: Date.now() / 1000 + 3600 })
     }
     if (url.pathname === '/auth/native/refresh') {
       refreshes++
-      expect((await body()).refresh_token).toBe('refresh-1')
+      expect((await body()).refresh_token).toBe(refreshToken)
+      if (pauseRefresh) await pauseRefresh()
       if (rejectRefresh) return send({}, 401)
-      token = 'access-2'
-      return send({ access_token: token, refresh_token: 'refresh-1', provider: 'self-hosted', expires_at: Date.now() / 1000 + 3600 })
+      if (transientRefreshFailure) { transientRefreshFailure = false; return send({}, 503) }
+      token = `access-${refreshes + 1}`
+      refreshToken = `refresh-${refreshes + 1}`
+      return send({ access_token: token, refresh_token: refreshToken, provider: 'self-hosted', expires_at: Date.now() / 1000 + 3600 })
     }
     if (request.headers.authorization !== `Bearer ${token}`) return send({ detail: 'Unauthorized' }, 401)
     if (url.pathname.startsWith('/api/cron/jobs')) return send({ ok: true, method: request.method })
@@ -65,7 +81,10 @@ async function fixture(publicOrigin?: string) {
     if (['/api/media', '/api/media/proxy'].includes(url.pathname)) return send({ data_url: 'data:image/png;base64,aGVsbG8=' })
     if (url.pathname === '/api/sessions/test' && request.method === 'GET') return send({ id: 'test', title: 'Pinned chat', profile: url.searchParams.get('profile') })
     if (url.pathname === '/api/sessions/search') return send({ results: [{ id: 'old', title: 'Older chat' }] })
-    if (url.pathname === '/api/auth/me') return send({ display_name: 'Synthetic operator' })
+    if (url.pathname === '/api/auth/me') {
+      if (pauseIdentity) await pauseIdentity()
+      return send({ display_name: 'Synthetic operator' })
+    }
     if (url.pathname === '/api/auth/ws-ticket') return send({ ticket: 'synthetic-ticket', ttl_seconds: 30 })
     if (url.pathname === '/api/sessions/test' && request.method === 'PATCH') {
       patches++
@@ -87,7 +106,7 @@ async function fixture(publicOrigin?: string) {
     socket.send(JSON.stringify({ jsonrpc: '2.0', method: 'event', params: { type: 'gateway.ready', payload: {} } }))
     socket.on('message', data => socket.send(data))
   })
-  const bridge = new HermesBridge(upstreamOrigin, fetch, { publicOrigin })
+  let bridge = new HermesBridge(upstreamOrigin, fetch, { publicOrigin, ...options })
   const localServer = createServer((request, response) => bridge.middleware(request, response, () => { response.writeHead(404); response.end() }))
   bridge.attach(localServer)
   const origin = await listen(localServer)
@@ -131,14 +150,164 @@ async function fixture(publicOrigin?: string) {
     return { cookie, callback, loginCookie, completed }
   }
   return {
-    origin, login, beginLogin, records, bridge, request, publicOrigin,
+    origin, login, beginLogin, records, get bridge() { return bridge }, request, publicOrigin,
+    pause: (route: 'identity' | 'refresh') => {
+      let release!: () => void
+      let notify!: () => void
+      const waiting = new Promise<void>(resolve => { release = resolve })
+      const started = new Promise<void>(resolve => { notify = resolve })
+      const wait = () => { notify(); return waiting }
+      if (route === 'identity') pauseIdentity = wait
+      else pauseRefresh = wait
+      return { started, release }
+    },
+    restart: (endpoint = upstreamOrigin) => {
+      bridge.dispose()
+      bridge = new HermesBridge(endpoint, fetch, { publicOrigin, ...options })
+      bridge.attach(localServer)
+    },
     expire: () => { refreshedExpiry = true }, rejectRefresh: () => { rejectRefresh = true; refreshedExpiry = true },
+    failRefreshOnce: () => { transientRefreshFailure = true; refreshedExpiry = true },
     rejectMutation: () => { rejectMutation = true },
     counts: () => ({ refreshes, patches }),
   }
 }
 
 describe('local remote-Hermes connection', () => {
+  it('restores a login from SQLite after restarting the bridge', async () => {
+    const test = await fixture(undefined, { sessionDb: sessionDatabase() })
+    const { cookie } = await test.login()
+    test.restart()
+    const response = await test.request('/api/auth/me', { headers: { Cookie: cookie } })
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ display_name: 'Synthetic operator' })
+    expect(test.records.at(-1)?.authorization).toBe('Bearer access-1')
+  })
+
+  it('issues a persistent secure cookie and renews it on authenticated activity', async () => {
+    const test = await fixture('https://agora.example.test', { sessionDb: sessionDatabase(), sessionIdleSeconds: 120 })
+    const { cookie, completed } = await test.login()
+    const sessionCookie = completed.headers.getSetCookie().find(value => value.startsWith('__Host-agora_session='))!
+    expect(sessionCookie).toContain('Max-Age=120')
+    expect(sessionCookie).toContain('HttpOnly; SameSite=Lax; Secure')
+    const response = await test.request('/api/auth/me', { headers: { Cookie: cookie } })
+    expect(response.status).toBe(200)
+    expect(response.headers.get('set-cookie')).toBe(sessionCookie)
+  })
+
+  it('persists rolling activity but rejects an idle session before the cleanup timer runs', async () => {
+    let now = Date.now()
+    vi.spyOn(Date, 'now').mockImplementation(() => now)
+    const test = await fixture(undefined, { sessionDb: sessionDatabase(), sessionIdleSeconds: 10 })
+    const { cookie } = await test.login()
+    now += 8000
+    expect((await test.request('/api/auth/me', { headers: { Cookie: cookie } })).status).toBe(200)
+    test.restart()
+    now += 8000
+    expect((await test.request('/api/auth/me', { headers: { Cookie: cookie } })).status).toBe(200)
+    now += 11_000
+    expect((await test.request('/api/auth/me', { headers: { Cookie: cookie } })).status).toBe(401)
+    test.restart()
+    expect((await test.request('/api/auth/me', { headers: { Cookie: cookie } })).status).toBe(401)
+  })
+
+  it('persists rotated refresh tokens before a restart and refreshes them again', async () => {
+    const test = await fixture(undefined, { sessionDb: sessionDatabase() })
+    const { cookie } = await test.login()
+    test.expire()
+    expect((await test.request('/api/sessions', { headers: { Cookie: cookie } })).status).toBe(200)
+    test.restart()
+    test.expire()
+    expect((await test.request('/api/sessions', { headers: { Cookie: cookie } })).status).toBe(200)
+    expect(test.counts().refreshes).toBe(2)
+    expect(test.records.at(-1)?.authorization).toBe('Bearer access-3')
+  })
+
+  it('deletes logged-out sessions from disk so a restart cannot restore them', async () => {
+    const test = await fixture(undefined, { sessionDb: sessionDatabase() })
+    const { cookie } = await test.login()
+    const logout = await test.request('/auth/logout', { method: 'POST', headers: { Cookie: cookie, Origin: test.origin }, redirect: 'manual' })
+    expect(logout.status).toBe(303)
+    expect(logout.headers.get('set-cookie')).toContain('Max-Age=0')
+    test.restart()
+    expect((await test.request('/api/auth/me', { headers: { Cookie: cookie } })).status).toBe(401)
+  })
+
+  it('deletes a persisted session when Hermes definitively rejects refresh', async () => {
+    const test = await fixture(undefined, { sessionDb: sessionDatabase() })
+    const { cookie } = await test.login()
+    test.rejectRefresh()
+    expect((await test.request('/api/sessions', { headers: { Cookie: cookie } })).status).toBe(401)
+    test.restart()
+    expect((await test.request('/api/auth/me', { headers: { Cookie: cookie } })).status).toBe(401)
+    expect(test.counts().refreshes).toBe(1)
+  })
+
+  it('does not reuse persisted credentials for a different Hermes endpoint', async () => {
+    const test = await fixture(undefined, { sessionDb: sessionDatabase() })
+    const { cookie } = await test.login()
+    test.restart(`${test.bridge.endpoint.href}different-endpoint`)
+    const before = test.records.length
+    expect((await test.request('/api/auth/me', { headers: { Cookie: cookie } })).status).toBe(401)
+    expect(test.records).toHaveLength(before)
+  })
+
+  it('supports opting out of persistent storage', async () => {
+    const test = await fixture(undefined, { sessionDb: ':memory:' })
+    const { cookie } = await test.login()
+    test.restart()
+    expect((await test.request('/api/auth/me', { headers: { Cookie: cookie } })).status).toBe(401)
+  })
+
+  it('refreshes an expired persisted access token before using it', async () => {
+    let now = Date.now()
+    vi.spyOn(Date, 'now').mockImplementation(() => now)
+    const test = await fixture(undefined, { sessionDb: sessionDatabase() })
+    const { cookie } = await test.login()
+    test.restart()
+    now += 3_660_000
+    expect((await test.request('/api/auth/me', { headers: { Cookie: cookie } })).status).toBe(200)
+    expect(test.counts().refreshes).toBe(1)
+    expect(test.records.at(-1)?.authorization).toBe('Bearer access-2')
+  })
+
+  it('retains persisted credentials after a transient refresh failure', async () => {
+    const test = await fixture(undefined, { sessionDb: sessionDatabase() })
+    const { cookie } = await test.login()
+    test.failRefreshOnce()
+    expect((await test.request('/api/sessions', { headers: { Cookie: cookie } })).status).toBe(503)
+    test.restart()
+    expect((await test.request('/api/auth/me', { headers: { Cookie: cookie } })).status).toBe(200)
+    expect(test.counts().refreshes).toBe(2)
+  })
+
+  it('does not reinstate a cookie from an HTTP response arriving after logout', async () => {
+    const test = await fixture(undefined, { sessionDb: sessionDatabase() })
+    const { cookie } = await test.login()
+    const pause = test.pause('identity')
+    const pending = test.request('/api/auth/me', { headers: { Cookie: cookie } })
+    await pause.started
+    try {
+      expect((await test.request('/auth/logout', { method: 'POST', headers: { Cookie: cookie, Origin: test.origin }, redirect: 'manual' })).status).toBe(303)
+    } finally { pause.release() }
+    expect((await pending).headers.get('set-cookie')).toBeNull()
+  })
+
+  it('does not recreate a persisted session from a refresh arriving after logout', async () => {
+    const test = await fixture(undefined, { sessionDb: sessionDatabase() })
+    const { cookie } = await test.login()
+    const pause = test.pause('refresh')
+    test.expire()
+    const pending = test.request('/api/sessions', { headers: { Cookie: cookie } })
+    await pause.started
+    try {
+      expect((await test.request('/auth/logout', { method: 'POST', headers: { Cookie: cookie, Origin: test.origin }, redirect: 'manual' })).status).toBe(303)
+    } finally { pause.release() }
+    expect((await pending).status).toBe(401)
+    test.restart()
+    expect((await test.request('/api/auth/me', { headers: { Cookie: cookie } })).status).toBe(401)
+  })
+
   it('forwards authenticated pinned-session metadata requests', async () => {
     const test = await fixture()
     const { cookie } = await test.login()

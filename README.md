@@ -111,9 +111,9 @@ Complete the sign-in in your browser. Keep the local process running while using
 Agora. Restart it after changing the endpoint.
 
 The local service connects to remote Hermes on your behalf, so Hermes does not
-need to host Agora or enable browser CORS. Login survives page refreshes;
-restarting the local process requires signing in again. Desktop packaging is not
-implemented yet.
+need to host Agora or enable browser CORS. Login survives page refreshes and
+process restarts through a disposable server-side SQLite session cache, while
+Hermes's grants remain valid. Desktop packaging is not implemented yet.
 
 ### Configuration
 
@@ -123,9 +123,38 @@ implemented yet.
 | `VITE_HERMES_PROFILE` | Optional Hermes profile. Omit it to use the server's launch profile. Vite reads this when starting development or building the UI. |
 | `AGORA_PUBLIC_ORIGIN` | Optional canonical HTTPS origin, e.g. `https://agora.example.com`. Enables hosted bridge login; requires the Hermes callback allowlist change. Omit for laptop mode. |
 | `AGORA_PORT` | Port for `agora-start`; defaults to `5173`. |
+| `AGORA_SESSION_DB` | SQLite login-session cache path for the Node bridge (including Vite development). Defaults to `$XDG_STATE_HOME/agora/sessions.sqlite`, or `~/.local/state/agora/sessions.sqlite` if unset. Set `:memory:` to disable disk persistence. |
+| `AGORA_SESSION_IDLE_SECONDS` | Positive integer rolling idle limit; defaults to `2592000` (30 days). Authenticated HTTP activity renews the limit and cookie lifetime. |
 | `HERMES_TARGET` | Development proxy target when `HERMES_ENDPOINT` is omitted; defaults to `http://127.0.0.1:8080`. |
 
 Keep provider credentials on Hermes. `.env.local` is ignored by Git.
+
+### Login-session cache
+
+The bridge stores access/refresh tokens, including rotated refresh tokens, only
+server-side. The browser receives an opaque persistent HttpOnly cookie, with a
+Max-Age matching the rolling idle limit. Pending PKCE logins remain memory-only;
+if the process restarts during sign-in, start sign-in again. Completed sessions
+survive restarts, but persistence does not extend Hermes/identity-provider token
+expiry or bypass revocation. Logout, idle expiry, and definitive upstream refresh
+rejection remove the cached session. Records are scoped to the exact canonical
+Hermes endpoint and hosted public origin, so changing deployments cannot reuse
+them.
+
+**The cache contains plaintext authentication tokens.** The bridge creates its
+cache directory with mode `0700` and database with mode `0600`; protect the host
+and exclude this cache from source publication and ordinary data backups. It is
+not an identity store or conversation database. Browser-session IDs are hashed
+in the cache, but tokens are not encrypted. Run one bridge per database file:
+SQLite supports simultaneous handles, but token-refresh single-flight is
+process-local. Stop the bridge before removing
+the disposable database; removal requires signing in again without affecting
+Hermes conversation history. `AGORA_SESSION_DB=:memory:` restores restart-bound
+logins.
+
+After upgrading from memory-only sessions, sign in once again: existing sessions
+cannot be migrated. This change does not deploy or activate a running service;
+live authenticated restart acceptance remains to be checked by the operator.
 
 ### Run the built application
 
@@ -161,6 +190,7 @@ After `direnv allow` and `npm ci`:
 | `npm run typecheck` | Check TypeScript and Vue components. |
 | `npm test` | Run the Vitest suite. |
 | `npm run build` | Build the UI into `dist/`. |
+| `node tests/session-runtime.mjs [package-path]` | Real Node-process session smoke test with a synthetic PKCE upstream; verifies restart persistence, rotated refresh tokens, and durable logout. Optionally tests a built package path. |
 | `agora-start` | Serve a built UI with the local Hermes connection service. |
 | `agora-screenshot` | Regenerate the README screenshots using sample data. |
 | `agora-icons` | Regenerate raster favicons from the original [icon](docs/branding/icon.png). |
@@ -247,6 +277,16 @@ declare `inputs.nixpkgs`. The module builds Agora with your system's Nixpkgs.
 Its service listens on loopback. Use it directly on a laptop or behind an HTTPS
 reverse proxy when `publicOrigin` is configured.
 
+The module enables `services.agora.sessionPersistence` by default and uses
+`/var/lib/agora/sessions.sqlite`, managed by systemd's `StateDirectory=agora`
+with mode `0700`. `DynamicUser`, the existing sandbox, and `UMask=0077` remain
+in place. Set `services.agora.sessionPersistence = false` for `:memory:` storage
+without a managed state directory. `services.agora.sessionIdleSeconds` accepts
+a positive integer and defaults to `2592000` (30 days); for example,
+`services.agora.sessionIdleSeconds = 3600` sets a one-hour rolling idle limit.
+Treat the state directory as a disposable credential cache, not ordinary backup
+data.
+
 Exports are `packages.<system>.default` (also named `agora`) and
 `nixosModules.default` (also named `agora`). The implementations remain in
 [nix/package.nix](nix/package.nix) and [nix/module.nix](nix/module.nix), which can
@@ -306,8 +346,9 @@ existing setting in the documented baseline. No CORS or Hermes proxy Host/Origin
 changes are needed.
 
 Browser session cookies are Secure and HttpOnly. Access/refresh tokens stay in
-the Node process's memory; refreshing Agora keeps the login, restarting the
-service requires signing in again. Run one bridge process per deployment.
+the server-side SQLite cache; refreshing Agora and restarting the service keep
+valid completed logins within the rolling idle limit. Run one bridge process per
+deployment; the cache does not provide multi-process coordination.
 See [NixOS hosting](docs/nix.md#public-hosting-with-the-node-bridge) and
 [authentication details](docs/integration.md#hosted-node-bridge).
 
@@ -338,7 +379,7 @@ and long-press menus. Ordinary browser tabs, other platforms, modified clicks,
 HTTP/relative links, and other URL schemes retain normal link behaviour.
 Sign-in stays in Agora's existing flow; image previews and downloads are unchanged.
 
-Agora keeps access/refresh tokens in the bridge process's memory. Drafts,
+Agora keeps access/refresh tokens in the bridge's server-side session cache. Drafts,
 transcripts, and unread markers are not persisted in browser storage. Hermes
 retains saved conversation history.
 

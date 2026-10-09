@@ -10,7 +10,7 @@ export default defineConfig(({ mode }) => {
 
   return {
     base: '/',
-    plugins: [vue(), ...(endpoint && mode !== 'test' ? [localHermesPlugin(endpoint)] : [])],
+    plugins: [vue(), ...(endpoint && mode !== 'test' ? [localHermesPlugin(endpoint, env)] : [])],
     server: {
       host: '127.0.0.1', port: 5173, strictPort: true,
       proxy: endpoint ? undefined : {
