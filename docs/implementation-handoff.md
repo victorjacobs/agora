@@ -20,8 +20,9 @@ Agora renders masked input cards and does not put answers into its composer,
 transcript, or browser storage. Submitted cards prevent duplicate submission;
 inputs clear when disconnected or replaced. Resume snapshots restore pending
 requests, never previously typed secrets. Hermes owns encrypted login storage,
-origin binding, manager unlock, and browser filling. No vault-management panel,
-browser-preview bridge, or Hermes API patch is introduced. Unknown requests
+origin binding, manager unlock, and browser filling. These in-chat prompts are
+separate from the Passwords & Logins workspace below. No browser-preview bridge
+or Hermes API patch is introduced. Unknown requests
 remain explicitly unsupported. Component and protocol tests use synthetic
 credentials; live browser-login/2FA acceptance remains unverified.
 
@@ -34,6 +35,21 @@ endpoint. See [integration.md](integration.md#laptop-connection) for the impleme
 loopback PKCE service; native desktop packaging remains deferred.
 
 ## Objective and fixed decisions
+
+### Passwords & Logins addition
+
+The user subsequently requested a dedicated login workspace. Source-verified
+against the installed Hermes package on 2026-10-07:
+`tui_gateway/methods_vault.py`, vault contracts in
+`tui_gateway/contracts/profiles_vault_complete_foreign_subagents.py`, and
+`agent/vault_store.py` (source only; no saved vault data accessed).
+The existing gateway supports metadata listing, source readiness, add, and remove.
+Use `secret: {identifier, identifier_type, password}` for a login addition; all
+requests carry the selected profile, not a chat session ID. No new server APIs
+are needed. Manager configuration and lock/unlock RPCs exist but are deliberately
+not exposed here. There is no verified password-reveal or item-edit API.
+See [integration details](integration.md#passwords--logins-workspace) for the
+implemented safety boundaries and validation limits.
 
 **Required:** implement the small chat client described in [product.md](product.md).
 Vue, Nix/direnv, direct Hermes manage/dashboard integration, and login through

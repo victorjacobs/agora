@@ -53,6 +53,16 @@ function setup(selected = '') {
 afterEach(() => vi.useRealTimers())
 
 describe('chat recovery and session ownership', () => {
+  it('rejects vault requests after disposal even if visible state still says ready', async () => {
+    const { chat, state, gateway } = setup('a')
+    await chat.start('work')
+    await chat.vaultRequest('vault.list', { profile: 'work' })
+    expect(gateway.request).toHaveBeenLastCalledWith('vault.list', { profile: 'work' })
+    chat.dispose(); vi.mocked(gateway.request).mockClear()
+    expect(state.connection).toBe('ready')
+    await expect(chat.vaultRequest('vault.list', { profile: 'work' })).rejects.toBeInstanceOf(ConnectionLost)
+    expect(gateway.request).not.toHaveBeenCalled()
+  })
   it('inserts another client’s prompt before live output without replacing the stream', async () => {
     const { chat, state, api, gateway } = setup('a')
     await chat.start('work')

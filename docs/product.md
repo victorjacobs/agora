@@ -40,6 +40,10 @@ desktop packaging is deferred.
   and concurrent reads; refresh only an active, connected, visible workspace.
 - Cron workspace for creating/editing jobs, pause/resume, confirmed manual runs
   and deletion, and read-only recent run history through the dashboard APIs.
+- Passwords & Logins workspace for profile-scoped metadata search, explicit
+  additions and confirmed local removals through Hermes's existing vault RPCs.
+  Source readiness is read-only. No password reveal, editing, payment/address
+  management, manager configuration/unlock, browser control, or vault storage in Agora.
 - Explicit controls for agent approval/clarification requests needed to finish
   an ordinary chat. Show unsupported requests clearly; never silently accept them.
 - Login/logout and a clear expired-session state. Preserve the selected

@@ -26,6 +26,8 @@ import { isMemoryApproval, memoryApprovals, type MemoryApproval } from './hermes
 import ConversationTurn from './ConversationTurn.vue'
 import RequestCard from './RequestCard.vue'
 import SignInPage from './SignInPage.vue'
+import PasswordsView from './PasswordsView.vue'
+import { VaultApi } from './hermes/vault'
 import type { SessionRow } from './hermes/types'
 
 const state = reactive(initialState())
@@ -36,7 +38,9 @@ const notifications = new ReplyNotifications(notificationSettings, () => state.e
 })
 chat.onReply = session => notifications.show(session)
 const sidebarOpen = ref(false)
-const view = ref<'chat' | 'results' | 'memory' | 'cron'>('chat')
+const view = ref<'chat' | 'results' | 'memory' | 'cron' | 'passwords'>('chat')
+const passwordSection = ref<'logins' | 'sources'>('logins')
+const vaultApi = new VaultApi({ request: (method, params) => chat.vaultRequest(method, params) })
 const resultJobs = ref<CronJob[]>([])
 const resultJob = ref('')
 const requestedCronJob = ref('')
@@ -263,11 +267,12 @@ onBeforeUnmount(() => { releaseViewport(); clearInterval(dateTimer); window.remo
       <button :class="{ active: view === 'results' }" :aria-current="view === 'results' ? 'page' : undefined" aria-label="Results" title="Results" @click="view = 'results'; sidebarOpen = false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2" /><path d="M8 8h8M8 12h8M8 16h5" /></svg></button>
       <button :class="{ active: view === 'memory' }" :aria-current="view === 'memory' ? 'page' : undefined" aria-label="Memory" title="Memory" @click="view = 'memory'; sidebarOpen = false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M12 5c-3-4-8-1-7 3-4 1-4 7 0 8-1 4 5 6 7 2V5Zm0 0c3-4 8-1 7 3 4 1 4 7 0 8 1 4-5 6-7 2V5ZM5 8l3 2m-3 6 3-2m11-6-3 2m3 6-3-2" /></svg><span v-if="memoryRequests.length" class="rail-badge">{{ memoryRequests.length }}</span></button>
       <button :class="{ active: view === 'cron' }" :aria-current="view === 'cron' ? 'page' : undefined" aria-label="Cron jobs" title="Cron jobs" @click="view = 'cron'; sidebarOpen = false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 6v6l4 2" /></svg></button>
+      <button :class="{ active: view === 'passwords' }" :aria-current="view === 'passwords' ? 'page' : undefined" aria-label="Passwords & Logins" title="Passwords & Logins" @click="view = 'passwords'; sidebarOpen = false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="5" y="10" width="14" height="11" rx="2" /><path d="M8 10V6a4 4 0 0 1 8 0v4M12 14v3" /></svg></button>
     </nav>
-    <aside class="sidebar" :class="{ open: sidebarOpen }" :aria-label="view === 'chat' ? 'Conversations' : view === 'memory' ? 'Memory navigation' : view === 'results' ? 'Results navigation' : 'Cron navigation'">
+    <aside class="sidebar" :class="{ open: sidebarOpen }" :aria-label="view === 'chat' ? 'Conversations' : view === 'memory' ? 'Memory navigation' : view === 'results' ? 'Results navigation' : view === 'passwords' ? 'Passwords navigation' : 'Cron navigation'">
       <div class="sidebar-heading">
-        <h2>{{ view === 'chat' ? 'Chats' : view === 'memory' ? 'Memory' : view === 'results' ? 'Results' : 'Cron' }}</h2>
-        <button ref="closeMenuButton" class="mobile-close text-button" :aria-label="view === 'chat' ? 'Close conversations' : view === 'memory' ? 'Close memory navigation' : view === 'results' ? 'Close results navigation' : 'Close cron navigation'" @click="toggleSidebar()">×</button>
+        <h2>{{ view === 'chat' ? 'Chats' : view === 'memory' ? 'Memory' : view === 'results' ? 'Results' : view === 'passwords' ? 'Passwords & Logins' : 'Cron' }}</h2>
+        <button ref="closeMenuButton" class="mobile-close text-button" :aria-label="view === 'chat' ? 'Close conversations' : view === 'memory' ? 'Close memory navigation' : view === 'results' ? 'Close results navigation' : view === 'passwords' ? 'Close passwords navigation' : 'Close cron navigation'" @click="toggleSidebar()">×</button>
         <button v-if="view === 'chat'" class="new-chat text-button" :disabled="actionsDisabled" aria-label="New chat" title="New chat" @click="view = 'chat'; sidebarOpen = false; following = true; chat.newChat()"><span aria-hidden="true">＋</span></button>
         <button v-if="view === 'cron'" class="new-chat text-button" :disabled="!cronView?.ready || cronView?.busy" aria-label="New cron job" title="New cron job" @click="cronView?.newJob(); sidebarOpen = false"><span aria-hidden="true">＋</span></button>
       </div>
@@ -305,6 +310,7 @@ onBeforeUnmount(() => { releaseViewport(); clearInterval(dateTimer); window.remo
         <button v-for="section in memorySections" :key="section.id" class="session" :class="{ selected: memorySection === section.id }" :aria-current="memorySection === section.id ? 'page' : undefined" @click="memorySection = section.id; sidebarOpen = false"><span class="session-heading"><span class="session-title">{{ section.title }}</span><span v-if="section.id === 'pending' && memoryRequests.length" class="memory-section-count">{{ memoryRequests.length }}</span></span></button>
       </nav>
       <nav v-else-if="view === 'results'" class="session-list" aria-label="Result jobs"><button class="session" :class="{ selected: !resultJob }" :aria-current="!resultJob ? 'page' : undefined" @click="resultJob = ''; sidebarOpen = false"><span class="session-title">All results</span></button><h2 class="session-group-heading">Jobs</h2><button v-for="job in resultJobs" :key="job.id" class="session" :class="{ selected: resultJob === job.id }" :aria-current="resultJob === job.id ? 'page' : undefined" @click="resultJob = job.id; sidebarOpen = false"><span class="session-title">{{ job.name || job.id }}</span></button></nav>
+      <nav v-else-if="view === 'passwords'" class="session-list" aria-label="Passwords navigation"><button v-for="section in ([{ id: 'logins', title: 'Saved logins' }, { id: 'sources', title: 'Login sources' }] as const)" :key="section.id" class="session" :class="{ selected: passwordSection === section.id }" :aria-current="passwordSection === section.id ? 'page' : undefined" @click="passwordSection = section.id; sidebarOpen = false">{{ section.title }}</button></nav>
       <nav v-else class="session-list" aria-label="Scheduled jobs"><button v-for="job in cronJobs" :key="job.id" class="session" :class="{ selected: cronView?.selected === job.id }" :disabled="cronView?.busy" @click="cronView?.select(job.id); sidebarOpen = false"><span class="session-heading"><span class="session-title">{{ job.name || job.id }}</span><svg v-if="job.enabled === false || job.state === 'paused'" class="cron-paused" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" role="img" aria-label="Paused"><path d="M8 5v14M16 5v14" /></svg></span></button></nav>
       <div v-show="view === 'chat'" class="sidebar-footer">
         <NotificationToggle :state="notificationSettings" @toggle="notifications.toggle()" />
@@ -314,8 +320,8 @@ onBeforeUnmount(() => { releaseViewport(); clearInterval(dateTimer); window.remo
 
     <main :inert="sidebarOpen">
       <header class="conversation-header">
-        <button ref="menuButton" class="mobile-menu" :aria-label="view === 'chat' ? 'Open conversations' : view === 'memory' ? 'Open memory navigation' : view === 'results' ? 'Open results navigation' : 'Open cron navigation'" :aria-expanded="sidebarOpen" @click="toggleSidebar()">☰</button>
-        <div class="conversation-heading"><h1>{{ view === 'memory' ? memoryTitle : view === 'cron' ? 'Cron jobs' : view === 'results' ? 'Results' : state.title }}</h1></div>
+        <button ref="menuButton" class="mobile-menu" :aria-label="view === 'chat' ? 'Open conversations' : view === 'memory' ? 'Open memory navigation' : view === 'results' ? 'Open results navigation' : view === 'passwords' ? 'Open passwords navigation' : 'Open cron navigation'" :aria-expanded="sidebarOpen" @click="toggleSidebar()">☰</button>
+        <div class="conversation-heading"><h1>{{ view === 'memory' ? memoryTitle : view === 'cron' ? 'Cron jobs' : view === 'results' ? 'Results' : view === 'passwords' ? 'Passwords & Logins' : state.title }}</h1></div>
         <div v-if="state.selected && view === 'chat'" class="header-actions">
           <ConversationPin :pinned="pins.isPinned(currentSession)" :disabled="state.connection !== 'ready'" @toggle="pins.toggle(currentSession)" />
           <button :disabled="actionsDisabled" @click="showDialog('rename')">Rename</button>
@@ -326,6 +332,7 @@ onBeforeUnmount(() => { releaseViewport(); clearInterval(dateTimer); window.remo
       <div v-if="state.error" class="banner warning" role="alert"><span>{{ state.error }}</span><button v-if="state.connection === 'failed'" @click="chat.connect()">Retry connection</button><button v-else class="text-button" aria-label="Dismiss error" @click="state.error = ''">×</button></div>
       <div v-if="state.uncertain" class="banner warning" role="alert"><div>The last send may have reached Hermes. Check the recovered conversation before sending again. Your draft is retained.</div><button :disabled="state.connection !== 'ready'" @click="chat.acknowledgeUncertain()">I’ve checked; keep editing</button></div>
 
+      <PasswordsView v-if="state.identity" v-show="view === 'passwords'" :active="view === 'passwords'" :connected="state.connection === 'ready'" :profile="state.profile" :section="passwordSection" :api="vaultApi" />
       <CronView ref="cronView" v-show="view === 'cron'" :active="view === 'cron'" :connected="state.connection === 'ready'" :profile="state.profile" :requested-job="requestedCronJob" @jobs="cronJobs = $event" />
       <ResultsView v-show="view === 'results'" :active="view === 'results'" :connected="state.connection === 'ready'" :profile="state.profile" :job-id="resultJob" @jobs="resultJobs = $event; if (resultJob && !$event.some(job => job.id === resultJob)) resultJob = ''" @manage="manageResult" />
       <MemoryView v-show="view === 'memory' && memorySection === 'pending'" :active="view === 'memory' && memorySection === 'pending'" :runtime="state.runtime" :profile="state.profile" :connected="state.connection === 'ready'" :approvals="memoryRequests" :disabled="actionsDisabled" :load="(runtime, profile) => chat.pendingMemory(runtime, profile)" @decide="decideMemory" />
