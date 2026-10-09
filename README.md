@@ -16,6 +16,10 @@ sign-in. Agora provides the chat interface.
 
 - Streamed replies, Markdown in user messages and replies, code, and inline generated images.
   Messages sent through another client appear in the open chat when its turn starts.
+- Generated PDFs and other non-image `MEDIA:` files appear as filename cards with
+  download links, including in saved chat history. Local files download through
+  Hermes's authenticated file API in the selected profile; no raw server paths
+  need to be copied. Inline PDF viewing is not implemented.
 - Attach images with the paperclip, paste from your clipboard, or drop files onto
   the composer. Review/remove previews before sending; image-only messages work.
   Supports PNG, JPEG, WebP, and GIF, up to 8 images of 10 MB each.

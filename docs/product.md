@@ -21,6 +21,8 @@ desktop packaging is deferred.
 - Conversation view with user/assistant messages, readable Markdown and code
   blocks, and compact tool activity. Load older history without fetching every
   conversation in advance.
+  Generated non-image `MEDIA:` files, including PDFs, render as filename cards
+  with authenticated, profile-scoped downloads; code examples stay literal.
 - Text composer with send and stop controls. Keep an unsent draft during a
   temporary disconnect; show sending, running, reconnecting, and failed states.
 - Memory workspace with pending-update review, inspection and explicit editing/deletion
@@ -73,7 +75,7 @@ states returned by Hermes, including work started from another client.
 ## Deferred
 
 Multiple-server/profile management, global model/provider settings, prompt editing or
-branching, non-image attachments, voice, terminal/file browser, tasks/boards, skills,
+branching, non-image uploads, inline PDF viewing, voice, terminal/file browser, tasks/boards, skills,
 MCP management, analytics, closed-app push notifications, offline mode, and custom account
 management. No feature parity with Hermes's dashboard, Conduit, or hermes-webui.
 

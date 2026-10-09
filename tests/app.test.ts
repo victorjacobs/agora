@@ -5,6 +5,7 @@ import { ChatClient } from '../src/hermes/chat'
 import { HermesApi } from '../src/hermes/api'
 import { Gateway } from '../src/hermes/gateway'
 import { CronApi } from '../src/hermes/cron'
+import { historyMessages } from '../src/hermes/transcript'
 
 let cleanup = () => {}
 beforeEach(() => { vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false }))) })
@@ -594,6 +595,29 @@ describe('chat interface', () => {
     await vi.waitFor(() => expect(request).toHaveBeenLastCalledWith('/api/fs/read-data-url?path=%2Fworkspace%2Fchart.png&profile=personal'))
     await vi.waitFor(() => expect(host.querySelector('.markdown img')).not.toBeNull())
     expect(request).toHaveBeenCalledTimes(2)
+  })
+
+  it('renders file cards in live and stored replies with profile-scoped downloads', async () => {
+    const request = vi.spyOn(HermesApi.prototype, 'request')
+    const { host, client } = mountApp()
+    const text = 'Here is your proof.\nMEDIA:/workspace/proof.pdf'
+    client.state.messages = [{ key: 'reply', role: 'assistant', text: 'Here is your proof.' }]
+    await nextTick()
+    client.state.messages[0]!.text = text
+    await nextTick()
+    const link = () => host.querySelector<HTMLAnchorElement>('.message.assistant .media-file a')!
+    expect(link().getAttribute('href')).toBe('/api/fs/download?path=%2Fworkspace%2Fproof.pdf&profile=work')
+    expect(link().download).toBe('proof.pdf')
+    expect(host.querySelector('.media-file')?.textContent).toContain('proof.pdf')
+    expect(host.querySelector('.message.assistant')?.textContent).not.toContain('MEDIA:')
+    client.state.profile = 'personal'
+    await nextTick()
+    expect(new URL(link().href).searchParams.get('profile')).toBe('personal')
+    client.state.messages = historyMessages({ session_id: 'stored', pagination: { offset: 0, limit: 50, returned: 1 }, messages: [{ id: 1, role: 'assistant', content: text }] })
+    await nextTick()
+    expect(link().download).toBe('proof.pdf')
+    expect(new URL(link().href).searchParams.get('profile')).toBe('personal')
+    expect(request).not.toHaveBeenCalled()
   })
 
   it('shows tasks while the main turn is idle and renders task data safely', async () => {
