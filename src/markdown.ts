@@ -1,6 +1,6 @@
 import MarkdownIt from 'markdown-it'
 import DOMPurify from 'dompurify'
-import { imageSource } from './hermes/media'
+import { fileReference, imageSource } from './hermes/media'
 
 const markdown = new MarkdownIt({ html: false, linkify: false, breaks: true })
 markdown.renderer.rules.link_open = (tokens, index, options, _env, renderer) => {
@@ -24,9 +24,12 @@ markdown.core.ruler.after('inline', 'hermes-media', state => {
         output.push(text)
       }
     }
+    let linkDepth = 0
     for (let index = 0; index < children.length; index++) {
       const token = children[index]!
-      if (token.type !== 'text') { output.push(token); continue }
+      if (token.type === 'link_open') linkDepth++
+      if (token.type === 'link_close') linkDepth--
+      if (token.type !== 'text' || linkDepth) { output.push(token); continue }
       let content = token.content
       while (children[index + 1]?.type === 'text' || children[index + 1]?.type === 'softbreak') {
         const next = children[++index]!
@@ -34,13 +37,15 @@ markdown.core.ruler.after('inline', 'hermes-media', state => {
       }
       let offset = 0
       for (const match of content.matchAll(/MEDIA:\s*(?:"([^"\n]+)"|'([^'\n]+)'|([^\s]+))/g)) {
-        const source = (match[1] || match[2] || match[3] || '').replace(/[.,;!]$/, '')
-        if (!/\.(?:png|jpe?g|gif|webp|svg|bmp|ico)(?:\?.*)?$/i.test(source) || !imageSource(source)) continue
+        const source = match[1] || match[2] || (match[3] || '').replace(/[.,;!]$/, '')
+        if (!imageSource(source)) continue
+        const isImage = /\.(?:png|jpe?g|gif|webp|svg|bmp|ico)(?:\?.*)?$/i.test(source)
+        if (!isImage && !fileReference(source)) continue
         appendText(content.slice(offset, match.index))
-        const image = new state.Token('image', 'img', 0)
-        image.attrSet('src', source)
-        image.content = 'Generated image'
-        output.push(image)
+        const media = new state.Token(isImage ? 'image' : 'hermes_file', isImage ? 'img' : 'span', 0)
+        media.attrSet('src', source)
+        media.content = 'Generated image'
+        output.push(media)
         offset = match.index! + match[0].length
       }
       appendText(content.slice(offset))
@@ -48,6 +53,13 @@ markdown.core.ruler.after('inline', 'hermes-media', state => {
     block.children = output
   }
 })
+
+markdown.renderer.rules.hermes_file = (tokens, index, _options, env) => {
+  const file = fileReference(tokens[index]!.attrGet('src') || '', env?.profile)
+  if (!file) return ''
+  const name = markdown.utils.escapeHtml(file.name)
+  return `<span class="media-file"><span class="media-file-name">${name}</span><a href="${markdown.utils.escapeHtml(file.url)}" download="${name}" aria-label="Download ${name}" rel="noopener noreferrer">Download</a></span>`
+}
 
 markdown.renderer.rules.image = (tokens, index, _options, env) => {
   const token = tokens[index]!
@@ -66,8 +78,8 @@ export function markdownImages(text: string): string[] {
     .filter((source): source is string => Boolean(source))))]
 }
 
-export function renderMarkdown(text: string, images: Record<string, string> = {}, failures: string[] = []): string {
-  return DOMPurify.sanitize(markdown.render(text, { images, failures }), {
+export function renderMarkdown(text: string, images: Record<string, string> = {}, failures: string[] = [], profile?: string): string {
+  return DOMPurify.sanitize(markdown.render(text, { images, failures, profile }), {
     USE_PROFILES: { html: true },
     FORBID_TAGS: ['style', 'form', 'input', 'iframe'],
     FORBID_ATTR: ['style'],

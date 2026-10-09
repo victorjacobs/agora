@@ -75,7 +75,7 @@ function allowedRoute(path: string, method: string) {
   if (/^\/api\/cron\/jobs\/[^/]+$/.test(path)) return ['GET', 'PUT', 'DELETE'].includes(method)
   if (/^\/api\/cron\/jobs\/[^/]+\/runs$/.test(path)) return method === 'GET'
   if (/^\/api\/cron\/jobs\/[^/]+\/(pause|resume|trigger)$/.test(path)) return method === 'POST'
-  if (method === 'GET' && ['/api/status', '/api/auth/providers', '/api/auth/me', '/api/agora/connection', '/api/media', '/api/media/proxy', '/api/fs/read-data-url'].includes(path)) return true
+  if (method === 'GET' && ['/api/status', '/api/auth/providers', '/api/auth/me', '/api/agora/connection', '/api/media', '/api/media/proxy', '/api/fs/read-data-url', '/api/fs/download'].includes(path)) return true
   if (method === 'POST' && path === '/api/auth/ws-ticket') return true
   if (['PUT', 'DELETE'].includes(method) && path === '/api/learning/node') return true
   if (method === 'GET' && ['/api/sessions', '/api/sessions/search', '/api/profiles/active', '/api/memory', '/api/learning/graph', '/api/learning/node'].includes(path)) return true
@@ -215,6 +215,10 @@ export class HermesBridge {
     const native = session?.native || new NativeSession(this.endpoint, this.fetcher)
     const upstream = await native.request(url.pathname + url.search, { method, body: await readBody(request) }, !publicRoute)
     if (upstream.status >= 300 && upstream.status < 400) throw new BridgeError(502, 'Hermes unexpectedly redirected an API request.')
+    if (url.pathname === '/api/fs/download' && upstream.ok) {
+      response.setHeader('Content-Disposition', upstream.headers.get('content-disposition') || 'attachment')
+      response.setHeader('X-Content-Type-Options', 'nosniff')
+    }
     response.writeHead(upstream.status, { 'Content-Type': upstream.headers.get('content-type') || 'application/json', 'Cache-Control': 'no-store' })
     response.end(Buffer.from(await upstream.arrayBuffer()))
   }
