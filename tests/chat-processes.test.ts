@@ -114,9 +114,58 @@ it('recovers owned processes and keeps activity separate from foreground executi
   expect(request).toHaveBeenCalledWith('process.list', { session_id: 'runtime-work-a', profile: 'work' })
   expect(state.processes[0]).toMatchObject({ id: 'p', command: 'sleep 100', status: 'running', output: 'ready\n' })
   expect(state.running).toBe(false)
-  expect(chat.sessionStatus({ id: 'a', profile: 'work' })).toBe('working')
+  expect(chat.sessionStatus({ id: 'a', profile: 'work' })).toBeUndefined()
   state.draft = 'Next question'
   expect(chat.canSend()).toBe(true)
+})
+
+it('counts only current confirmed process activity across selection, profiles, and recovery', async () => {
+  const { chat, gateway, rows, request } = setup()
+  const work = { id: 'a', profile: 'work' }, personal = { id: 'a', profile: 'personal' }
+  await chat.start('work')
+  expect(chat.sessionProcessCount(work)).toBe(1)
+  expect(chat.sessionProcessCount(personal)).toBe(0)
+  await chat.open('b', 'work')
+  expect(chat.sessionProcessCount(work)).toBe(1)
+  expect(chat.sessionProcessCount({ id: 'b', profile: 'work' })).toBe(0)
+  rows([])
+  await chat.refreshProcesses()
+  expect(chat.sessionProcessCount(work)).toBe(0)
+  rows([process()])
+  await chat.refreshProcesses()
+  expect(chat.sessionProcessCount(work)).toBe(1)
+  const ordinary = request.getMockImplementation()!
+  request.mockImplementation((method, params, timeout) => method === 'process.list'
+    ? Promise.reject(new Error('Unavailable')) : ordinary(method, params, timeout))
+  await chat.refreshProcesses()
+  expect(chat.sessionProcessCount(work)).toBe(0)
+  request.mockImplementation(ordinary)
+  await chat.refreshProcesses()
+  expect(chat.sessionProcessCount(work)).toBe(1)
+  gateway.onDisconnect(1006)
+  expect(chat.sessionProcessCount(work)).toBe(0)
+  await chat.connect()
+  expect(chat.sessionProcessCount(work)).toBe(1)
+  rows([{ ...process('p', 'exited'), exit_code: 0 }])
+  await chat.refreshProcesses()
+  expect(chat.sessionProcessCount(work)).toBe(0)
+})
+
+it('hides a stale process roster while a replacement runtime is being verified', async () => {
+  const { chat, request } = setup()
+  const work = { id: 'a', profile: 'work' }
+  await chat.start('work')
+  expect(chat.sessionProcessCount(work)).toBe(1)
+  const roster = deferred<unknown>(), ordinary = request.getMockImplementation()!
+  request.mockImplementation((method, params, timeout) => {
+    if (method === 'session.resume') return Promise.resolve({ session_id: 'replacement-runtime', stored_session_id: 'a', info: { running: false } })
+    if (method === 'process.list') return roster.promise
+    return ordinary(method, params, timeout)
+  })
+  await chat.open('a', 'work')
+  expect(chat.sessionProcessCount(work)).toBe(0)
+  roster.resolve({ processes: [process('replacement')] })
+  await vi.waitFor(() => expect(chat.sessionProcessCount(work)).toBe(1))
 })
 
 it('appends bounded live output offscreen, rejects duplicate events, and recovers missing events by polling', async () => {
@@ -300,6 +349,8 @@ it('isolates a delayed process stop and completion from another profile with the
   request.mockImplementation((method, params, timeout) => method === 'process.kill' ? slow.promise : ordinary(method, params, timeout))
   const stopping = chat.stopProcess('p')
   await chat.open('a', 'personal')
+  expect(chat.sessionProcessCount({ id: 'a', profile: 'personal' })).toBe(0)
+  expect(chat.sessionProcessCount({ id: 'a', profile: 'work' })).toBe(1)
   slow.resolve({ status: 'already_exited', exit_code: 0, output: 'Work output' })
   await stopping
   expect(state.processes).toEqual([])
@@ -307,6 +358,8 @@ it('isolates a delayed process stop and completion from another profile with the
   expect(state.processError).toBe('')
   expect(state.processStops.size).toBe(0)
   expect(chat.sessionStatus({ id: 'a', profile: 'personal' })).toBeUndefined()
+  expect(chat.sessionProcessCount({ id: 'a', profile: 'personal' })).toBe(0)
+  expect(chat.sessionProcessCount({ id: 'a', profile: 'work' })).toBe(0)
   await chat.open('a', 'work')
   expect(state.messages[0]).toMatchObject({ kind: 'process_complete', text: 'Work output' })
 })
@@ -458,7 +511,8 @@ it('recovers offscreen process activity from the active-session roster without v
     return ordinary(method, params, timeout)
   })
   await chat.start('work')
-  await vi.waitFor(() => expect(chat.sessionStatus({ id: 'b', profile: 'work' })).toBe('working'))
+  await vi.waitFor(() => expect(chat.sessionProcessCount({ id: 'b', profile: 'work' })).toBe(1))
+  expect(chat.sessionStatus({ id: 'b', profile: 'work' })).toBeUndefined()
   expect(state.processes.map(row => row.id)).toEqual(['p'])
   expect(state.running).toBe(false)
 })

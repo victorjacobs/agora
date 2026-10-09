@@ -34,6 +34,7 @@ a { color: var(--link); text-underline-offset: 3px; }
 .session-heading { display: flex; align-items: center; gap: 9px; }
 .cron-paused { width: 12px; height: 12px; flex-shrink: 0; color: var(--muted); }
 .session-heading .session-title { flex: 1; min-width: 0; }
+.session-process-indicator { flex-shrink: 0; width: 16px; height: 16px; color: var(--secondary-text); }
 .session-indicator { flex-shrink: 0; width: 12px; height: 12px; border: 2px solid var(--selected-border); border-top-color: var(--primary); border-radius: 50%; animation: session-spin .8s linear infinite; }
 .session-indicator.waiting { width: 8px; height: 8px; margin: 2px; border: 0; background: var(--waiting); animation: none; }
 @keyframes session-spin { to { transform: rotate(360deg); } }

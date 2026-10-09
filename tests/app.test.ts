@@ -96,12 +96,53 @@ describe('chat interface', () => {
     const scope = JSON.stringify(['work', 'another'])
     client.state.processesBySession.set(scope, [{ id: 'p', command: 'sleep', status: 'running', uptime: 1, output: '' }])
     await nextTick()
-    expect(rows[0].querySelector('.session-indicator')).not.toBeNull()
-    expect(rows[1].querySelector('.session-indicator')).toBeNull()
+    expect(rows[0].querySelector('.session-indicator')).toBeNull()
+    const indicator = rows[0].querySelector('.session-process-indicator')!
+    expect(indicator.tagName.toLowerCase()).toBe('svg')
+    expect(indicator.getAttribute('aria-label')).toBe('Background process running')
+    expect(indicator.querySelector('title')?.textContent).toBe('Background process running')
+    expect(rows[1].querySelector('.session-process-indicator')).toBeNull()
     expect(client.state.running).toBe(false)
     client.state.processesBySession.set(scope, [{ id: 'p', command: 'sleep', status: 'exited', uptime: 1, output: '', exitCode: 0 }])
     await nextTick()
     expect(rows[0].querySelector('.session-indicator')).toBeNull()
+    expect(rows[0].querySelector('.session-process-indicator')).toBeNull()
+  })
+
+  it('renders independent foreground and background indicators beside unread replies and pins', async () => {
+    const { host, client } = mountApp()
+    client.state.sessions = [{ id: 'stored', title: 'Current chat', profile: 'work' }]
+    client.state.unreadReplies = [{ id: 'stored', profile: 'work' }]
+    client.state.processes = [
+      { id: 'a', command: 'sleep', status: 'running', uptime: 1, output: '' },
+      { id: 'b', command: 'sleep', status: 'running', uptime: 1, output: '' },
+      { id: 'unknown', command: 'sleep', status: 'unknown', uptime: 1, output: '' },
+    ]
+    await nextTick()
+    const row = host.querySelector('.session-row')!
+    const label = '2 background processes running'
+    expect(row.querySelector('.session-process-indicator')?.getAttribute('aria-label')).toBe(label)
+    expect(row.querySelector('.session-process-indicator title')?.textContent).toBe(label)
+    expect(row.querySelector('.session-indicator')).toBeNull()
+    expect(row.querySelector('.unread-reply')).not.toBeNull()
+    expect(row.querySelector('[aria-label="Pin conversation"]')).not.toBeNull()
+    client.state.running = true
+    await nextTick()
+    expect(row.querySelector('.session-indicator')?.getAttribute('aria-label')).toBe('Running')
+    expect(row.querySelector('.session-process-indicator')).not.toBeNull()
+    client.state.approvals = [{ request_id: 'approval' }]
+    await nextTick()
+    expect(row.querySelector('.session-indicator.waiting')?.getAttribute('aria-label')).toBe('Waiting for input')
+    expect(row.querySelector('.session-process-indicator')).not.toBeNull()
+    client.state.running = false
+    client.state.approvals = []
+    client.state.compressing = true
+    await nextTick()
+    expect(row.querySelector('.session-indicator')).not.toBeNull()
+    client.state.compressing = false
+    client.state.processes = client.state.processes.filter(process => process.status === 'unknown')
+    await nextTick()
+    expect(row.querySelector('.session-indicator, .session-process-indicator')).toBeNull()
   })
 
   it('renders Markdown in user messages without changing their source text', async () => {
