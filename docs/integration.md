@@ -33,8 +33,9 @@ and state, then navigates the browser to Hermes’s `/auth/native/authorize`.
 Hermes owns provider selection and OIDC. Its loopback callback returns a one-time
 code; the local service validates state, browser binding, origin, and expiry,
 then exchanges it at `/auth/native/token`. The browser receives only an opaque
-HttpOnly, SameSite=Lax session cookie. Tokens remain in process memory and are
-rotated through `/auth/native/refresh`; concurrent refreshes share one request.
+persistent HttpOnly, SameSite=Lax session cookie with Max-Age matching the rolling
+idle limit. Tokens are kept in a server-side SQLite cache and rotated through
+`/auth/native/refresh`; concurrent refreshes share one request.
 
 `server/bridge.ts` forwards only the chat client’s status, identity, session, and
 history APIs. It replaces browser credentials with the native bearer token,
@@ -51,13 +52,56 @@ browser cookie and unpredictable state. No permissive CORS headers are added.
 Only GETs and ticket minting can retry after a definitive HTTP 401; session
 mutations and chat frames are never replayed automatically.
 
-Local logout drops the memory-held grant and closes both ends of its sockets.
+Local logout removes the cached grant and closes both ends of its sockets.
 Hermes exposes no native-token logout endpoint in the inspected contract; this
-does not revoke provider SSO or log out the remote dashboard. Restarting the
-local service requires signing in again. Tokens are not saved to disk or browser
-storage. This service is a transport/auth adapter, with no agent runner,
-transcript database, or Hermes filesystem access. A future desktop shell can
-replace the loopback transport without changing the chat state machine.
+does not revoke provider SSO or log out the remote dashboard. Tokens are never
+saved in browser storage. This service is a transport/auth adapter, with no agent
+runner, transcript database, or Hermes filesystem access. A future desktop shell
+can replace the loopback transport without changing the chat state machine.
+
+## Login-session cache
+
+Completed native logins are cached in server-side SQLite using Node.js 24's
+built-in `node:sqlite`; no additional database dependency or daemon is required.
+The cache stores hashed opaque browser-session IDs and plaintext access/refresh
+tokens; browser cookies contain opaque IDs, never those tokens.
+Access tokens and rotated refresh tokens survive process shutdown. Active sockets
+and pending PKCE logins remain memory-only: sockets reconnect normally, and a
+restart during sign-in requires retrying sign-in. Only one bridge process is
+supported per database file. SQLite itself supports simultaneous handles, but
+token-refresh single-flight is process-local, so sharing a file between running
+bridges is unsupported.
+
+Standalone and Vite laptop bridges default to
+`$XDG_STATE_HOME/agora/sessions.sqlite`, falling back to
+`~/.local/state/agora/sessions.sqlite`. `AGORA_SESSION_DB` overrides the path;
+`:memory:` opts out of disk persistence. `AGORA_SESSION_IDLE_SECONDS` must be a
+positive integer, defaults to `2592000` (30 days), and sets the rolling idle limit
+and persistent cookie Max-Age. Authenticated HTTP activity renews both.
+
+Records are scoped to the exact canonical Hermes endpoint and hosted public
+origin, preventing reuse against a different deployment. Logout, idle expiry,
+and definitive upstream refresh rejection remove records. Persistence does not
+extend Hermes or identity-provider token lifetimes or override revocation.
+
+The cache is **plaintext credential material**, not encrypted storage. The bridge
+creates the directory with mode `0700` and database with mode `0600`. Do not
+publish it or include it in ordinary data backups. Stop the bridge before removing
+the disposable database; all affected browsers must sign in again, but Hermes
+identities, conversations, and internal storage are unchanged.
+
+On NixOS, `services.agora.sessionPersistence` defaults to `true`, sets
+`AGORA_SESSION_DB=/var/lib/agora/sessions.sqlite`, and provisions
+`StateDirectory=agora` with `StateDirectoryMode=0700`. Disabling it sets
+`AGORA_SESSION_DB=:memory:` and omits that state-directory configuration; any
+previous cache is not automatically deleted. `services.agora.sessionIdleSeconds`
+defaults to `2592000` and is emitted as `AGORA_SESSION_IDLE_SECONDS`.
+`DynamicUser`, `UMask=0077`, and the existing service sandbox remain unchanged.
+
+The first upgrade from memory-only sessions requires one new sign-in; those
+sessions cannot be migrated. No live service was deployed or activated as part
+of this change. Targeted module evaluation is not proof of authenticated live
+restart acceptance.
 
 ## Hosted Node bridge
 
@@ -75,7 +119,7 @@ Login uses the same native broker as laptop mode, with the configured public
 `/auth/native/callback`. Hermes's OIDC callback remains on its own domain;
 the patched broker redirects to Agora with a one-time code and state. The Node
 service checks browser binding/state/expiry and exchanges with PKCE. It keeps
-per-browser tokens in memory, refreshes them, and performs authenticated HTTP
+per-browser tokens in the server-side session cache, refreshes them, and performs authenticated HTTP
 and ticket-based WebSocket forwarding. Browser code sees only an opaque session
 cookie. Hosted cookies use `__Host-` names, Secure, HttpOnly, SameSite=Lax, and
 Path=/; laptop cookies retain their existing names and HTTP behavior.
@@ -89,8 +133,9 @@ rather than the SPA. No arbitrary upstream target can be selected by a request.
 
 The client recognizes both `local` and `hosted` bridge metadata and lets the
 bridge mint upstream WebSocket tickets. It continues using same-origin browser
-HTTP/WS connections. A service restart requires login again. Only one process
-is supported; in-memory state is not shared between replicas. Existing retry
+HTTP/WS connections. Completed logins survive service restarts while their cached
+grants and idle limit remain valid. Run one bridge per database file; refresh
+coordination and active sockets are process-local. Existing retry
 and ambiguous-send rules apply unchanged. No Hermes CORS, Host/Origin, or cookie
 policy changes are required beyond the independently maintained callback patch.
 
@@ -225,6 +270,24 @@ and replay rejection, token privacy, concurrent refresh, expired grants, session
 separation, mutation non-replay, Host/Origin rejection, gateway readiness, frame
 forwarding, and logout socket closure. Type checking and production build are
 part of `agora-check`.
+
+The real Node-process session smoke test uses a synthetic PKCE upstream:
+
+```sh
+nix develop path:. --command node tests/session-runtime.mjs
+```
+
+It checks that completed login and rotated refresh tokens survive bridge restarts
+and that logout remains deleted after restart. To exercise an already built Nix
+package instead of the checkout server, pass its package path as the argument:
+
+```sh
+nix develop path:. --command node tests/session-runtime.mjs ./result
+```
+
+This smoke test uses synthetic credentials and is not a live Hermes/IdP test or
+a deployment. Targeted NixOS module tests additionally evaluate default persistent
+storage, the memory-only opt-out, custom idle TTL, and unchanged sandbox settings.
 
 Browser transport tests model the native `fetch` receiver check, which Node’s
 fetch does not enforce. Component coverage exercises the real client startup

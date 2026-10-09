@@ -37,8 +37,10 @@ loopback PKCE service; native desktop packaging remains deferred.
 
 **Required:** implement the small chat client described in [product.md](product.md).
 Vue, Nix/direnv, direct Hermes manage/dashboard integration, and login through
-Hermes OIDC are fixed. Hermes owns persistence and execution; no Agora database,
-agent runner, or independent authentication backend.
+Hermes OIDC are fixed. Hermes owns conversation persistence and execution; no
+Agora identity or conversation database, agent runner, or independent authentication
+backend. The sole storage exception is the disposable server-side SQLite
+login-session cache described in [integration.md](integration.md#login-session-cache).
 
 **Suggested:** Vue 3 + TypeScript + Vite, npm with a lockfile, static production
 assets, and a single server/profile. Choose remaining libraries during
