@@ -528,7 +528,7 @@ describe('chat interface', () => {
     const { host, client } = mountApp()
     const latest = { key: 'row-20', rowId: 20, role: 'assistant', text: 'Unrelated Paperless answer' }
     client.state.tasks = [{
-      key: 'old-child', delegationId: 'old-batch', goal: 'Old password workspace', status: retained === 'running' ? 'running' : 'unknown',
+      key: 'old-child', delegationId: 'old-batch', delegationKey: 'old-batch:0', goal: 'Old password workspace', status: retained === 'running' ? 'running' : 'unknown',
       ...(retained === 'tail-anchored' ? { completedAfter: latest } : {}),
     }]
     vi.spyOn(HermesApi.prototype, 'history').mockImplementation(async id => ({
@@ -549,17 +549,22 @@ describe('chat interface', () => {
     await vi.waitFor(() => expect(client.state.tasks[0]?.status).toBe('unknown'))
     await nextTick()
     const transcript = host.querySelector('.transcript')!
-    expect(transcript.textContent!.indexOf('Old password workspace')).toBeLessThan(transcript.textContent!.indexOf(latest.text))
-    expect(client.state.tasks[0]?.completedAfter).toBeNull()
-    expect(client.state.tasksBySession.get(JSON.stringify(['work', 'stored']))?.[0]?.completedAfter).toBeNull()
+    if (retained === 'tail-anchored') {
+      expect(transcript.textContent!.indexOf(latest.text)).toBeLessThan(transcript.textContent!.indexOf('Old password workspace'))
+      expect(client.state.tasks[0]?.completedAfter?.key).toBe(latest.key)
+    } else {
+      expect(transcript.textContent!.indexOf('Old password workspace')).toBeLessThan(transcript.textContent!.indexOf(latest.text))
+      expect(client.state.tasks[0]?.completedAfter).toBeNull()
+    }
+    expect(client.state.tasksBySession.get(JSON.stringify(['work', 'stored']))?.[0]?.completedAfter).toEqual(client.state.tasks[0]?.completedAfter)
     expect(host.querySelector('.pinned-tasks')).toBeNull()
     expect(host.querySelectorAll('.background-tasks')).toHaveLength(1)
     client.state.messages.push({ key: 'next', role: 'user', text: 'Next unrelated question' })
     await nextTick()
-    expect(transcript.textContent!.indexOf('Old password workspace')).toBeLessThan(transcript.textContent!.indexOf(latest.text))
+    expect(client.state.tasks[0]?.completedAfter).toEqual(retained === 'tail-anchored' ? latest : null)
     vi.mocked(HermesApi.prototype.history).mockResolvedValueOnce({
       session_id: 'stored', profile: 'work',
-      messages: [{ id: 10, role: 'system', content: 'Historical batch notice', display_kind: 'async_delegation_complete', display_metadata: { delegation_id: 'old-batch', failed_count: 1 } }],
+      messages: [{ id: 10, role: 'system', content: '[ASYNC DELEGATION BATCH COMPLETE — old-batch]\nHistorical batch notice\n\n--- ✗ TASK 1/1: Old password workspace  (status=unknown) ---\nSaved failure details', display_kind: 'async_delegation_complete', display_metadata: { delegation_id: 'old-batch', failed_count: 1 } }],
       pagination: { returned: 1, offset: 1, limit: 50 },
     })
     client.state.hasOlder = true
@@ -568,6 +573,9 @@ describe('chat interface', () => {
     expect(client.state.tasks[0]).toMatchObject({ status: 'unknown', completedAfter: { key: 'row-10' } })
     expect(transcript.textContent!.indexOf('Historical batch notice')).toBeLessThan(transcript.textContent!.indexOf('Old password workspace'))
     expect(transcript.textContent!.indexOf('Old password workspace')).toBeLessThan(transcript.textContent!.indexOf(latest.text))
+    expect(transcript.querySelectorAll('.completion-notice')).toHaveLength(1)
+    expect(transcript.querySelectorAll('.background-tasks')).toHaveLength(1)
+    expect(transcript.querySelector('.background-tasks')?.textContent).toContain('No longer in live roster')
     expect(client.state.tasksBySession.get(JSON.stringify(['work', 'stored']))?.[0]?.completedAfter?.key).toBe('row-10')
     await client.open('another', 'work')
     await client.open('stored', 'work')
