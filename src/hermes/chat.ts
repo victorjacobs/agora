@@ -488,6 +488,9 @@ export class ChatClient {
         this.runtimeSessions.delete(previous)
         this.processRequests.delete(scope)
         this.processVerified.delete(scope)
+        const unknown = (this.state.processesBySession.get(scope) || []).map(process => process.status === 'running' ? { ...process, status: 'unknown' as const } : process)
+        this.state.processesBySession.set(scope, unknown)
+        if (scope === this.taskScope()) this.state.processes = unknown
         this.invalidateProcessStops(scope)
       }
     }
@@ -518,13 +521,23 @@ export class ChatClient {
   sessionStatus(row: SessionRow): 'working' | 'waiting' | undefined {
     const profile = row.profile || this.configuredProfile || this.state.profile
     if (row.id === this.state.selected && this.state.runtime && profile === this.state.profile) {
-      if (!this.state.running) return this.state.compressing || this.state.tasks.some(taskRunning) || this.state.processes.some(process => process.status === 'running') ? 'working' : undefined
+      if (!this.state.running) return this.state.compressing || this.state.tasks.some(taskRunning) ? 'working' : undefined
       return this.state.approvals.length || this.state.requests.length ? 'waiting' : 'working'
     }
     const active = this.state.activeSessions.find(session => session.session_key === row.id && session.profile === profile)
     if (active?.status === 'working' || active?.status === 'waiting') return active.status
     const scope = JSON.stringify([profile, row.id])
-    return this.taskCache.get(scope)?.some(taskRunning) || this.state.processesBySession.get(scope)?.some(process => process.status === 'running') ? 'working' : undefined
+    return this.taskCache.get(scope)?.some(taskRunning) ? 'working' : undefined
+  }
+
+  sessionProcessCount(row: SessionRow): number {
+    if (this.state.connection !== 'ready') return 0
+    const profile = row.profile || this.configuredProfile || this.state.profile
+    const scope = JSON.stringify([profile, row.id])
+    if (this.state.processErrorsBySession.get(scope)) return 0
+    const processes = row.id === this.state.selected && profile === this.state.profile
+      ? this.state.processes : this.state.processesBySession.get(scope) || []
+    return processes.filter(process => process.status === 'running').length
   }
 
   private async refreshActiveSessions() {

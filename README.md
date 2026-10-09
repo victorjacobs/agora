@@ -36,7 +36,11 @@ sign-in. Agora provides the chat interface.
 - Cron workspace to create/edit scheduled jobs, pause/resume, run now, delete,
   and inspect recent runs and their conversations.
 - On-demand provider quota and credit balances, with a picker for multiple providers.
-- A compact chat list grouped by date, with running and unread-reply indicators.
+- A compact chat list grouped by date, with foreground-work and unread-reply indicators.
+  A static terminal icon marks confirmed running background processes, separately
+  from the foreground spinner; both can appear together. Waiting for input keeps
+  its existing indicator. Unknown, unavailable, or disconnected process status
+  does not show as running. Delegated-task indicators are unchanged.
   Search loaded titles and stored message text; cron-job conversations are excluded.
 - Local conversation pins: use the pin icon on a chat row or in its header.
   Pinned chats stay above the date groups, including older chats. Pins are scoped

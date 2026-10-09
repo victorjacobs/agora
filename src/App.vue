@@ -297,6 +297,7 @@ onBeforeUnmount(() => { releaseViewport(); clearInterval(dateTimer); window.remo
               <span class="session-title">{{ session.title || 'Untitled conversation' }}</span>
               <span v-if="chat.hasUnreadReply(session)" class="unread-reply" role="img" aria-label="Unread response" title="Unread response"></span>
               <span v-if="chat.sessionStatus(session)" class="session-indicator" :class="{ waiting: chat.sessionStatus(session) === 'waiting' }" :aria-label="chat.sessionStatus(session) === 'waiting' ? 'Waiting for input' : 'Running'" :title="chat.sessionStatus(session) === 'waiting' ? 'Waiting for input' : 'Running'" role="img"></span>
+              <svg v-if="chat.sessionProcessCount(session)" class="session-process-indicator" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" role="img" :aria-label="chat.sessionProcessCount(session) === 1 ? 'Background process running' : `${chat.sessionProcessCount(session)} background processes running`"><title>{{ chat.sessionProcessCount(session) === 1 ? 'Background process running' : `${chat.sessionProcessCount(session)} background processes running` }}</title><rect x="3" y="5" width="18" height="14" rx="2" /><path d="m7 9 3 3-3 3m6 0h4" /></svg>
             </span>
           </button><ConversationPin :pinned="pins.isPinned(session)" :disabled="state.connection !== 'ready'" @toggle="pins.toggle(session)" /></div>
         </section>
