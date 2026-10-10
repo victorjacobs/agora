@@ -1209,21 +1209,85 @@ describe('chat recovery and session ownership', () => {
     chat.dispose()
   })
 
-  it('restores a vault prompt and sends its value only through request.answer', async () => {
+  it('rejects stale sudo answers after withdrawal or ownership replacement', async () => {
+    const { state, gateway, chat } = setup('a')
+    await chat.start('work')
+    gateway.onRequest({ id: 'sudo-1', method: 'sudo', params: { session_id: 'runtime-a' } })
+    const old = state.requests[0]
+    gateway.onEvent({ type: 'request.cancel', session_id: 'runtime-a', payload: { id: 'sudo-1' } })
+    await chat.answer(old, { value: 'fictional-stale-password' })
+    gateway.onRequest({ id: 'sudo-1', method: 'sudo', params: { session_id: 'runtime-a' } })
+    const replaced = state.requests[0]
+    await chat.open('b', 'other')
+    gateway.onRequest({ id: 'sudo-1', method: 'sudo', params: { session_id: 'runtime-b' } })
+    await chat.answer(replaced, { value: 'fictional-stale-password' })
+    expect(vi.mocked(gateway.request).mock.calls.filter(([method]) => method === 'request.answer')).toEqual([])
+    expect(state.requests).toHaveLength(1)
+    chat.dispose()
+  })
+
+  it('never displays a sudo response error that might echo the password', async () => {
+    const { state, gateway, chat } = setup('a')
+    await chat.start('work')
+    gateway.onRequest({ id: 'sudo-1', method: 'sudo', params: { session_id: 'runtime-a' } })
+    vi.mocked(gateway.request).mockRejectedValueOnce(new RpcError(500, 'Rejected fictional-error-password'))
+    await chat.answer(state.requests[0], { value: 'fictional-error-password' })
+    expect(state.error).toBe('Unable to confirm the sudo response. Check the pending request before trying again; it will not be retried automatically.')
+    expect(state.requests).toHaveLength(1)
+    expect(state.actionPending).toBe(false)
+    expect(JSON.stringify(state.messages)).not.toContain('fictional-error-password')
+    chat.dispose()
+  })
+
+  it('does not settle a replacement sudo card when an old answer completes', async () => {
+    const { state, gateway, chat } = setup('a')
+    await chat.start('work')
+    gateway.onRequest({ id: 'sudo-1', method: 'sudo', params: { session_id: 'runtime-a' } })
+    const pending = deferred<{ status: string }>()
+    vi.mocked(gateway.request).mockReturnValueOnce(pending.promise)
+    const answering = chat.answer(state.requests[0], { value: 'fictional-delayed-password' })
+    gateway.onRequest({ id: 'sudo-1', method: 'sudo', params: { session_id: 'runtime-a' } })
+    pending.resolve({ status: 'ok' })
+    await answering
+    expect(state.requests).toHaveLength(1)
+    chat.dispose()
+  })
+
+  it('scopes sudo replay and cancellation to the current runtime and profile', async () => {
+    const { state, api, gateway, chat } = setup('a')
+    await chat.start('work')
+    gateway.onRequest({ id: 'sudo-1', method: 'sudo', params: { session_id: 'runtime-b' } })
+    expect(state.requests).toEqual([])
+    gateway.onRequest({ id: 'sudo-1', method: 'sudo', params: { session_id: 'runtime-a' } })
+    const original = state.requests[0]
+    gateway.onEvent({ type: 'request.cancel', session_id: 'runtime-b', payload: { id: 'sudo-1' } })
+    expect(state.requests).toEqual([original])
+    vi.mocked(api.history).mockResolvedValueOnce({ ...history('a'), profile: 'other' })
+    await chat.open('a', 'other')
+    gateway.onRequest({ id: 'sudo-1', method: 'sudo', params: { session_id: 'runtime-a' } })
+    await chat.answer(original, { value: 'fictional-old-profile' })
+    expect(vi.mocked(gateway.request).mock.calls.filter(([method]) => method === 'request.answer')).toEqual([])
+    await chat.answer(state.requests[0], { value: '' })
+    expect(gateway.request).toHaveBeenCalledWith('request.answer', { id: 'sudo-1', profile: 'other', result: { value: '' } }, 300_000)
+    expect(state.requests).toEqual([])
+    chat.dispose()
+  })
+
+  it.each(['vault.code', 'sudo'])('restores %s and sends its exact value only through request.answer', async requestMethod => {
     const { state, gateway, chat } = setup('a')
     const ordinary = vi.mocked(gateway.request).getMockImplementation()!
     vi.mocked(gateway.request).mockImplementation(async (method, params, timeout) => {
       if (method === 'session.resume') return {
         ...snapshot('a'), running: true,
-        open_requests: [{ id: 'vault-1', method: 'vault.code', params: { session_id: 'runtime-a', site: 'Example' } }],
+        open_requests: [{ id: 'secure-1', method: requestMethod, params: { session_id: 'runtime-a', site: 'Example', command: 'sudo echo [REDACTED]' } }],
       }
       return ordinary(method, params, timeout)
     })
     await chat.start('work')
-    expect(state.requests[0].method).toBe('vault.code')
+    expect(state.requests[0].method).toBe(requestMethod)
     const messages = JSON.stringify(state.messages)
-    await chat.answer(state.requests[0], { value: 'synthetic-code' })
-    expect(gateway.request).toHaveBeenCalledWith('request.answer', { profile: 'work', id: 'vault-1', result: { value: 'synthetic-code' } }, 300_000)
+    await chat.answer(state.requests[0], { value: '  fictional-input  ' })
+    expect(gateway.request).toHaveBeenCalledWith('request.answer', { profile: 'work', id: 'secure-1', result: { value: '  fictional-input  ' } }, 300_000)
     expect(state.requests).toHaveLength(0)
     expect(JSON.stringify(state.messages)).toBe(messages)
     expect(state.draft).toBe('')

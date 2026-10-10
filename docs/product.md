@@ -44,6 +44,12 @@ desktop packaging is deferred.
   and deletion, and read-only recent run history through the dashboard APIs.
 - Explicit controls for agent approval/clarification requests needed to finish
   an ordinary chat. Show unsupported requests clearly; never silently accept them.
+  Terminal `sudo` requests show Hermes's redacted command and a transient masked
+  password input with explicit Submit/Cancel. Preserve the exact password and
+  send it directly through `request.answer`, never chat/history/browser storage.
+  Clear the field on submission, cancellation, withdrawal, replacement, and
+  disconnect. Hermes controls expiry; app-level installer sudo and generic secret
+  capture are outside this feature.
 - Login/logout and a clear expired-session state. Preserve the selected
   conversation across login and reload using a stable URL where practical.
   Completed bridge logins survive process restarts through a disposable

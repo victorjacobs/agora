@@ -68,6 +68,98 @@ describe('request controls', () => {
     expect(answers).toEqual([{ answers: { q1: 'One, Two', q2: 'Because' } }])
   })
 
+  it('renders a terminal sudo request as masked input with inert command text', () => {
+    const { host, answers } = mountRequest({ id: 'sudo-1', method: 'sudo', params: {
+      session_id: 'runtime-a', command: 'sudo echo [REDACTED]\n<img src=x onerror=alert(1)>',
+    } })
+    expect(host.textContent).not.toContain('Unsupported request')
+    expect(host.querySelector('input[type=password]')).not.toBeNull()
+    expect(host.querySelector('pre')?.textContent).toBe('sudo echo [REDACTED]\n<img src=x onerror=alert(1)>')
+    expect(host.querySelector('img')).toBeNull()
+    expect([...host.querySelectorAll('button')].map(button => button.textContent)).toEqual(['Submit', 'Cancel'])
+    expect(answers).toEqual([])
+  })
+
+  it('submits an exact sudo password once and clears it before emitting', async () => {
+    const { host, answers } = mountRequest({ id: 'sudo-1', method: 'sudo', params: {} })
+    const input = host.querySelector<HTMLInputElement>('input[type=password]')!
+    input.value = '  fictional-password with spaces  '
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    await nextTick()
+    const submit = () => host.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    submit()
+    expect(input.value).toBe('')
+    submit()
+    await nextTick()
+    expect(answers).toEqual([{ value: '  fictional-password with spaces  ' }])
+    expect([...host.querySelectorAll('button')].every(button => button.disabled)).toBe(true)
+    expect(host.textContent).not.toContain('fictional-password')
+  })
+
+  it('cancels sudo with an empty value and clears the password immediately', async () => {
+    const { host, answers } = mountRequest({ id: 'sudo-1', method: 'sudo', params: {} })
+    const input = host.querySelector<HTMLInputElement>('input[type=password]')!
+    input.value = 'fictional-cancelled-password'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    await nextTick()
+    const cancel = [...host.querySelectorAll('button')].find(button => button.textContent === 'Cancel')!
+    cancel.click()
+    expect(input.value).toBe('')
+    cancel.click()
+    expect(answers).toEqual([{ value: '' }])
+  })
+
+  it.each(['disconnect', 'replacement', 'owner replacement', 'unmount'])('clears sudo DOM and model on %s without answering', async transition => {
+    const { host, answers, props } = mountRequest({ id: 'sudo-1', method: 'sudo', params: { session_id: 'runtime-a' } })
+    const input = host.querySelector<HTMLInputElement>('input[type=password]')!
+    input.value = 'fictional-lifecycle-password'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    await nextTick()
+    if (transition === 'disconnect') props.disabled = true
+    else if (transition === 'replacement') props.request = { id: 'sudo-2', method: 'sudo', params: {} }
+    else if (transition === 'owner replacement') props.request = { id: 'sudo-1', method: 'sudo', params: { session_id: 'runtime-b' } }
+    else cleanup()
+    await nextTick()
+    expect(input.value).toBe('')
+    expect(answers).toEqual([])
+    if (transition === 'disconnect') {
+      host.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+      expect(answers).toEqual([])
+      props.disabled = false
+      await nextTick()
+    }
+    const current = host.querySelector<HTMLInputElement>('input[type=password]')
+    if (current) {
+      expect(current.value).toBe('')
+      expect(host.querySelector<HTMLButtonElement>('button[type=submit]')!.disabled).toBe(true)
+    }
+  })
+
+  it.each(['secret', 'display.install.sudo'])('keeps %s outside terminal sudo support', method => {
+    const { host, answers } = mountRequest({ id: 'unsupported', method, params: {} })
+    expect(host.textContent).toContain(`Unsupported request: ${method}`)
+    expect(host.querySelector('input')).toBeNull()
+    expect(answers).toEqual([])
+  })
+
+  it('does not submit an empty sudo password or answer while disabled', async () => {
+    const { host, answers, props } = mountRequest({ id: 'sudo-1', method: 'sudo', params: {} })
+    const submit = () => host.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    submit()
+    expect(answers).toEqual([])
+    props.disabled = true
+    await nextTick()
+    const input = host.querySelector<HTMLInputElement>('input[type=password]')!
+    input.value = 'fictional-disabled-value'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    submit()
+    const cancel = [...host.querySelectorAll('button')].find(button => button.textContent === 'Cancel')!
+    cancel.click()
+    expect(input.disabled).toBe(true)
+    expect(cancel.disabled).toBe(true)
+    expect(answers).toEqual([])
+  })
+
   it('saves a login through the masked vault request without adding chat text', async () => {
     const { host, answers } = mountRequest({ id: 'login', method: 'vault.save_login', params: { site: 'Example', origin: 'https://example.com' } })
     expect(host.textContent).toContain('https://example.com')

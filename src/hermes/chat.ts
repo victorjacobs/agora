@@ -1158,17 +1158,19 @@ export class ChatClient {
   }
 
   async answer(request: ServerRequest, result: Record<string, unknown>) {
+    if (request.method === 'sudo' && (!this.state.requests.includes(request) || !this.matchesRequest(request))) return
     if (request.method === 'approval') {
       const current = this.state.requests.find(entry => entry.id === request.id && entry.method === 'approval')
       if (!current || typeof result.choice !== 'string' || !approvalChoices(current.params as Approval).includes(result.choice)) return
     }
     await this.action('request.answer', { id: request.id, result, profile: this.state.profile }, response => {
+      if (request.method === 'sudo' && !this.state.requests.includes(request)) return
       if ((response as { status: string }).status === 'expired') this.state.error = 'This request expired or was already answered.'
       this.state.requests = this.state.requests.filter(entry => entry.id !== request.id)
       if (request.method === 'approval') {
         this.state.approvals = this.state.approvals.filter(approval => approval.request_id !== request.params.request_id)
       }
-    })
+    }, request.method === 'sudo' ? 'Unable to confirm the sudo response. Check the pending request before trying again; it will not be retried automatically.' : undefined)
   }
 
   async approve(approval: Approval, choice: string) {
@@ -1181,7 +1183,7 @@ export class ChatClient {
     })
   }
 
-  private async action(method: string, params: Record<string, unknown>, apply?: (result: unknown) => void) {
+  private async action(method: string, params: Record<string, unknown>, apply?: (result: unknown) => void, failureMessage?: string) {
     if (this.state.connection !== 'ready' || this.state.actionPending) return
     const generation = this.selectionGeneration
     this.state.actionPending = true
@@ -1190,7 +1192,7 @@ export class ChatClient {
       const result = await this.gateway.request(method, params, 300_000)
       if (generation === this.selectionGeneration) apply?.(result)
     } catch (error) {
-      if (generation === this.selectionGeneration) this.state.error = errorMessage(error)
+      if (generation === this.selectionGeneration) this.state.error = failureMessage || errorMessage(error)
     } finally { if (generation === this.selectionGeneration) this.state.actionPending = false }
   }
 
