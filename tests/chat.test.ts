@@ -3,6 +3,7 @@ import { ChatClient, initialState } from '../src/hermes/chat'
 import { HermesApi, HttpError } from '../src/hermes/api'
 import { ConnectionLost, Gateway, RpcError } from '../src/hermes/gateway'
 import type { HistoryPage, Snapshot } from '../src/hermes/types'
+import { conversationTimeline } from '../src/hermes/transcript'
 
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -884,6 +885,174 @@ describe('chat recovery and session ownership', () => {
     chat.dispose()
   })
 
+  it('recovers multiple saved batch cards on cold refresh and navigation without fabricating children', async () => {
+    vi.useFakeTimers()
+    const { state, api, gateway, chat } = setup('a')
+    const page: HistoryPage = { ...history('a'), messages: [
+      { id: 1, role: 'user', content: 'First question' },
+      { id: 2, role: 'user', content: 'Full mixed results', display_kind: 'async_delegation_complete', display_metadata: { delegation_id: 'batch-a', task_count: 2, completed_count: 1, failed_count: 1, display_text: 'Batch A finished with issues' } },
+      { id: 3, role: 'assistant', content: 'Interspersed reply' },
+      { id: 4, role: 'system', content: 'Full successful results', display_kind: 'async_delegation_complete', display_metadata: { delegation_id: 'batch-b', task_count: 1, completed_count: 1, failed_count: 0, display_text: 'Batch B completed' } },
+      { id: 5, role: 'assistant', content: 'Latest unrelated reply' },
+    ] }
+    vi.mocked(api.history).mockImplementation(async (id, profile) => id === 'a' && profile === 'work' ? page : { ...history(id), profile })
+    await chat.start('work')
+    const order = () => conversationTimeline(state.messages, state.tasks, state.running).map(item => item.key)
+    expect(order()).toEqual(['row-1', 'row-2', 'row-3', 'row-4', 'row-5'])
+    expect(state.tasks).toEqual([])
+    expect(state.tasksBySession.get(JSON.stringify(['work', 'a']))).toEqual([])
+    await chat.open('b', 'work')
+    expect(state.messages.some(message => message.kind === 'async_delegation_complete')).toBe(false)
+    await chat.open('a', 'work')
+    expect(order()).toEqual(['row-1', 'row-2', 'row-3', 'row-4', 'row-5'])
+    await chat.open('a', 'personal')
+    expect(state.tasks).toEqual([])
+    expect(state.messages.some(message => message.kind === 'async_delegation_complete')).toBe(false)
+    await chat.open('a', 'work')
+    expect(order()).toEqual(['row-1', 'row-2', 'row-3', 'row-4', 'row-5'])
+    gateway.onDisconnect(1006)
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(state.connection).toBe('ready')
+    expect(state.tasks).toEqual([])
+    expect(order()).toEqual(['row-1', 'row-2', 'row-3', 'row-4', 'row-5'])
+    chat.dispose()
+  })
+
+  it('does not treat the first roster after navigation or reconnect as a live completion of a stale cached child', async () => {
+    vi.useFakeTimers()
+    const { state, gateway, chat } = setup('a')
+    const ordinary = vi.mocked(gateway.request).getMockImplementation()!
+    let status = 'running'
+    vi.mocked(gateway.request).mockImplementation((method, params, timeout) => method === 'subagent.list' ? Promise.resolve({ subagents: params?.session_id === 'runtime-a' ? [{ subagent_id: 'child', status }] : [] }) : ordinary(method, params, timeout))
+    await chat.start('work')
+    await vi.advanceTimersByTimeAsync(0)
+    await chat.open('b', 'work')
+    status = 'completed'
+    await chat.open('a', 'work')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(state.tasks[0]).toMatchObject({ status: 'completed', completedAfter: null })
+    state.tasks = [{ key: 'child', goal: 'Stale cached child', status: 'running' }]
+    gateway.onDisconnect(1006)
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(state.connection).toBe('ready')
+    expect(state.tasks[0]).toMatchObject({ status: 'completed', completedAfter: null })
+    chat.dispose()
+  })
+
+  it('anchors an authoritative durable failure observed after a known child disappears', async () => {
+    vi.useFakeTimers()
+    const { state, gateway, chat } = setup('a')
+    const ordinary = vi.mocked(gateway.request).getMockImplementation()!
+    let roster: import('../src/hermes/tasks').SubagentRoster = { subagents: [{ subagent_id: 'child', delegation_id: 'batch', status: 'running' }] }
+    vi.mocked(gateway.request).mockImplementation((method, params, timeout) => method === 'subagent.list' ? Promise.resolve(roster) : ordinary(method, params, timeout))
+    await chat.start('work')
+    await vi.advanceTimersByTimeAsync(0)
+    gateway.onEvent({ type: 'subagent.progress', session_id: 'runtime-a', seq: 1, payload: { subagent_id: 'child', delegation_id: 'batch', task_index: 0 } })
+    roster = { subagents: [] }
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(state.tasks[0]).toMatchObject({ status: 'unknown', completedAfter: null })
+    state.messages.push({ key: 'observed', role: 'assistant', text: 'Reply when failure was observed' })
+    roster = { subagents: [], delegations: [{ delegation_id: 'batch', task_index: 0, status: 'failed', error: 'Authoritative error' }] }
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(state.tasks[0]).toMatchObject({ status: 'failed', completedAfter: { key: 'observed' } })
+    chat.dispose()
+  })
+
+  it('preserves siblings through early warnings and retains their evidence at the later final batch', async () => {
+    const { state, api, gateway, chat } = setup('a')
+    const observed = { key: 'observed', role: 'assistant', text: 'Observed sibling success' }
+    const warning = { id: 2, role: 'user', content: '[ASYNC DELEGATION TASK FAILED — batch, task 1/4]\nOne child failed while siblings continue.', display_kind: 'async_delegation_complete', display_metadata: { delegation_id: 'batch', task_count: 1, completed_count: 0, failed_count: 1, display_text: 'Failed: Failed child' } }
+    const final = { id: 4, role: 'user', content: '[ASYNC DELEGATION BATCH COMPLETE — batch]\nConsolidated results\n\n--- ✗ TASK 1/4: Failed child  (status=failed) ---\nError\n\n--- ✓ TASK 2/4: Success child  (status=completed) ---\nUnique successful sibling result\n\n--- ✗ TASK 3/4: Missing child  (status=unknown) ---\n(no summary — status=unknown)\n\n--- ✓ TASK 4/4: Working child  (status=completed) ---\nDone', display_kind: 'async_delegation_complete', display_metadata: { delegation_id: 'batch', task_count: 4, completed_count: 2, failed_count: 1, display_text: 'Batch finished with issues' } }
+    await chat.start('work')
+    state.tasks = [
+      { key: 'failed', delegationKey: 'batch:0', goal: 'Failed child', status: 'failed', summary: 'Error', completedAfter: observed },
+      { key: 'success', delegationKey: 'batch:1', goal: 'Success child', status: 'completed', summary: 'Unique successful sibling result', completedAfter: observed },
+      { key: 'missing', delegationKey: 'batch:2', goal: 'Missing child', status: 'unknown' },
+      { key: 'working', delegationId: 'batch', delegationKey: 'batch:3', goal: 'Working child', status: 'running' },
+    ]
+    await chat.open('b', 'work')
+    vi.mocked(api.history).mockResolvedValueOnce({ ...history('a'), messages: [{ id: 1, role: 'assistant', content: observed.text }, warning, { id: 3, role: 'assistant', content: 'Later unrelated reply' }] })
+    const ordinary = vi.mocked(gateway.request).getMockImplementation()!
+    vi.mocked(gateway.request).mockImplementation((method, params, timeout) => method === 'subagent.list' ? Promise.resolve({ subagents: [{ subagent_id: 'working', delegation_id: 'batch', status: 'running', goal: 'Working child' }] }) : ordinary(method, params, timeout))
+    await chat.open('a', 'work')
+    await vi.waitFor(() => expect(state.tasks.find(task => task.key === 'missing')?.status).toBe('unknown'))
+    const cards = () => conversationTimeline(state.messages, state.tasks, false).flatMap(item => item.kind === 'tasks' ? item.tasks : [])
+    expect(cards().map(task => task.key)).toEqual(['missing', 'failed', 'success'])
+    expect(cards().find(task => task.key === 'success')?.summary).toBe('Unique successful sibling result')
+    expect(state.tasks.find(task => task.key === 'success')?.completedAfter?.key).toBe('observed')
+    expect(state.tasks.find(task => task.key === 'missing')?.completedAfter).toBeNull()
+    expect(state.tasks.find(task => task.key === 'working')?.status).toBe('running')
+    await chat.open('b', 'work')
+    vi.mocked(api.history).mockResolvedValueOnce({ ...history('a'), messages: [warning, final, { id: 5, role: 'assistant', content: 'Latest unrelated reply' }] })
+    await chat.open('a', 'work')
+    expect(cards().map(task => task.key)).toEqual(['failed', 'success', 'missing'])
+    expect(cards().find(task => task.key === 'success')?.summary).toBe('Unique successful sibling result')
+    expect(state.tasks.filter(task => task.status !== 'running').map(task => task.completedAfter?.key)).toEqual(['row-4', 'row-4', 'row-4'])
+    expect(state.tasks.find(task => task.key === 'missing')?.status).toBe('unknown')
+    expect(state.tasks.find(task => task.key === 'working')?.status).toBe('running')
+    chat.dispose()
+    const cold = setup('a')
+    vi.mocked(cold.api.history).mockResolvedValue({ ...history('a'), messages: [warning, final] })
+    await cold.chat.start('work')
+    expect(cold.state.tasks).toEqual([])
+    expect(conversationTimeline(cold.state.messages, cold.state.tasks, false).map(item => item.key)).toEqual(['row-2', 'row-4'])
+    cold.chat.dispose()
+  })
+
+  it('keeps cold terminal roster cards unanchored until pagination discovers their notices during streaming', async () => {
+    const { state, api, gateway, chat } = setup('a')
+    const latest: HistoryPage = { ...history('a'), pagination: { returned: 2, offset: 0, limit: 2 }, messages: [
+      { id: 5, role: 'user', content: 'Unrelated latest question' },
+      { id: 6, role: 'assistant', content: 'Latest reply' },
+    ] }
+    vi.mocked(api.history).mockImplementation(async (id, profile, offset) => offset ? { ...history(id), pagination: { returned: 4, offset: 2, limit: 50 }, messages: [
+      { id: 1, role: 'user', content: 'Old question' },
+      { id: 2, role: 'system', content: '[ASYNC DELEGATION COMPLETE — batch-a]\n--- RESULT ---\nSaved A results', display_kind: 'async_delegation_complete', display_metadata: { delegation_id: 'batch-a', completed_count: 1 } },
+      { id: 3, role: 'assistant', content: 'Reply between batches' },
+      { id: 4, role: 'user', content: '[ASYNC DELEGATION COMPLETE — batch-b]\n--- RESULT ---\nSaved B results', display_kind: 'async_delegation_complete', display_metadata: { delegation_id: 'batch-b', completed_count: 1 } },
+    ] } : latest)
+    const ordinary = vi.mocked(gateway.request).getMockImplementation()!
+    vi.mocked(gateway.request).mockImplementation((method, params, timeout) => method === 'subagent.list' ? Promise.resolve({ subagents: [
+      { subagent_id: 'child-a', delegation_id: 'batch-a', status: 'completed' },
+      { subagent_id: 'child-b', delegation_id: 'batch-b', status: 'failed' },
+    ] }) : ordinary(method, params, timeout))
+    await chat.start('work')
+    await vi.waitFor(() => expect(state.tasks).toHaveLength(2))
+    expect(state.tasks.map(task => task.completedAfter)).toEqual([null, null])
+    expect(conversationTimeline(state.messages, state.tasks, false)[0]?.kind).toBe('tasks')
+    gateway.onEvent({ type: 'message.start', session_id: 'runtime-a', seq: 1 })
+    gateway.onEvent({ type: 'message.delta', session_id: 'runtime-a', seq: 2, payload: { text: 'Streaming ' } })
+    const assistant = state.messages.at(-1)!
+    await chat.older()
+    gateway.onEvent({ type: 'message.delta', session_id: 'runtime-a', seq: 3, payload: { text: 'continued' } })
+    expect(state.messages.at(-1)).toBe(assistant)
+    expect(assistant.text).toBe('Streaming continued')
+    expect(state.tasks.map(task => task.completedAfter?.key)).toEqual(['row-2', 'row-4'])
+    expect(conversationTimeline(state.messages, state.tasks, true).map(item => item.key)).toEqual(['row-1', 'row-2', 'row-3', 'row-4', 'row-5', 'row-6'])
+    expect(state.tasksBySession.get(JSON.stringify(['work', 'a']))?.map(task => task.completedAfter?.key)).toEqual(['row-2', 'row-4'])
+    chat.dispose()
+  })
+
+  it('repairs already misplaced terminal cache cards before an unavailable roster can settle', async () => {
+    const { state, api, gateway, chat } = setup('a')
+    await chat.start('work')
+    state.tasks = ['a', 'b'].map(id => ({ key: `child-${id}`, delegationId: `batch-${id}`, goal: `Task ${id}`, status: 'completed', completedAfter: { key: 'row-5', role: 'assistant', text: 'Latest unrelated reply' } }))
+    await chat.open('b', 'work')
+    vi.mocked(api.history).mockResolvedValueOnce({ ...history('a'), messages: [
+      { id: 1, role: 'user', content: 'Question' },
+      { id: 2, role: 'system', content: '[ASYNC DELEGATION COMPLETE — batch-a]\n--- RESULT ---\nSaved A', display_kind: 'async_delegation_complete', display_metadata: { delegation_id: 'batch-a' } },
+      { id: 3, role: 'assistant', content: 'Interspersed reply' },
+      { id: 4, role: 'system', content: '[ASYNC DELEGATION COMPLETE — batch-b]\n--- RESULT ---\nSaved B', display_kind: 'async_delegation_complete', display_metadata: { delegation_id: 'batch-b' } },
+      { id: 5, role: 'assistant', content: 'Latest unrelated reply' },
+    ] })
+    const ordinary = vi.mocked(gateway.request).getMockImplementation()!
+    vi.mocked(gateway.request).mockImplementation((method, params, timeout) => method === 'subagent.list' ? Promise.reject(new RpcError(-32601, 'Unavailable')) : ordinary(method, params, timeout))
+    await chat.open('a', 'work')
+    expect(state.tasks.map(task => task.completedAfter?.key)).toEqual(['row-2', 'row-4'])
+    expect(conversationTimeline(state.messages, state.tasks, false).filter(item => item.kind === 'tasks')).toEqual([])
+    chat.dispose()
+  })
+
   it('anchors a cached orphan during history recovery even when the roster is unavailable', async () => {
     const { state, api, gateway, chat } = setup('a')
     await chat.start('work')
@@ -891,7 +1060,7 @@ describe('chat recovery and session ownership', () => {
     await chat.open('b', 'work')
     vi.mocked(api.history).mockResolvedValueOnce({ ...history('a'), messages: [
       { id: 1, role: 'user', content: 'question-a' },
-      { id: 2, role: 'system', content: 'Restart failure', display_kind: 'async_delegation_complete', display_metadata: { delegation_id: 'batch', task_count: 1, failed_count: 1 } },
+      { id: 2, role: 'system', content: '[ASYNC DELEGATION COMPLETE — batch]\nRestart failure', display_kind: 'async_delegation_complete', display_metadata: { delegation_id: 'batch', task_count: 1, failed_count: 1 } },
       { id: 3, role: 'user', content: 'Later question' },
     ] })
     const ordinary = vi.mocked(gateway.request).getMockImplementation()!

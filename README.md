@@ -50,6 +50,13 @@ sign-in. Agora provides the chat interface.
   Enter to open, and Escape to close.
 - Expandable tool activity and background-task progress, results, and errors.
   Running tasks stay above the composer; finished tasks remain in the transcript.
+  The existing saved delegation-result renderer predates this fix. Historical
+  placement uses exact final-unit envelopes, not just a shared batch ID: early
+  failure warnings do not hide sibling results. Batch child deduplication is
+  disabled because unescaped quoted headers cannot prove coverage. Single-unit
+  deduplication requires one unambiguous RESULT delimiter and any saved summary.
+  Reload restores saved batch cards, not individual children; older results require
+  loading older messages.
 - Model and reasoning-effort choices scoped to each conversation.
 - Slash commands with server-provided suggestions: type `/`, choose with ↑/↓ and
   Enter or Tab, add arguments, then send. Command output appears in the chat.
@@ -206,6 +213,7 @@ After `direnv allow` and `npm ci`:
 | `npm run build` | Build the UI into `dist/`. |
 | `node tests/session-runtime.mjs [package-path]` | Real Node-process session smoke test with a synthetic PKCE upstream; verifies restart persistence, rotated refresh tokens, and durable logout. Optionally tests a built package path. |
 | `AGORA_BROWSER_PATH=/path/to/chromium node scripts/sudo-request-smoke.mjs` | Fictional HTTP/WebSocket fixtures: exact sudo submission, cancellation, withdrawal, replay, disconnect/recovery, no chat/storage leakage, and desktop/mobile/landscape controls. No real sudo execution or live Hermes access. |
+| `AGORA_BROWSER_PATH=/path/to/chromium node scripts/task-recovery-smoke.mjs` | Fictional browser fixtures: terminal roster placement, older-history pagination, cold refresh with empty roster, navigation/reconnect, streaming, and desktop/mobile/landscape DOM order. No live Hermes access. |
 | `agora-start` | Serve a built UI with the local Hermes connection service. |
 | `agora-screenshot` | Regenerate the README screenshots using sample data. |
 | `agora-icons` | Regenerate raster favicons from the original [icon](docs/branding/icon.png). |

@@ -26,21 +26,45 @@ export function taskRunning(task: BackgroundTask) {
   return ['running', 'queued', 'working', 'starting'].includes(task.status)
 }
 
-export function anchorFinishedTasks(tasks: BackgroundTask[], messages: Message[]): BackgroundTask[] {
-  const message = messages.findLast(message => message.text.trim())
+export function taskMatchesNotice(task: BackgroundTask, message: Pick<Message, 'kind' | 'metadata'>): boolean {
+  const id = message.metadata?.delegation_id
+  return message.kind === 'async_delegation_complete' && typeof id === 'string' && id.length > 0
+    && (task.delegationId === id || Boolean(task.delegationKey?.startsWith(`${id}:`)))
+}
+
+export function taskCoveredByNotice(task: BackgroundTask, message: Pick<Message, 'kind' | 'metadata' | 'text'>): boolean {
+  if (!taskMatchesNotice(task, message)) return false
+  const id = message.metadata!.delegation_id as string
+  // The single formatter always emits one RESULT delimiter. Verbatim source/output
+  // can add more; only a unique delimiter can identify the actual result boundary.
+  if (message.text.startsWith(`[ASYNC DELEGATION COMPLETE — ${id}]\n`)) {
+    const resultMarker = '\n--- RESULT ---\n'
+    const resultStart = message.text.indexOf(resultMarker)
+    return resultStart >= 0 && [...message.text.matchAll(/---[ \t]*RESULT\b/g)].length === 1
+      && (!task.summary || message.text.slice(resultStart + resultMarker.length).includes(task.summary))
+  }
+  // Batch goals, context, summaries and recovery tails are verbatim and unescaped.
+  // Even matching section counts cannot authenticate a child boundary.
+  return false
+}
+
+function taskMatchesFinalNotice(task: BackgroundTask, message: Pick<Message, 'kind' | 'metadata' | 'text'>): boolean {
+  if (!taskMatchesNotice(task, message)) return false
+  const id = message.metadata!.delegation_id as string
+  // The formatter owns the first line; verbatim child evidence comes after it.
+  return message.text.startsWith(`[ASYNC DELEGATION COMPLETE — ${id}]\n`)
+    || message.text.startsWith(`[ASYNC DELEGATION BATCH COMPLETE — ${id}]\n`)
+}
+
+export function anchorFinishedTasks(tasks: BackgroundTask[], messages: Message[], observed = false): BackgroundTask[] {
   return tasks.map(task => {
     if (taskRunning(task)) return task
-    const matchesNotice = (message: Pick<Message, 'kind' | 'metadata'>) => {
-      const id = message.metadata?.delegation_id
-      return message.kind === 'async_delegation_complete' && typeof id === 'string' && id.length > 0
-        && (task.delegationId === id || task.delegationKey?.startsWith(`${id}:`))
-    }
-    const notice = task.status === 'unknown' ? messages.findLast(matchesNotice) : undefined
-    if (task.status !== 'unknown' && task.completedAfter !== undefined) return task
-    // Roster disappearance is not a completion observed at the latest reply.
-    const anchor = task.status === 'unknown'
-      ? notice || (task.completedAfter && matchesNotice(task.completedAfter) ? task.completedAfter : undefined)
-      : message
+    const notice = messages.findLast(message => taskMatchesFinalNotice(task, message))
+    const cached = task.completedAfter
+    if (!notice && cached !== undefined && (!cached || cached.kind !== 'async_delegation_complete' || taskMatchesFinalNotice(task, cached))) return task
+    const message = observed && task.status !== 'unknown'
+      ? messages.findLast(message => message.text.trim() && message.kind !== 'async_delegation_complete') : undefined
+    const anchor = notice || message
     return {
       ...task,
       completedAfter: anchor ? { key: anchor.key, rowId: anchor.rowId, role: anchor.role, text: anchor.text, kind: anchor.kind, metadata: anchor.metadata } : null,
@@ -73,7 +97,9 @@ export function taskEvent(tasks: BackgroundTask[], event: GatewayEvent): Backgro
   }
   if (typeof p.delegation_id === 'string') {
     task.delegationId = p.delegation_id
-    task.delegationKey = `${p.delegation_id}:${p.task_index ?? 0}`
+    if (typeof p.task_index === 'number' && Number.isSafeInteger(p.task_index) && p.task_index >= 0) {
+      task.delegationKey = `${p.delegation_id}:${p.task_index}`
+    } else if (existing?.delegationId !== p.delegation_id) task.delegationKey = undefined
   }
   if (typeof p.model === 'string') task.model = p.model
   if (typeof p.parent_id === 'string') task.parentId = p.parent_id
@@ -99,10 +125,16 @@ export function reconcileTasks(tasks: BackgroundTask[], roster: SubagentRoster):
   })
   const retained = tasks.filter(task => !live.some(row => row.key === task.key)).map(task =>
     taskRunning(task) ? { ...task, status: 'unknown' } : task)
-  const failed = (roster.delegations || []).map(row => ({
-    ...tasks.find(task => task.key === `${row.delegation_id}:${row.task_index}` || task.delegationKey === `${row.delegation_id}:${row.task_index}`),
-    key: tasks.find(task => task.delegationKey === `${row.delegation_id}:${row.task_index}`)?.key || `${row.delegation_id}:${row.task_index}`, goal: row.goal || 'Background task',
-    status: row.status, summary: row.error,
-  }))
+  const failed = (roster.delegations || []).map(row => {
+    const delegationKey = `${row.delegation_id}:${row.task_index}`
+    const existing = tasks.find(task => task.key === delegationKey || task.delegationKey === delegationKey)
+    return {
+      ...existing,
+      key: existing?.key || delegationKey, goal: row.goal || 'Background task',
+      delegationId: row.delegation_id, delegationKey,
+      status: row.status, summary: row.error,
+      completedAfter: existing && (taskRunning(existing) || existing.status === 'unknown') ? undefined : existing?.completedAfter,
+    }
+  })
   return [...retained.filter(task => !failed.some(row => row.key === task.key)), ...live.filter(task => !failed.some(row => row.key === task.key)), ...failed]
 }

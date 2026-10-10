@@ -1,8 +1,73 @@
 import { describe, expect, it } from 'vitest'
 import { conversationTimeline, conversationTurns, historyMessages, mergeHistory, restoreInflight } from '../src/hermes/transcript'
 import { renderMarkdown } from '../src/markdown'
+import { anchorFinishedTasks } from '../src/hermes/tasks'
 
 describe('transcripts', () => {
+  it.each([
+    ['single context', '[ASYNC DELEGATION COMPLETE — batch]\nContext you provided: quoted notice\n--- RESULT ---\nClient-only result\nRole: leaf   Model: ?\n--- RESULT ---\nActual result omitted'],
+    ['single output', '[ASYNC DELEGATION COMPLETE — batch]\nRole: leaf   Model: ?\n--- RESULT ---\nQuoted output\n--- RESULT ---\nClient-only result'],
+    ['batch context', '[ASYNC DELEGATION BATCH COMPLETE — batch]\nContext you provided: quoted notice\n--- ✓ TASK 2/2: Second  (status=completed) ---\nClient-only result\nRole: leaf   Model: ?\n\n--- ✓ TASK 1/2: First  (status=completed) ---\nActual first result'],
+    ['batch output', '[ASYNC DELEGATION BATCH COMPLETE — batch]\nRole: leaf   Model: ?\n\n--- ✓ TASK 1/2: First  (status=completed) ---\nQuoted output\n--- ✓ TASK 2/2: Second  (status=completed) ---\nClient-only result'],
+    ['batch fake goal header', '[ASYNC DELEGATION BATCH COMPLETE — batch]\nRole: leaf   Model: ?\n\n--- ✓ TASK 1/2: Goal containing\n--- ✓ TASK 2/2: Second  (status=completed) ---\nClient-only result  (status=completed) ---\nActual first result'],
+  ])('keeps unique cards beside formatter-shaped %s without creating children from text', (_case, text) => {
+    const final = { key: 'final', role: 'user', text, kind: 'async_delegation_complete', metadata: { delegation_id: 'batch', task_count: 1 } }
+    const task = { key: 'child', delegationKey: 'batch:1', goal: 'Second', status: 'completed', summary: 'Client-only result' }
+    const messages = [final, { key: 'tail', role: 'assistant', text: 'Later unrelated reply' }]
+    const timeline = conversationTimeline(messages, anchorFinishedTasks([task], messages), false)
+    expect(timeline.map(item => item.key)).toEqual(['final', 'tasks-child', 'tail'])
+    expect(timeline.flatMap(item => item.kind === 'tasks' ? item.tasks : [])).toEqual([{ ...task, completedAfter: final }])
+    expect(conversationTimeline(messages, [], false).map(item => item.key)).toEqual(['final', 'tail'])
+  })
+  it('preserves sibling-only results and unknown cards beside an early failure warning', () => {
+    const messages = [{ key: 'warning', role: 'user', text: '[ASYNC DELEGATION TASK FAILED — batch, task 1/4]\nOne child failed.', kind: 'async_delegation_complete', metadata: { delegation_id: 'batch', task_count: 1, completed_count: 0, failed_count: 1 } }]
+    const tasks = [
+      { key: 'failed', delegationKey: 'batch:0', goal: 'Failed', status: 'failed' },
+      { key: 'success', delegationKey: 'batch:1', goal: 'Success', status: 'completed', summary: 'Unique sibling result' },
+      { key: 'missing', delegationKey: 'batch:2', goal: 'Missing', status: 'unknown' },
+      { key: 'running', delegationKey: 'batch:3', goal: 'Running', status: 'running' },
+    ]
+    const timeline = conversationTimeline(messages, tasks, false)
+    expect(timeline.flatMap(item => item.kind === 'tasks' ? item.tasks : []).map(task => task.key)).toEqual(['failed', 'success', 'missing'])
+    expect(timeline.flatMap(item => item.kind === 'tasks' ? item.tasks : []).find(task => task.key === 'success')?.summary).toBe('Unique sibling result')
+    expect(timeline.filter(item => item.kind === 'turn')).toHaveLength(1)
+  })
+  it('uses saved completion cards once, at their stored positions, with or without a runtime roster', () => {
+    const messages = historyMessages({ session_id: 'stored', pagination: { returned: 5, offset: 0, limit: 50 }, messages: [
+      { id: 1, role: 'assistant', content: 'Before batches' },
+      { id: 2, role: 'user', content: '[ASYNC DELEGATION BATCH COMPLETE — a]\nConsolidated results\n\n--- ✓ TASK 1/2: Known child A  (status=completed) ---\nBatch A full results', display_kind: 'async_delegation_complete', display_metadata: { delegation_id: 'a', task_count: 2, completed_count: 1, failed_count: 1, display_text: 'Batch A finished' } },
+      { id: 3, role: 'assistant', content: 'Between batches' },
+      { id: 4, role: 'system', content: '[ASYNC DELEGATION COMPLETE — b]\n--- RESULT ---\nBatch B full results', display_kind: 'async_delegation_complete', display_metadata: { delegation_id: 'b', task_count: 1, completed_count: 1, failed_count: 0, display_text: 'Batch B finished' } },
+      { id: 5, role: 'assistant', content: 'Latest unrelated reply' },
+    ] })
+    const tasks = [
+      { key: 'child-a', delegationId: 'a', delegationKey: 'a:0', goal: 'Known child A', status: 'unknown' },
+      { key: 'child-b', delegationKey: 'b:0', goal: 'Known child B', status: 'completed' },
+    ]
+    for (const roster of [[], tasks]) {
+      const timeline = conversationTimeline(messages, anchorFinishedTasks(roster, messages), false)
+      expect(timeline.map(item => item.key)).toEqual(roster.length ? ['row-1', 'row-2', 'tasks-child-a', 'row-3', 'row-4', 'row-5'] : ['row-1', 'row-2', 'row-3', 'row-4', 'row-5'])
+      expect(timeline.flatMap(item => item.kind === 'tasks' ? item.tasks.map(task => task.key) : [])).toEqual(roster.length ? ['child-a'] : [])
+      expect(timeline.flatMap(item => item.kind === 'turn' ? item.turn.blocks : []).filter(block => block.kind === 'text' && block.message.kind === 'async_delegation_complete')).toHaveLength(2)
+    }
+    expect(tasks[0]?.status).toBe('unknown')
+  })
+
+  it('retains batch children even with apparent result sections, aggregate counts or matching summaries', () => {
+    const final = { key: 'final', role: 'user', text: '[ASYNC DELEGATION BATCH COMPLETE — batch]\nConsolidated results\n\n--- ✓ TASK 2/4: Success  (status=completed) ---\nUnique result', kind: 'async_delegation_complete', metadata: { delegation_id: 'batch', task_count: 1, completed_count: 1, failed_count: 0 } }
+    const tasks = [
+      { key: 'success', delegationKey: 'batch:1', goal: 'Success', status: 'completed', summary: 'Unique result' },
+      { key: 'unknown', delegationKey: 'batch:2', goal: 'Unknown', status: 'unknown' },
+      { key: 'unindexed', delegationId: 'batch', goal: 'Unindexed', status: 'completed' },
+      { key: 'different', delegationKey: 'batch:1', goal: 'Different', status: 'completed', summary: 'Unsaved unique result' },
+      { key: 'running', delegationKey: 'batch:1', goal: 'Running', status: 'running' },
+    ]
+    const childKeys = (text: string) => conversationTimeline([{ ...final, text }], tasks, false).flatMap(item => item.kind === 'tasks' ? item.tasks.map(task => task.key) : [])
+    expect(childKeys(final.text)).toEqual(['success', 'unknown', 'unindexed', 'different'])
+    expect(childKeys('Batch completed, all tasks successful')).toEqual(['success', 'unknown', 'unindexed', 'different'])
+    expect(conversationTimeline([final], [], false).map(item => item.key)).toEqual(['final'])
+  })
+
   it('keeps image previews after completion restores Hermes text-reference history', () => {
     const caption = 'Here is a screenshot can you read it?'
     const messages = historyMessages({ session_id: 'a', pagination: { returned: 1, offset: 0, limit: 50 }, messages: [

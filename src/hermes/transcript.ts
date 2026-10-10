@@ -2,7 +2,7 @@ import { extractImageReferences } from './attachments'
 import { reasoningText } from './reasoning'
 import { imageSource } from './media'
 import type { HistoryPage, Message, Snapshot } from './types'
-import { taskRunning, type BackgroundTask } from './tasks'
+import { taskCoveredByNotice, taskRunning, type BackgroundTask } from './tasks'
 
 export function contentText(content: unknown): string {
   if (typeof content === 'string') return content
@@ -70,6 +70,9 @@ export type ConversationItem =
 export function conversationTimeline(messages: Message[], tasks: BackgroundTask[], running: boolean): ConversationItem[] {
   const finished = new Map<number, BackgroundTask[]>()
   for (const task of tasks.filter(task => !taskRunning(task))) {
+    // Only unambiguous saved result coverage replaces a client card; a matching
+    // final batch envelope establishes placement, not individual coverage.
+    if (messages.some(message => taskCoveredByNotice(task, message))) continue
     const anchor = task.completedAfter
     let index = -1
     if (anchor) {
