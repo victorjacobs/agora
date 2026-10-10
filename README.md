@@ -56,6 +56,12 @@ sign-in. Agora provides the chat interface.
 - Command approval cards with readable command text, **Allow once**, and **Reject**.
   Remembered approvals appear only when Hermes offers them. Clarification questions
   can be answered directly in chat.
+- Terminal sudo password cards show the command redacted by Hermes and offer
+  masked input, **Submit**, and **Cancel**. Passwords go only through Hermes's
+  request-response channel, never chat or browser storage; spaces are preserved.
+  Inputs clear on submission, cancellation, withdrawal, replacement, or disconnect.
+  Hermes owns the 120-second prompt timeout. Requires its terminal `sudo` request
+  hook; dashboard installer sudo prompts and generic secret requests remain unsupported.
 - Masked browser-login prompts for saving a website login, unlocking a password
   manager, and entering a verification/2FA code. Values go through Hermes's input
   request channel, not chat messages; Agora does not save them in browser storage.
@@ -199,6 +205,7 @@ After `direnv allow` and `npm ci`:
 | `npm test` | Run the Vitest suite. |
 | `npm run build` | Build the UI into `dist/`. |
 | `node tests/session-runtime.mjs [package-path]` | Real Node-process session smoke test with a synthetic PKCE upstream; verifies restart persistence, rotated refresh tokens, and durable logout. Optionally tests a built package path. |
+| `AGORA_BROWSER_PATH=/path/to/chromium node scripts/sudo-request-smoke.mjs` | Fictional HTTP/WebSocket fixtures: exact sudo submission, cancellation, withdrawal, replay, disconnect/recovery, no chat/storage leakage, and desktop/mobile/landscape controls. No real sudo execution or live Hermes access. |
 | `agora-start` | Serve a built UI with the local Hermes connection service. |
 | `agora-screenshot` | Regenerate the README screenshots using sample data. |
 | `agora-icons` | Regenerate raster favicons from the original [icon](docs/branding/icon.png). |

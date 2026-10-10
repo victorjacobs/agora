@@ -1,5 +1,32 @@
 # Implementation handoff
 
+## Terminal sudo password prompts
+
+The installed `tui_gateway/contracts/server_requests.py` registers terminal
+`sudo` with `SudoRequestParams` (`session_id`, optional `command` defaulting to
+an empty string) and `ValueResult`. `tui_gateway/agent_callbacks.py` supplies the
+original command redacted server-side and sets a 120-second `_ask` timeout.
+Agora renders that command as inert text; it does not reconstruct the unredacted
+command or execute sudo itself.
+
+Answer through the existing `request.answer` RPC with
+`{id, result: {value: <exact password>}, profile}`. Cancel with `{value: ""}`;
+do not trim passwords or add `session_id` to this request-ID-scoped RPC.
+The existing authenticated WebSocket and bridge forwarding need no new API.
+Passwords are transient masked form state only, never composer/transcript content
+or browser storage. Both model and DOM input clear before answering and on
+disable, request replacement, and unmount (including server `request.cancel`).
+Duplicate form submission is blocked; stale answers cannot target a replacement
+request/profile/runtime, and sudo response errors do not display raw server text.
+Resume restores pending requests, never typed passwords; no automatic retry.
+
+Component/protocol tests and `scripts/sudo-request-smoke.mjs` use fictional inputs.
+The browser fixture checks exact response JSON, cancellation, expiry notification,
+request replay, disconnect/recovery, storage/history isolation, and three viewport
+sizes. No real sudo execution or authenticated live acceptance was performed.
+`display.install.sudo`, generic `secret`, and vault-management features are not
+part of terminal sudo support and remain unsupported where previously unsupported.
+
 ## Browser credential prompts
 
 Verified against the installed Hermes revision
