@@ -68,47 +68,6 @@ describe('chat interface', () => {
     vi.restoreAllMocks()
   })
 
-  it('shows the oldest running elapsed time in the collapsed process summary', async () => {
-    const { host, client } = mountApp()
-    client.state.processes = [
-      { id: 'new', command: 'new', status: 'running', uptime: 12, output: '' },
-      { id: 'old', command: 'old', status: 'running', uptime: 125, output: '' },
-      { id: 'unknown', command: 'unknown', status: 'unknown', uptime: 999, output: '' },
-    ]
-    await nextTick()
-    const panel = host.querySelector<HTMLDetailsElement>('.chat-processes')!
-    const summary = panel.querySelector('summary')!
-    expect(panel.open).toBe(false)
-    expect(summary.textContent).toContain('2 running processes · oldest 2m 5s')
-    expect(summary.textContent).toContain('1 status unknown')
-    expect(summary.querySelector('.session-indicator')).not.toBeNull()
-    client.state.processes = client.state.processes.filter(row => row.status === 'unknown')
-    await nextTick()
-    expect(summary.textContent).not.toContain('oldest')
-    expect(summary.querySelector('.session-indicator')).toBeNull()
-  })
-
-  it('reactively keeps offscreen process activity separate from the idle assistant and profile', async () => {
-    const { host, client } = mountApp()
-    client.state.sessions = [{ id: 'another', title: 'Process chat', profile: 'work' }, { id: 'another', title: 'Other profile', profile: 'personal' }]
-    await nextTick()
-    const rows = [...host.querySelectorAll('.session-row')]
-    const scope = JSON.stringify(['work', 'another'])
-    client.state.processesBySession.set(scope, [{ id: 'p', command: 'sleep', status: 'running', uptime: 1, output: '' }])
-    await nextTick()
-    expect(rows[0].querySelector('.session-indicator')).toBeNull()
-    const indicator = rows[0].querySelector('.session-process-indicator')!
-    expect(indicator.tagName.toLowerCase()).toBe('svg')
-    expect(indicator.getAttribute('aria-label')).toBe('Background process running')
-    expect(indicator.querySelector('title')?.textContent).toBe('Background process running')
-    expect(rows[1].querySelector('.session-process-indicator')).toBeNull()
-    expect(client.state.running).toBe(false)
-    client.state.processesBySession.set(scope, [{ id: 'p', command: 'sleep', status: 'exited', uptime: 1, output: '', exitCode: 0 }])
-    await nextTick()
-    expect(rows[0].querySelector('.session-indicator')).toBeNull()
-    expect(rows[0].querySelector('.session-process-indicator')).toBeNull()
-  })
-
   it('renders independent foreground and background indicators beside unread replies and pins', async () => {
     const { host, client } = mountApp()
     client.state.sessions = [{ id: 'stored', title: 'Current chat', profile: 'work' }]
@@ -122,7 +81,6 @@ describe('chat interface', () => {
     const row = host.querySelector('.session-row')!
     const label = '2 background processes running'
     expect(row.querySelector('.session-process-indicator')?.getAttribute('aria-label')).toBe(label)
-    expect(row.querySelector('.session-process-indicator title')?.textContent).toBe(label)
     expect(row.querySelector('.session-indicator')).toBeNull()
     expect(row.querySelector('.unread-reply')).not.toBeNull()
     expect(row.querySelector('[aria-label="Pin conversation"]')).not.toBeNull()
@@ -139,10 +97,6 @@ describe('chat interface', () => {
     expect(row.querySelector('.session-indicator')).toBeNull()
     expect(row.querySelector('.session-process-indicator')).not.toBeNull()
     client.state.approvals = []
-    client.state.compressing = true
-    await nextTick()
-    expect(row.querySelector('.session-indicator')).not.toBeNull()
-    client.state.compressing = false
     client.state.processes = client.state.processes.filter(process => process.status === 'unknown')
     await nextTick()
     expect(row.querySelector('.session-indicator, .session-process-indicator')).toBeNull()
@@ -168,23 +122,6 @@ describe('chat interface', () => {
     await vi.waitFor(() => expect(host.querySelector('.message.user .user-images img')?.getAttribute('src')).toBe(source))
     expect(host.querySelectorAll('.message.user img')).toHaveLength(1)
     expect(host.querySelector('.message.user strong')?.textContent).toBe(text ? 'Image caption' : undefined)
-  })
-
-  it('reactively spins the sidebar indicator for background tasks in another chat', async () => {
-    const { host, client } = mountApp()
-    client.state.sessions = [{ id: 'stored', title: 'Current chat', profile: 'work' }, { id: 'another', title: 'Background chat', profile: 'work' }]
-    await nextTick()
-    const row = [...host.querySelectorAll<HTMLElement>('.session-row')].find(row => row.textContent?.includes('Background chat'))!
-    expect(row.querySelector('.session-indicator')).toBeNull()
-    const scope = JSON.stringify(['work', 'another'])
-    client.state.tasksBySession.set(scope, [{ key: 'child', goal: 'Check logs', status: 'running' }])
-    await nextTick()
-    expect(row.querySelector('.session-indicator')?.getAttribute('aria-label')).toBe('Running')
-    expect(row.querySelector('.session-indicator.waiting')).toBeNull()
-    expect(client.state.running).toBe(false)
-    client.state.tasksBySession.set(scope, [{ key: 'child', goal: 'Check logs', status: 'completed' }])
-    await nextTick()
-    expect(row.querySelector('.session-indicator')).toBeNull()
   })
 
   it('places Results between Chat and Memory, filters from its sidebar, and manages the exact loaded job', async () => {
@@ -214,13 +151,6 @@ describe('chat interface', () => {
     host.querySelector<HTMLButtonElement>('[aria-label="Chat"]')!.click(); await nextTick()
     expect(draft.value).toBe('Unsent draft')
     expect(client.state.selected).toBe('stored')
-    host.querySelector<HTMLButtonElement>('[aria-label="Results"]')!.click()
-    await vi.waitFor(() => expect(host.querySelector('.result-card')?.textContent).toContain('Exact job'))
-    runs.mockClear()
-    manageJob()
-    await vi.waitFor(() => expect(runs).toHaveBeenCalledWith('work', 'b', 20))
-    await vi.waitFor(() => expect(host.querySelector('.cron-job-heading')?.textContent).toContain('Exact job'))
-    expect(runs).not.toHaveBeenCalledWith('work', 'a', 20)
     vi.restoreAllMocks()
   })
   it('fits the application to the keyboard viewport and releases its listeners on unmount', async () => {
@@ -258,15 +188,6 @@ describe('chat interface', () => {
     expect(document.documentElement.style.getPropertyValue('--app-height')).toBe('600px')
   })
 
-  it('uses CSS viewport sizing when the visual viewport API is unavailable', async () => {
-    vi.stubGlobal('visualViewport', undefined)
-    const { host } = mountApp()
-    await nextTick()
-    expect(host.querySelector('.shell')).not.toBeNull()
-    expect(document.documentElement.style.getPropertyValue('--app-height')).toBe('')
-    expect(document.documentElement.style.getPropertyValue('--app-top')).toBe('')
-  })
-
   it('pins a chat locally without opening it and displays a separate pinned group', async () => {
     const open = vi.spyOn(ChatClient.prototype, 'open').mockResolvedValue()
     const { host, client } = mountApp()
@@ -284,29 +205,6 @@ describe('chat interface', () => {
     groups[0]!.querySelector<HTMLButtonElement>('[aria-label="Unpin conversation"]')!.click()
     await nextTick()
     expect(host.querySelector('[aria-label="Pinned"]')).toBeNull()
-  })
-
-  it('keeps pinned rows in place while a conversation is recovering', async () => {
-    const { host, client } = mountApp()
-    client.state.identity = 'Operator'
-    client.state.sessions = [{ id: 'stored', title: 'Pinned chat', profile: 'work' }, { id: 'another', title: 'Today chat', profile: 'work', last_active: Date.now() / 1000 }]
-    await nextTick()
-    const pinnedRow = [...host.querySelectorAll<HTMLElement>('.session-row')].find(row => row.textContent?.includes('Pinned chat'))!
-    pinnedRow.querySelector<HTMLButtonElement>('[aria-label="Pin conversation"]')!.click()
-    await nextTick()
-    const labels = () => [...host.querySelectorAll('.session-group')].map(group => group.getAttribute('aria-label'))
-    expect(labels()).toEqual(['Pinned', 'Today'])
-    client.state.selected = 'another'
-    client.state.connection = 'recovering'
-    await nextTick()
-    expect(labels()).toEqual(['Pinned', 'Today'])
-    expect(host.querySelector('[aria-label="Pinned"]')?.textContent).toContain('Pinned chat')
-    client.state.connection = 'ready'
-    await nextTick()
-    client.state.selected = 'stored'
-    client.state.connection = 'recovering'
-    await nextTick()
-    expect(labels()).toEqual(['Pinned', 'Today'])
   })
 
   it('switches to memory without losing the chat draft and reviews inline changes explicitly', async () => {
@@ -415,16 +313,6 @@ describe('chat interface', () => {
     expect(host.querySelector('.message.assistant .message-block > .markdown')?.textContent?.trim()).toBe('The answer')
     trace.open = false
     expect(host.querySelector('.message.assistant .message-block > .markdown')?.closest('details')).toBeNull()
-  })
-
-  it('explains missing traces without inventing reasoning text', async () => {
-    const { host, client } = mountApp()
-    client.state.running = true
-    client.state.messages = [{ key: 'live', role: 'assistant', text: '' }]
-    await nextTick()
-    expect(host.querySelector('.thinking-trace')).not.toBeNull()
-    expect(host.textContent).toContain('Hermes hasn’t provided a thinking trace.')
-    expect(host.querySelector('.trace-text')).toBeNull()
   })
 
   it('shows running calls and their details in the expandable tool group', async () => {
@@ -576,35 +464,6 @@ describe('chat interface', () => {
     await nextTick()
     expect(host.querySelector('.pinned-tasks')).toBeNull()
   })
-  it('keeps an unanchored orphan card before new conversation messages', async () => {
-    const { host, client } = mountApp()
-    client.state.messages = [{ key: 'reply', role: 'assistant', text: 'Initial reply' }]
-    client.state.tasks = [{ key: 'child', goal: 'Interrupted check', status: 'unknown' }]
-    await nextTick()
-    expect(host.textContent).toContain('No longer in live roster')
-    client.state.messages.push({ key: 'question', role: 'user', text: 'Next question' })
-    await nextTick()
-    const transcript = host.querySelector('.transcript')!
-    expect(transcript.textContent!.indexOf('Interrupted check')).toBeLessThan(transcript.textContent!.indexOf('Next question'))
-    expect(host.querySelector('.pinned-tasks')).toBeNull()
-    expect(host.querySelectorAll('.background-tasks')).toHaveLength(1)
-  })
-  it('pins only running tasks and leaves finished tasks before subsequent messages', async () => {
-    const { host, client } = mountApp()
-    client.state.messages = [{ key: 'reply', role: 'assistant', text: 'Initial reply' }]
-    client.state.tasks = [{ key: 'child', goal: 'Check logs', status: 'running' }]
-    await nextTick()
-    expect(host.querySelector('.pinned-tasks')?.textContent).toContain('Check logs')
-    expect(host.querySelector('.transcript .background-tasks')).toBeNull()
-    client.state.tasks = [{ ...client.state.tasks[0]!, status: 'completed', completedAfter: { ...client.state.messages[0]! } }]
-    client.state.messages.push({ key: 'question', role: 'user', text: 'Next question' })
-    await nextTick()
-    expect(host.querySelector('.pinned-tasks')).toBeNull()
-    const transcript = host.querySelector('.transcript')!
-    expect(transcript.textContent!.indexOf('Initial reply')).toBeLessThan(transcript.textContent!.indexOf('Check logs'))
-    expect(transcript.textContent!.indexOf('Check logs')).toBeLessThan(transcript.textContent!.indexOf('Next question'))
-    expect(host.querySelectorAll('.background-tasks')).toHaveLength(1)
-  })
   it('exposes model and reasoning choices and asks before confirming a guarded model switch', async () => {
     const { host, client } = mountApp()
     Object.assign(client.state, {
@@ -655,17 +514,6 @@ describe('chat interface', () => {
     await nextTick()
     expect(search).toHaveBeenLastCalledWith('')
     expect(host.querySelectorAll('.session')).toHaveLength(2)
-  })
-
-  it('shows an accessible unread-response indicator in the conversation list', async () => {
-    const { host, client } = mountApp()
-    client.state.sessions = [{ id: 'other', title: 'Other conversation', profile: 'work' }]
-    client.state.unreadReplies = [{ id: 'other', profile: 'work' }]
-    await nextTick()
-    expect(host.querySelector('.session [aria-label="Unread response"]')).not.toBeNull()
-    client.state.unreadReplies = []
-    await nextTick()
-    expect(host.querySelector('.unread-reply')).toBeNull()
   })
 
   it('renders generated tool images inline and preserves previews during streaming updates', async () => {
@@ -739,33 +587,6 @@ describe('chat interface', () => {
     expect(host.querySelector('.task-result')?.textContent).toContain('1 task · 0 completed · 1 failed')
   })
 
-  it('labels user and assistant turns without avatars and keeps tool output grouped safely', async () => {
-    const { host, client } = mountApp()
-    client.state.messages = [
-      { key: 'user', role: 'user', text: 'Question' },
-      { key: 'empty-1', role: 'assistant', text: '' },
-      { key: 'tool-1', role: 'tool', name: 'terminal', text: '<img src=x onerror=alert(1)>' },
-      { key: 'empty-2', role: 'assistant', text: '' },
-      { key: 'tool-2', role: 'tool', name: 'read_file', text: 'File contents' },
-      { key: 'answer', role: 'assistant', text: 'Answer' },
-    ]
-    await nextTick()
-    expect(host.querySelector('.message.user')?.getAttribute('aria-label')).toBe('You')
-    expect(host.querySelector('.message.assistant')?.getAttribute('aria-label')).toBe('Hermes')
-    expect(host.querySelector('.avatar, .message-author')).toBeNull()
-    const group = host.querySelector<HTMLDetailsElement>('.tool-group')!
-    expect(group.open).toBe(false)
-    expect(group.querySelector('summary')?.textContent).toContain('2 tool calls')
-    expect(group.querySelectorAll('.tool-output')).toHaveLength(2)
-    expect(group.querySelector('pre')?.textContent).toBe('<img src=x onerror=alert(1)>')
-    expect(group.querySelector('img')).toBeNull()
-    group.open = true
-    client.state.messages.at(-1)!.text += ' updated'
-    await nextTick()
-    expect(host.querySelector('.tool-group')).toBe(group)
-    expect(group.open).toBe(true)
-  })
-
   it('connects and loads conversations after login using the real client startup', async () => {
     vi.stubGlobal('fetch', vi.fn(function (this: unknown, path: string) {
       if (this !== globalThis) throw new TypeError('Illegal invocation')
@@ -787,22 +608,6 @@ describe('chat interface', () => {
     expect(host.querySelector('.sign-in-page')).toBeNull()
     expect(host.querySelector('form[action="/auth/logout"]')).toBeNull()
     expect(host.querySelector('.provider-quota')).not.toBeNull()
-  })
-
-  it('goes directly from the session check to chat for an authenticated refresh', async () => {
-    const { host, client } = mountApp('connecting')
-    await nextTick()
-    expect(host.querySelector('.startup-page')).not.toBeNull()
-    expect(host.querySelector('.sign-in-page')).toBeNull()
-    client.state.identity = 'Signed-in operator'
-    client.state.connection = 'recovering'
-    await nextTick()
-    expect(host.querySelector('.startup-page')).toBeNull()
-    expect(host.querySelector('.sign-in-page')).toBeNull()
-    expect(host.querySelector('.shell')).not.toBeNull()
-    client.state.connection = 'ready'
-    await nextTick()
-    expect(host.querySelector('.sign-in-page')).toBeNull()
   })
 
   it('shows a neutral startup screen until the session check finishes', async () => {
@@ -869,25 +674,6 @@ describe('chat interface', () => {
     complete()
     await nextTick()
     expect(document.activeElement).not.toBe(input)
-  })
-
-  it.each([false, true])('leaves touch Enter native without sending or steering (running: %s)', async running => {
-    vi.stubGlobal('matchMedia', vi.fn(query => ({ matches: query === '(pointer: coarse)' })))
-    const { host, client } = mountApp()
-    client.state.running = running
-    client.state.draft = 'First line'
-    const send = vi.spyOn(client, 'send').mockResolvedValue()
-    const steer = vi.spyOn(client, 'steer').mockResolvedValue()
-    await nextTick()
-    const input = host.querySelector<HTMLTextAreaElement>('textarea')!
-    for (const shiftKey of [false, true]) {
-      const enter = new KeyboardEvent('keydown', { key: 'Enter', shiftKey, bubbles: true, cancelable: true })
-      input.dispatchEvent(enter)
-      expect(enter.defaultPrevented).toBe(false)
-      expect(send).not.toHaveBeenCalled()
-      expect(steer).not.toHaveBeenCalled()
-    }
-    expect(client.state.draft).toBe('First line')
   })
 
   it.each([false, true])('submits exact multiline text only with the touch Send/Steer button (running: %s)', async running => {

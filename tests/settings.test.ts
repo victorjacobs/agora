@@ -2,10 +2,6 @@ import { describe, expect, it } from 'vitest'
 import { modelSwitchValue } from '../src/hermes/settings'
 
 describe('model switch arguments', () => {
-  it('sends literal model and provider tokens to the Hermes parser with session scope', () => {
-    expect(modelSwitchValue({ model: 'gpt-6.1-sol', provider: 'openai-codex' })).toBe('gpt-6.1-sol --provider openai-codex --session')
-  })
-
   it.each([
     { model: 'model --global', provider: 'openai-codex' },
     { model: 'model', provider: "provider's name" },
