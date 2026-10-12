@@ -1,20 +1,10 @@
-import { afterAll, beforeAll, afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createApp, h, markRaw, nextTick, reactive } from 'vue'
+import { mockDialogs } from './helpers/dialog'
 import CronView from '../src/CronView.vue'
 import type { CronApi, CronJob } from '../src/hermes/cron'
 
-const modalDescriptor = Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, 'showModal')
-const closeDescriptor = Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, 'close')
-beforeAll(() => {
-  HTMLDialogElement.prototype.showModal = function () { this.open = true }
-  HTMLDialogElement.prototype.close = function () { this.open = false }
-})
-afterAll(() => {
-  if (modalDescriptor) Object.defineProperty(HTMLDialogElement.prototype, 'showModal', modalDescriptor)
-  else Reflect.deleteProperty(HTMLDialogElement.prototype, 'showModal')
-  if (closeDescriptor) Object.defineProperty(HTMLDialogElement.prototype, 'close', closeDescriptor)
-  else Reflect.deleteProperty(HTMLDialogElement.prototype, 'close')
-})
+mockDialogs()
 let cleanup = () => {}
 afterEach(() => { cleanup(); document.body.innerHTML = '' })
 function mount() {
@@ -77,9 +67,10 @@ describe('cron workspace', () => {
       expect(host.querySelector<HTMLButtonElement>('.cron-empty button')?.disabled).toBe(false)
     })
     click('New job'); await nextTick()
-    const inputs = host.querySelectorAll('input')
-    inputs[0]!.value = 'New briefing'; inputs[0]!.dispatchEvent(new Event('input'))
-    inputs[1]!.value = 'every 30m'; inputs[1]!.dispatchEvent(new Event('input'))
+    const input = (name: string) => [...host.querySelectorAll('label')].find(label => label.firstChild?.textContent === name)!.querySelector('input')!
+    const name = input('Name'), schedule = input('Schedule')
+    name.value = 'New briefing'; name.dispatchEvent(new Event('input'))
+    schedule.value = 'every 30m'; schedule.dispatchEvent(new Event('input'))
     const paused = host.querySelector<HTMLInputElement>('input[type=checkbox]')!
     paused.checked = true; paused.dispatchEvent(new Event('change'))
     await nextTick()

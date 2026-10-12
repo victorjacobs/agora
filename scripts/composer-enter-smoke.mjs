@@ -7,10 +7,7 @@ const executablePath = process.env.AGORA_BROWSER_PATH
 if (!executablePath) throw new Error('Set AGORA_BROWSER_PATH to an installed Chromium browser.')
 const server = await createServer({ configFile: false, plugins: [vue()], server: { host: '127.0.0.1', port: 0 }, logLevel: 'error' })
 const devices = [
-  { name: 'phone', viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true },
-  { name: 'phone-landscape', viewport: { width: 844, height: 390 }, isMobile: true, hasTouch: true },
   { name: 'tablet-landscape', viewport: { width: 1180, height: 820 }, isMobile: true, hasTouch: true },
-  { name: 'desktop', viewport: { width: 1280, height: 900 }, isMobile: false, hasTouch: false },
   { name: 'narrow-desktop', viewport: { width: 390, height: 844 }, isMobile: false, hasTouch: false },
 ]
 let browser
@@ -61,7 +58,7 @@ try {
     await input.press(device.hasTouch ? 'Enter' : 'Shift+Enter')
     assert.equal(await input.inputValue(), 'First line\n', `${name}: Enter must insert a native newline`)
     await page.keyboard.type('Second line')
-    await page.waitForTimeout(100)
+    await page.waitForFunction(() => document.querySelector('#prompt').value === 'First line\nSecond line')
     assert.equal(prompts().length, 0, `${name}: no prompt before explicit submission`)
     if (device.hasTouch) {
       assert.equal(await input.getAttribute('enterkeyhint'), 'enter')

@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createApp, h, markRaw, nextTick, reactive } from 'vue'
+import { mockDialogs } from './helpers/dialog'
 import ResultsView from '../src/ResultsView.vue'
 import type { CronApi } from '../src/hermes/cron'
 
+mockDialogs()
 let cleanup = () => {}
-afterEach(() => { cleanup(); document.body.innerHTML = ''; vi.restoreAllMocks() })
+afterEach(() => { cleanup(); document.body.innerHTML = ''; vi.restoreAllMocks(); vi.useRealTimers() })
 const history = (text: string, offset = 0, returned = 1) => ({ session_id: 'run', messages: [{ id: offset + 1, role: 'assistant', content: text }], pagination: { offset, returned, limit: 50 } })
 function mount() {
   const api = {
@@ -23,6 +25,8 @@ function mount() {
 describe('Results feed', () => {
   it('shows day dividers and decorative icons without empty groups after filtering', async () => {
     const { api, props, host } = mount()
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(2026, 5, 15, 12))
     const today = new Date(); today.setHours(8, 0, 0, 0)
     const yesterday = new Date(today); yesterday.setDate(yesterday.getDate() - 1)
     api.runs.mockImplementation(async (_owner, id) => ({ runs: [{ id, started_at: (id === 'a' ? today : yesterday).getTime() / 1000, ended_at: Date.now() / 1000 }], limit: 20 }))
@@ -52,13 +56,13 @@ describe('Results feed', () => {
   })
   it('does not strand a visible output when refresh replaces a pending page', async () => {
     const { api, props, host, click } = mount()
-    api.runs.mockImplementation(async (_owner, id) => ({ runs: id === 'a' ? Array.from({ length: 20 }, (_, i) => ({ id: `run-${i}`, started_at: 1000 - i, ended_at: 1100 - i })) : [], limit: 20 }))
+    api.runs.mockImplementation(async (_owner, id) => ({ runs: id === 'a' ? Array.from({ length: 11 }, (_, i) => ({ id: `run-${i}`, started_at: 1000 - i, ended_at: 1100 - i })) : [], limit: 20 }))
     props.active = true
     await vi.waitFor(() => expect(api.history).toHaveBeenCalledTimes(10))
     let resolve!: (value: ReturnType<typeof history>) => void
     api.history.mockImplementationOnce(() => new Promise(finish => { resolve = finish }))
     click('Load more results')
-    await vi.waitFor(() => expect(api.history).toHaveBeenCalledTimes(20))
+    await vi.waitFor(() => expect(api.history).toHaveBeenCalledTimes(11))
     click('Refresh')
     await vi.waitFor(() => expect(api.jobs).toHaveBeenCalledTimes(2))
     await vi.waitFor(() => expect(host.textContent).not.toContain('Loading results…'))
@@ -67,8 +71,6 @@ describe('Results feed', () => {
     expect(host.textContent).not.toContain('Obsolete pending answer')
   })
   it('opens a read-only run dialog on demand, pages older history and emits exact job management', async () => {
-    HTMLDialogElement.prototype.showModal = function () { this.open = true }
-    HTMLDialogElement.prototype.close = function () { this.open = false }
     const { api, props, host, click, manage } = mount()
     props.active = true
     await vi.waitFor(() => expect(host.textContent).toContain('Newest answer'))

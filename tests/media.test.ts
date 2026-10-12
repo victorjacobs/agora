@@ -8,16 +8,16 @@ const data = 'data:image/png;base64,aGVsbG8='
 
 describe('inline agent images', () => {
   it('renders the generated PDF MEDIA marker as an authenticated download card', () => {
-    const path = '/var/lib/hermes/workspace/artifacts/tob-IE00B4L5Y983-2026-10-09/Belgian-TOB-IE00B4L5Y983-proof-2026-10-09.pdf'
+    const path = '/workspace/artifacts/fictional/report.pdf'
     const container = document.createElement('div')
     container.innerHTML = renderMarkdown(`Here is your proof.\nMEDIA:${path}`)
     const link = container.querySelector<HTMLAnchorElement>('.media-file a')
 
     expect(link).not.toBeNull()
     expect(link!.getAttribute('href')).toBe(`/api/fs/download?${new URLSearchParams({ path })}`)
-    expect(link!.download).toBe('Belgian-TOB-IE00B4L5Y983-proof-2026-10-09.pdf')
+    expect(link!.download).toBe('report.pdf')
     expect(container.textContent).toContain('Here is your proof.')
-    expect(container.textContent).toContain('Belgian-TOB-IE00B4L5Y983-proof-2026-10-09.pdf')
+    expect(container.textContent).toContain('report.pdf')
     expect(container.textContent).not.toContain('MEDIA:')
     expect(markdownImages(`MEDIA:${path}`)).toEqual([])
   })

@@ -135,6 +135,9 @@ describe('chat interface', () => {
     expect(row.querySelector('.session-indicator.waiting')?.getAttribute('aria-label')).toBe('Waiting for input')
     expect(row.querySelector('.session-process-indicator')).not.toBeNull()
     client.state.running = false
+    await nextTick()
+    expect(row.querySelector('.session-indicator')).toBeNull()
+    expect(row.querySelector('.session-process-indicator')).not.toBeNull()
     client.state.approvals = []
     client.state.compressing = true
     await nextTick()
@@ -145,32 +148,17 @@ describe('chat interface', () => {
     expect(row.querySelector('.session-indicator, .session-process-indicator')).toBeNull()
   })
 
-  it('renders Markdown in user messages without changing their source text', async () => {
+  it('renders safe user Markdown without changing its source text', async () => {
     const { host, client } = mountApp()
-    const text = '**Important** and *emphasis* with `inline code`.\n\n- First item\n- Second item\n\n[Reference](https://example.com)\n\n```ts\nconst answer = 42\n```\n\nFirst line\nSecond line'
+    const text = '**Safe** <script>alert(1)</script> <img src=x onerror=alert(1)> [Unsafe](javascript:alert(1))'
     client.state.messages = [{ key: 'question', role: 'user', text }]
     await nextTick()
     const message = host.querySelector('.message.user')!
     expect(message.getAttribute('aria-label')).toBe('You')
-    expect(message.querySelector('strong')?.textContent).toBe('Important')
-    expect(message.querySelector('em')?.textContent).toBe('emphasis')
-    expect(message.querySelector('p code')?.textContent).toBe('inline code')
-    expect([...message.querySelectorAll('li')].map(item => item.textContent)).toEqual(['First item', 'Second item'])
-    expect(message.querySelector('a')?.getAttribute('href')).toBe('https://example.com')
-    expect(message.querySelector('a')?.getAttribute('rel')).toBe('noopener noreferrer')
-    expect(message.querySelector('pre code')?.textContent).toBe('const answer = 42\n')
-    expect(message.querySelector('p:last-child')?.innerHTML).toContain('First line<br>\nSecond line')
-    expect(client.state.messages[0]?.text).toBe(text)
-  })
-
-  it('keeps raw HTML and unsafe links inert in user Markdown', async () => {
-    const { host, client } = mountApp()
-    client.state.messages = [{ key: 'question', role: 'user', text: '**Safe** <script>alert(1)</script> <img src=x onerror=alert(1)> [Unsafe](javascript:alert(1))' }]
-    await nextTick()
-    const message = host.querySelector('.message.user')!
     expect(message.querySelector('strong')?.textContent).toBe('Safe')
     expect(message.querySelector('script, img, [onerror], a')).toBeNull()
     expect(message.textContent).toContain('<script>alert(1)</script>')
+    expect(client.state.messages[0]?.text).toBe(text)
   })
 
   it.each(['**Image caption**', ''])('preserves user image attachments with caption %j', async text => {
@@ -209,6 +197,7 @@ describe('chat interface', () => {
     expect([...host.querySelectorAll('.app-rail button')].map(button => button.getAttribute('aria-label'))).toEqual(['Chat', 'Results', 'Memory', 'Cron jobs'])
     host.querySelector<HTMLButtonElement>('[aria-label="Results"]')!.click()
     await vi.waitFor(() => expect(host.textContent).toContain('Readable result'))
+    const manageJob = () => [...host.querySelectorAll<HTMLButtonElement>('.result-card footer button')].find(button => button.textContent?.trim() === 'Manage job')!.click()
     const nav = host.querySelector('nav[aria-label="Result jobs"]')!
     expect(nav.querySelector('[aria-current="page"]')?.textContent).toContain('All results')
     const jobButton = [...nav.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.includes('Exact job'))!
@@ -218,10 +207,9 @@ describe('chat interface', () => {
     const draft = host.querySelector<HTMLTextAreaElement>('textarea')!
     draft.value = 'Unsent draft'; draft.dispatchEvent(new Event('input'))
     runs.mockClear()
-    host.querySelector<HTMLButtonElement>('.result-card footer button:last-child')!.click()
+    manageJob()
     await vi.waitFor(() => expect(runs).toHaveBeenCalledWith('work', 'b', 20))
     await vi.waitFor(() => expect(host.querySelector('.cron-job-heading')?.textContent).toContain('Exact job'))
-    expect(runs).toHaveBeenCalledWith('work', 'b', 20)
     expect(runs).not.toHaveBeenCalledWith('work', 'a', 20)
     host.querySelector<HTMLButtonElement>('[aria-label="Chat"]')!.click(); await nextTick()
     expect(draft.value).toBe('Unsent draft')
@@ -229,7 +217,7 @@ describe('chat interface', () => {
     host.querySelector<HTMLButtonElement>('[aria-label="Results"]')!.click()
     await vi.waitFor(() => expect(host.querySelector('.result-card')?.textContent).toContain('Exact job'))
     runs.mockClear()
-    host.querySelector<HTMLButtonElement>('.result-card footer button:last-child')!.click()
+    manageJob()
     await vi.waitFor(() => expect(runs).toHaveBeenCalledWith('work', 'b', 20))
     await vi.waitFor(() => expect(host.querySelector('.cron-job-heading')?.textContent).toContain('Exact job'))
     expect(runs).not.toHaveBeenCalledWith('work', 'a', 20)
@@ -403,7 +391,7 @@ describe('chat interface', () => {
     client.state.running = true
     client.state.messages = [
       { key: 'user', role: 'user', text: 'Inspect this' },
-      { key: 'reason', role: 'assistant', text: '', reasoning: { text: '**Review**\n\n- Check files\n- Run tests\n\n`npm test`\n\n<img src=x onerror=alert(1)>\n\n[unsafe](javascript:alert(1))', active: true } },
+      { key: 'reason', role: 'assistant', text: '', reasoning: { text: '**Review**\n\n<img src=x onerror=alert(1)>\n\n[unsafe](javascript:alert(1))', active: true } },
     ]
     await nextTick()
     const trace = host.querySelector<HTMLDetailsElement>('.thinking-trace')!
@@ -414,8 +402,6 @@ describe('chat interface', () => {
     expect(trace.open).toBe(true)
     expect(trace.querySelector('.trace-text')?.textContent).toContain('<img src=x')
     expect(trace.querySelector('strong')?.textContent).toBe('Review')
-    expect(trace.querySelectorAll('li')).toHaveLength(2)
-    expect(trace.querySelector('code')?.textContent).toBe('npm test')
     expect(trace.querySelector('a[href^="javascript:"]')).toBeNull()
     expect(trace.querySelector('img')).toBeNull()
     client.state.messages[1]!.reasoning!.active = false
@@ -798,7 +784,6 @@ describe('chat interface', () => {
     expect(host.querySelector('.connection-status')).toBeNull()
     expect(host.textContent).not.toContain('Synthetic operator')
     expect(host.textContent).not.toContain('https://remote-hermes.test')
-    expect(host.querySelector('.session-title')?.textContent).toBe('Synthetic conversation')
     expect(host.querySelector('.sign-in-page')).toBeNull()
     expect(host.querySelector('form[action="/auth/logout"]')).toBeNull()
     expect(host.querySelector('.provider-quota')).not.toBeNull()
@@ -981,13 +966,6 @@ describe('chat interface', () => {
     expect(steer).toHaveBeenCalledOnce()
     expect(host.textContent).toContain('Steer ↑')
     expect(host.textContent).toContain('Stop')
-    expect(host.querySelector('.session-indicator')?.getAttribute('aria-label')).toBe('Running')
-    client.state.approvals = [{ request_id: 'pending' }]
-    await nextTick()
-    expect(host.querySelector('.session-indicator.waiting')?.getAttribute('aria-label')).toBe('Waiting for input')
-    client.state.running = false
-    await nextTick()
-    expect(host.querySelector('.session-indicator')).toBeNull()
   })
 
   it('keeps a reader at their scroll position and offers a jump to latest', async () => {

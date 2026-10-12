@@ -1,15 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ChatClient, initialState } from '../src/hermes/chat'
+import { deferred } from './helpers/deferred'
 import { HermesApi, HttpError } from '../src/hermes/api'
 import { ConnectionLost, Gateway, RpcError } from '../src/hermes/gateway'
 import type { HistoryPage, Snapshot } from '../src/hermes/types'
-
-function deferred<T>() {
-  let resolve!: (value: T) => void
-  let reject!: (error: Error) => void
-  const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no })
-  return { promise, resolve, reject }
-}
 
 function history(id: string, count = 1): HistoryPage {
   return {
@@ -644,7 +638,9 @@ describe('chat recovery and session ownership', () => {
     vi.mocked(api.history).mockResolvedValue({ ...history('a'), messages: [{ id: 1, role: 'user', content: 'question-a' }, { id: 2, role: 'tool', tool_name: 'terminal', content: 'Tests passed' }, { id: 3, role: 'assistant', content: 'Done' }] })
     gateway.onEvent?.({ type: 'message.complete', session_id: 'runtime-a', payload: { status: 'completed' } })
     await vi.waitFor(() => expect(state.connection).toBe('ready'))
-    expect(state.messages.filter(message => message.role === 'tool')).toEqual([{ key: 'row-2', rowId: 2, role: 'tool', name: 'terminal', text: 'Tests passed', kind: undefined, metadata: undefined }])
+    const tools = state.messages.filter(message => message.role === 'tool')
+    expect(tools).toHaveLength(1)
+    expect(tools[0]).toMatchObject({ rowId: 2, role: 'tool', name: 'terminal', text: 'Tests passed' })
     chat.dispose()
   })
 

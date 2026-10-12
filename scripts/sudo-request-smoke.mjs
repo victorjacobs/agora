@@ -69,8 +69,9 @@ try {
   const origin = `http://127.0.0.1:${server.httpServer.address().port}`
   await page.goto(`${origin}/?session=a`)
   await page.evaluate(() => document.fonts.ready)
-  await page.getByRole('button', { name: 'Rename', exact: true }).waitFor()
-  await page.waitForFunction(() => !document.querySelector('.header-actions button:nth-child(2)')?.disabled)
+  const rename = page.getByRole('button', { name: 'Rename', exact: true })
+  await rename.waitFor()
+  await page.waitForFunction(button => !button.disabled, await rename.elementHandle())
   const card = page.getByRole('region', { name: 'Sudo password request' })
 
   request('submit-1')
@@ -82,15 +83,19 @@ try {
   await mkdir(output, { recursive: true })
   for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 }, { width: 844, height: 390 }]) {
     await page.setViewportSize(viewport)
-    await page.waitForTimeout(100)
     await card.getByRole('button', { name: 'Cancel', exact: true }).scrollIntoViewIfNeeded()
-    await card.getByRole('button', { name: 'Cancel', exact: true }).click({ trial: true })
+    const cancel = card.getByRole('button', { name: 'Cancel', exact: true })
+    await cancel.click({ trial: true })
+    await page.waitForFunction(node => {
+      const button = node.getBoundingClientRect(), transcript = document.querySelector('.transcript').getBoundingClientRect()
+      return document.documentElement.scrollWidth <= innerWidth
+        && button.top >= transcript.top && button.bottom <= transcript.bottom
+    }, await cancel.elementHandle())
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true)
     assert.equal(await card.getByRole('button', { name: 'Cancel', exact: true }).evaluate(node => {
       const button = node.getBoundingClientRect(), transcript = document.querySelector('.transcript').getBoundingClientRect()
       return button.top >= transcript.top && button.bottom <= transcript.bottom
     }), true, 'Sudo actions must be reachable in the scrollable transcript')
-    await page.waitForTimeout(100)
     await page.screenshot({ animations: 'disabled', path: `${output}/${viewport.width === 1280 ? 'desktop' : viewport.width === 390 ? 'mobile' : 'landscape'}.png` })
   }
   await page.setViewportSize({ width: 1280, height: 900 })

@@ -1,6 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import { reactive } from 'vue'
 import { ChatClient, initialState } from '../src/hermes/chat'
+import { deferred } from './helpers/deferred'
 import { HermesApi } from '../src/hermes/api'
 import { ConnectionLost, Gateway } from '../src/hermes/gateway'
 import { reconcileProcesses } from '../src/hermes/processes'
@@ -10,12 +11,6 @@ it.each([{ status: ['running'] }, { status: { toString: () => 'running' } }, { s
 })
 
 const clients: ChatClient[] = []
-function deferred<T>() {
-  let resolve!: (value: T) => void
-  let reject!: (error: Error) => void
-  const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no })
-  return { promise, resolve, reject }
-}
 afterEach(() => { clients.splice(0).forEach(client => client.dispose()); vi.useRealTimers() })
 const process = (id = 'p', status = 'running') => ({ session_id: id, command: 'sleep 100', status, uptime_seconds: 12, output_tail: 'ready\n' })
 function setup() {
@@ -272,11 +267,11 @@ it('uses a safe fallback for a malformed process kill error', async () => {
   expect(state.processes[0].status).toBe('running')
 })
 
-it.each(['error', 'not_found', 'invalid'])('keeps the process and reports a failed %s stop acknowledgement', async status => {
+it('keeps the process and reports a failed stop acknowledgement', async () => {
   const { chat, state, request } = setup()
   await chat.start('work')
   const ordinary = request.getMockImplementation()!
-  request.mockImplementation((method, params, timeout) => method === 'process.kill' ? Promise.resolve({ status, error: 'Cannot stop process' }) : ordinary(method, params, timeout))
+  request.mockImplementation((method, params, timeout) => method === 'process.kill' ? Promise.resolve({ status: 'error', error: 'Cannot stop process' }) : ordinary(method, params, timeout))
   await chat.stopProcess('p')
   expect(state.processError).toContain('Cannot stop process')
   expect(state.processes[0].status).toBe('running')

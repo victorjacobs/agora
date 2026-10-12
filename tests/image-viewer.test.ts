@@ -1,19 +1,15 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import { createApp, h, nextTick } from 'vue'
+import { mockDialogs } from './helpers/dialog'
 import ImageViewer from '../src/ImageViewer.vue'
 
+mockDialogs()
 let cleanup = () => {}
 afterEach(() => {
   cleanup(); document.body.innerHTML = ''; vi.restoreAllMocks()
-  Reflect.deleteProperty(HTMLDialogElement.prototype, 'showModal')
-  Reflect.deleteProperty(HTMLDialogElement.prototype, 'close')
 })
 
 it('offers image-only zoom and a reset without moving the viewer controls', async () => {
-  Object.defineProperties(HTMLDialogElement.prototype, {
-    showModal: { configurable: true, value() { this.open = true } },
-    close: { configurable: true, value() { this.open = false } },
-  })
   const host = document.createElement('div')
   document.body.append(host)
   const app = createApp({ render: () => h(ImageViewer, { src: 'data:image/png;base64,AA==', alt: 'Test image' }) })
