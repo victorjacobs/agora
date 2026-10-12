@@ -34,6 +34,40 @@ function mountApp(connection: 'ready' | 'connecting' = 'ready') {
 }
 
 describe('chat interface', () => {
+  it('uses a mobile modal selector and closes selection idempotently without losing the chat draft', async () => {
+    vi.stubGlobal('matchMedia', vi.fn(query => ({ matches: query === '(max-width: 760px)', addEventListener() {}, removeEventListener() {} })))
+    Object.defineProperties(HTMLDialogElement.prototype, {
+      showModal: { configurable: true, value() { this.open = true } },
+      close: { configurable: true, value() { this.open = false; this.dispatchEvent(new Event('close')) } },
+    })
+    vi.spyOn(ChatClient.prototype, 'pendingMemory').mockResolvedValue({ previews: [] })
+    const { host, client } = mountApp()
+    client.state.draft = 'Keep this draft'
+    await nextTick()
+    expect([...host.querySelectorAll('.rail-label')].map(label => label.textContent)).toEqual(['Chat', 'Results', 'Memory', 'Jobs'])
+    host.querySelector<HTMLButtonElement>('[aria-label="Memory"]')!.click()
+    await nextTick()
+    const selector = host.querySelector<HTMLButtonElement>('.mobile-selector')!
+    expect(selector.textContent).toContain('Pending updates')
+    selector.click()
+    await nextTick()
+    const sheet = host.querySelector<HTMLDialogElement>('.navigation-sheet')!
+    expect(sheet.open).toBe(true)
+    expect(sheet.querySelector('[aria-label="Memory sections"]')).not.toBeNull()
+    sheet.querySelector<HTMLButtonElement>('.session')!.click()
+    await nextTick()
+    expect(sheet.open).toBe(false)
+    sheet.dispatchEvent(new Event('close'))
+    await nextTick()
+    expect(sheet.open).toBe(false)
+    host.querySelector<HTMLButtonElement>('[aria-label="Chat"]')!.click()
+    await nextTick()
+    expect(client.state.draft).toBe('Keep this draft')
+    expect(client.state.runtime).toBe('runtime')
+    expect(client.state.profile).toBe('work')
+    Reflect.deleteProperty(HTMLDialogElement.prototype, 'showModal')
+    Reflect.deleteProperty(HTMLDialogElement.prototype, 'close')
+  })
   it('keeps processes beside pinned tasks, collapsed by default with individual output and Stop controls', async () => {
     const { host, client } = mountApp()
     client.state.processes = [{ id: 'p', command: 'sleep 100', status: 'running', uptime: 12, output: '<script>inert</script>\nready' }]
@@ -171,6 +205,22 @@ describe('chat interface', () => {
     viewport.dispatchEvent(new Event('resize'))
     expect(style.getPropertyValue('--app-height')).toBe('')
     expect(style.getPropertyValue('--app-top')).toBe('')
+  })
+
+  it('hides mobile tabs only for a focused composer with a shrunken keyboard viewport', async () => {
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true, addEventListener() {}, removeEventListener() {} })))
+    const viewport = Object.assign(new EventTarget(), { height: window.innerHeight, offsetTop: 0, scale: 1 })
+    vi.stubGlobal('visualViewport', viewport)
+    const { host } = mountApp()
+    await nextTick()
+    const input = host.querySelector<HTMLTextAreaElement>('#prompt')!
+    input.focus(); await nextTick()
+    expect(host.querySelector('.keyboard-open')).toBeNull()
+    viewport.height -= 300
+    viewport.dispatchEvent(new Event('resize')); await nextTick()
+    expect(host.querySelector('.keyboard-open')).not.toBeNull()
+    input.blur(); await nextTick()
+    expect(host.querySelector('.keyboard-open')).toBeNull()
   })
 
   it('preserves the layout while pinch zoom pans a smaller visual viewport', async () => {

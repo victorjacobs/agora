@@ -64,6 +64,10 @@ desktop packaging is deferred.
   unfocused, with no conversation content in notifications. No background push.
 - Responsive layout, keyboard-accessible controls, visible focus, and sensible
   scrolling that does not drag a reader away from older messages.
+  On mobile, four labelled bottom tabs replace the rail. Secondary selection
+  moves from the permanent desktop sidebar into full-width selectors and modal
+  bottom sheets; Results retains an explicit All results choice. The conversation
+  picker opens from the chat header. Existing workspace actions remain unchanged.
 
 Session deletion must use the upstream API and display upstream failures. Keep
 selection, history, and live events associated with the correct session when
