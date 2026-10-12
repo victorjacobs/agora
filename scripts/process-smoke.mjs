@@ -66,7 +66,7 @@ try {
   await panel.waitFor()
   assert.equal(await panel.evaluate(node => node.open), false)
   assert.equal(await page.locator('.composer .stop').count(), 0)
-  await page.locator('.session-row').filter({ hasText: 'Other chat' }).locator('.session-indicator').waitFor()
+  await page.locator('.session-row').filter({ hasText: 'Other chat' }).locator('.session-process-indicator').waitFor()
   await panel.locator(':scope > summary').click()
   await panel.locator('.process-output > summary').click()
   event('agent.terminal.output', 'runtime-work-a', { process_id: 'p-a', chunk: 'x'.repeat(6000) })
@@ -77,7 +77,10 @@ try {
   for (const viewport of [{ width: 390, height: 844 }, { width: 844, height: 390 }]) {
     await page.setViewportSize(viewport)
     await page.locator('textarea').fill(Array.from({ length: 35 }, () => 'A long draft').join('\n'))
-    await page.waitForTimeout(100)
+    await page.waitForFunction(() =>
+      document.documentElement.scrollWidth <= innerWidth
+      && document.querySelector('.composer-footer').getBoundingClientRect().bottom <= innerHeight
+      && document.querySelector('.conversation-header').getBoundingClientRect().top >= 0)
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'Process commands/output must not overflow the viewport')
     assert.equal(await page.locator('.composer-footer').evaluate(node => node.getBoundingClientRect().bottom <= innerHeight), true, 'Process panel must not push composer below viewport')
     assert.equal(await page.locator('.conversation-header').evaluate(node => node.getBoundingClientRect().top >= 0), true, 'Process panel must not push header above viewport')
@@ -89,7 +92,7 @@ try {
   rows.get('runtime-work-b')[0].exit_code = 0
   rows.get('runtime-work-b')[0].output_tail = 'Offscreen result'
   event('terminal.close', 'runtime-work-b', { process_id: 'p-b' })
-  await page.waitForFunction(() => ![...document.querySelectorAll('.session-row')].find(row => row.textContent.includes('Other chat'))?.querySelector('.session-indicator'))
+  await page.waitForFunction(() => ![...document.querySelectorAll('.session-row')].find(row => row.textContent.includes('Other chat'))?.querySelector('.session-process-indicator'))
   await page.locator('.session-row').filter({ hasText: 'Other chat' }).locator('button.session').click()
   await page.getByText('Offscreen result', { exact: true }).waitFor({ state: 'attached' })
   assert.equal(await page.locator('.composer-footer .chat-processes').count(), 0)

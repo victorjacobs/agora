@@ -23,6 +23,8 @@ describe('image attachment input', () => {
   it('rejects unsupported, empty, and oversized files', async () => {
     await expect(readAttachment(new File(['text'], 'file.txt', { type: 'text/plain' }))).rejects.toThrow('Choose')
     await expect(readAttachment(new File([], 'empty.png', { type: 'image/png' }))).rejects.toThrow('10 MB')
-    await expect(readAttachment(new File([new Uint8Array(10 * 1024 * 1024 + 1)], 'large.png', { type: 'image/png' }))).rejects.toThrow('10 MB')
+    const oversized = new File(['image bytes'], 'large.png', { type: 'image/png' })
+    Object.defineProperty(oversized, 'size', { value: 10 * 1024 * 1024 + 1 })
+    await expect(readAttachment(oversized)).rejects.toThrow('10 MB')
   })
 })

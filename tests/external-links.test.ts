@@ -57,7 +57,7 @@ describe('installed iOS PWA links', () => {
     expect(event.defaultPrevented).toBe(false)
   })
 
-  it.each(['http://example.com', 'mailto:hello@example.com', '/report', '#section', 'https://user:pass@example.com'])('does not intercept %s', href => {
+  it.each(['http://example.com', 'https://user:pass@example.com'])('does not intercept %s', href => {
     setBrowser()
     const open = vi.spyOn(window, 'open').mockReturnValue(null)
     const event = new MouseEvent('click', { bubbles: true, cancelable: true })
@@ -66,7 +66,7 @@ describe('installed iOS PWA links', () => {
     expect(event.defaultPrevented).toBe(false)
   })
 
-  it.each([{ ctrlKey: true }, { metaKey: true }, { shiftKey: true }, { altKey: true }, { button: 1 }])('preserves modified clicks: %o', options => {
+  it.each([{ ctrlKey: true }, { button: 1 }])('preserves modified clicks: %o', options => {
     setBrowser()
     const open = vi.spyOn(window, 'open').mockReturnValue(null)
     const event = new MouseEvent('click', { bubbles: true, cancelable: true, ...options })

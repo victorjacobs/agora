@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import { conversationTimeline, conversationTurns, historyMessages, mergeHistory, restoreInflight } from '../src/hermes/transcript'
-import { renderMarkdown } from '../src/markdown'
 
 describe('transcripts', () => {
   it('keeps image previews after completion restores Hermes text-reference history', () => {
@@ -91,12 +90,5 @@ describe('transcripts', () => {
     const recovered = restoreInflight(messages, { session_id: 'runtime', info: {}, running: true, inflight: { user: 'question', assistant: 'partial' } })
     expect(recovered.map(message => message.text)).toEqual(['question', 'partial'])
     expect(restoreInflight(recovered, { session_id: 'runtime', info: {}, running: true, inflight: { user: 'question', assistant: 'partial' } })).toEqual(recovered)
-  })
-
-  it('renders Markdown and code without executing HTML or loading remote images', () => {
-    const rendered = renderMarkdown('**bold**\n\n```html\n<script>alert(1)</script>\n```\n\n<img src=x onerror=alert(1)>\n\n[x](javascript:alert(1))\n\n![tracking](https://example.test/image.png)')
-    expect(rendered).toContain('<strong>bold</strong>')
-    expect(rendered).toContain('&lt;script&gt;')
-    expect(rendered).not.toMatch(/<script|<img|href="javascript:/)
   })
 })

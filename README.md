@@ -206,7 +206,7 @@ After `direnv allow` and `npm ci`:
 | `npm run build` | Build the UI into `dist/`. |
 | `node tests/session-runtime.mjs [package-path]` | Real Node-process session smoke test with a synthetic PKCE upstream; verifies restart persistence, rotated refresh tokens, and durable logout. Optionally tests a built package path. |
 | `AGORA_BROWSER_PATH=/path/to/chromium node scripts/sudo-request-smoke.mjs` | Fictional HTTP/WebSocket fixtures: exact sudo submission, cancellation, withdrawal, replay, disconnect/recovery, no chat/storage leakage, and desktop/mobile/landscape controls. No real sudo execution or live Hermes access. |
-| `AGORA_BROWSER_PATH=/path/to/chromium node scripts/composer-enter-smoke.mjs` | Fictional HTTP/WebSocket fixtures: native Enter newlines on touch phones/tablets, exact multiline Send payloads, and unchanged desktop shortcuts, including narrow desktop windows. No live Hermes access. |
+| `AGORA_BROWSER_PATH=/path/to/chromium node scripts/composer-enter-smoke.mjs` | Fictional HTTP/WebSocket fixtures: native Enter newlines on a wide touch tablet, exact multiline Send payloads, and unchanged shortcuts in a narrow non-touch desktop window. No live Hermes access. |
 | `agora-start` | Serve a built UI with the local Hermes connection service. |
 | `agora-screenshot` | Regenerate the README screenshots using sample data. |
 | `agora-icons` | Regenerate raster favicons from the original [icon](docs/branding/icon.png). |

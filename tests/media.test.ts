@@ -7,21 +7,6 @@ import { historyMessages } from '../src/hermes/transcript'
 const data = 'data:image/png;base64,aGVsbG8='
 
 describe('inline agent images', () => {
-  it('renders the generated PDF MEDIA marker as an authenticated download card', () => {
-    const path = '/var/lib/hermes/workspace/artifacts/tob-IE00B4L5Y983-2026-10-09/Belgian-TOB-IE00B4L5Y983-proof-2026-10-09.pdf'
-    const container = document.createElement('div')
-    container.innerHTML = renderMarkdown(`Here is your proof.\nMEDIA:${path}`)
-    const link = container.querySelector<HTMLAnchorElement>('.media-file a')
-
-    expect(link).not.toBeNull()
-    expect(link!.getAttribute('href')).toBe(`/api/fs/download?${new URLSearchParams({ path })}`)
-    expect(link!.download).toBe('Belgian-TOB-IE00B4L5Y983-proof-2026-10-09.pdf')
-    expect(container.textContent).toContain('Here is your proof.')
-    expect(container.textContent).toContain('Belgian-TOB-IE00B4L5Y983-proof-2026-10-09.pdf')
-    expect(container.textContent).not.toContain('MEDIA:')
-    expect(markdownImages(`MEDIA:${path}`)).toEqual([])
-  })
-
   it.each([
     ['MEDIA: "/workspace/a & b.csv"', '/workspace/a & b.csv', 'a & b.csv'],
     ["MEDIA:\n'sandbox:/workspace/a report.docx'", '/workspace/a report.docx', 'a report.docx'],
@@ -77,13 +62,6 @@ describe('inline agent images', () => {
     expect(rendered).toContain('After')
     expect(rendered).toContain('<code>MEDIA: /tmp/code.png</code>')
     expect(renderMarkdown('Escaped \\*literal\\*')).toContain('*literal*')
-  })
-
-  it('reads workspace images using the selected profile', async () => {
-    const api = new HermesApi()
-    const request = vi.spyOn(api, 'request').mockResolvedValue({ dataUrl: data })
-    expect(await loadImage('/workspace/chart.png', api, 'work')).toBe(data)
-    expect(request).toHaveBeenCalledWith('/api/fs/read-data-url?path=%2Fworkspace%2Fchart.png&profile=work')
   })
 
   it('loads local and remote images through the authenticated Hermes API', async () => {

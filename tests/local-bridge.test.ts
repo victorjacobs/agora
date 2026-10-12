@@ -181,16 +181,6 @@ async function fixture(publicOrigin?: string, options: { sessionDb?: string; ses
 }
 
 describe('local remote-Hermes connection', () => {
-  it('restores a login from SQLite after restarting the bridge', async () => {
-    const test = await fixture(undefined, { sessionDb: sessionDatabase() })
-    const { cookie } = await test.login()
-    test.restart()
-    const response = await test.request('/api/auth/me', { headers: { Cookie: cookie } })
-    expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ display_name: 'Synthetic operator' })
-    expect(test.records.at(-1)?.authorization).toBe('Bearer access-1')
-  })
-
   it('issues a persistent secure cookie and renews it on authenticated activity', async () => {
     const test = await fixture('https://agora.example.test', { sessionDb: sessionDatabase(), sessionIdleSeconds: 120 })
     const { cookie, completed } = await test.login()

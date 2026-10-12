@@ -16,15 +16,15 @@ function mount() {
   const app = createApp({ render: () => h(MemoryStateView, props) })
   app.mount(host)
   cleanup = () => app.unmount()
-  return { props, host }
+  const click = (text: string) => [...host.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === text)!.click()
+  return { props, host, click }
 }
 
 describe('memory state views', () => {
   it('edits full text, preserves a failed draft, and refreshes only after a confirmed save', async () => {
-    const { props, host } = mount()
+    const { props, host, click } = mount()
     props.active = true
     await vi.waitFor(() => expect(host.querySelector('.saved-memory-entry')).not.toBeNull())
-    const click = (text: string) => [...host.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === text)!.click()
     click('Read full entry')
     await vi.waitFor(() => expect(host.querySelector('.entry-content')).not.toBeNull())
     click('Edit')
@@ -49,10 +49,9 @@ describe('memory state views', () => {
   })
 
   it('requires a full-entry delete confirmation and prevents duplicate submissions', async () => {
-    const { props, host } = mount()
+    const { props, host, click } = mount()
     props.active = true
     await vi.waitFor(() => expect(host.querySelector('.saved-memory-entry')).not.toBeNull())
-    const click = (text: string) => [...host.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === text)!.click()
     click('Read full entry')
     await vi.waitFor(() => expect(host.querySelector('.entry-content')).not.toBeNull())
     click('Delete')
@@ -78,10 +77,9 @@ describe('memory state views', () => {
   })
 
   it('does not apply a delayed mutation result to another profile', async () => {
-    const { props, host } = mount()
+    const { props, host, click } = mount()
     props.active = true
     await vi.waitFor(() => expect(host.querySelector('.saved-memory-entry')).not.toBeNull())
-    const click = (text: string) => [...host.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === text)!.click()
     click('Read full entry')
     await vi.waitFor(() => expect(host.querySelector('.entry-content')).not.toBeNull())
     click('Delete')

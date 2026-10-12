@@ -42,6 +42,7 @@ let
     hermesEndpoint = "https://hermes.foo.bar";
     publicOrigin = "https://agora.foo.bar/path";
   }).config;
+  idleType = (evaluate { }).options.services.agora.sessionIdleSeconds.type;
   service = enabled.systemd.services.agora;
   failedAssertions = cfg: builtins.filter
     (entry: !entry.assertion)
@@ -65,9 +66,9 @@ assert memoryOnly.systemd.services.agora.serviceConfig.ProtectSystem == "strict"
 assert memoryOnly.systemd.services.agora.serviceConfig.UMask == "0077";
 assert customIdle.systemd.services.agora.environment.AGORA_SESSION_IDLE_SECONDS == "3600";
 assert customIdle.systemd.services.agora.environment.AGORA_SESSION_DB == "/var/lib/agora/sessions.sqlite";
-assert !(pkgs.lib.types.ints.positive.check 0);
-assert !(pkgs.lib.types.ints.positive.check (-1));
-assert !(pkgs.lib.types.ints.positive.check "3600");
+assert !(idleType.check 0);
+assert !(idleType.check (-1));
+assert !(idleType.check "3600");
 assert !(service.environment ? AGORA_PUBLIC_ORIGIN);
 assert hosted.systemd.services.agora.environment.AGORA_PUBLIC_ORIGIN == "https://agora.foo.bar";
 assert !(builtins.any (entry: pkgs.lib.hasPrefix "services.agora.publicOrigin" entry.message) (failedAssertions hosted));

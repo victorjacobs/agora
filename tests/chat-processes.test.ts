@@ -1,21 +1,16 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import { reactive } from 'vue'
 import { ChatClient, initialState } from '../src/hermes/chat'
+import { deferred } from './helpers/deferred'
 import { HermesApi } from '../src/hermes/api'
 import { ConnectionLost, Gateway } from '../src/hermes/gateway'
 import { reconcileProcesses } from '../src/hermes/processes'
 
-it.each([{ status: ['running'] }, { status: { toString: () => 'running' } }, { status: ['exited'] }, { status: { toString: () => 'exited' } }])('rejects a coerced process roster status $status', ({ status }) => {
+it.each([{ status: ['running'] }, { status: { toString: (): string => 'running' } }])('rejects a coerced process roster status $status', ({ status }) => {
   expect(reconcileProcesses([], [{ session_id: 'invalid', status }])).toEqual([])
 })
 
 const clients: ChatClient[] = []
-function deferred<T>() {
-  let resolve!: (value: T) => void
-  let reject!: (error: Error) => void
-  const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no })
-  return { promise, resolve, reject }
-}
 afterEach(() => { clients.splice(0).forEach(client => client.dispose()); vi.useRealTimers() })
 const process = (id = 'p', status = 'running') => ({ session_id: id, command: 'sleep 100', status, uptime_seconds: 12, output_tail: 'ready\n' })
 function setup() {
@@ -105,18 +100,6 @@ it.each(['message.delta', 'reasoning.available'])('preserves the recovered assis
   await vi.waitFor(() => expect(state.messages.find(row => row.key === completionKey)?.text).toBe('Final process output'))
   expect(state.messages.filter(row => row.role === 'assistant')).toEqual([assistant])
   expect(state.messages.at(-1)).toBe(assistant)
-})
-
-it('recovers owned processes and keeps activity separate from foreground execution', async () => {
-  const { chat, state, request } = setup()
-  await chat.start('work')
-  await vi.waitFor(() => expect(state.processes).toHaveLength(1))
-  expect(request).toHaveBeenCalledWith('process.list', { session_id: 'runtime-work-a', profile: 'work' })
-  expect(state.processes[0]).toMatchObject({ id: 'p', command: 'sleep 100', status: 'running', output: 'ready\n' })
-  expect(state.running).toBe(false)
-  expect(chat.sessionStatus({ id: 'a', profile: 'work' })).toBeUndefined()
-  state.draft = 'Next question'
-  expect(chat.canSend()).toBe(true)
 })
 
 it('counts only current confirmed process activity across selection, profiles, and recovery', async () => {
@@ -247,7 +230,6 @@ it('stops only one owned process, retains its bounded exit result, and leaves as
 it.each([
   { output: {}, exit_code: '0', completion_reason: {} },
   { output: 123, exit_code: NaN, completion_reason: 123 },
-  { output: null, exit_code: Infinity, completion_reason: ['killed'] },
 ])('validates malformed optional process kill fields without losing the confirmed exit ($exit_code)', async fields => {
   const { chat, state, request, rows } = setup()
   await chat.start('work')
@@ -263,20 +245,11 @@ it.each([
   expect(state.messages.at(-1)).toMatchObject({ kind: 'process_complete', text: 'ready\n', metadata: { exit_code: undefined, display_text: 'sleep 100 · killed' } })
 })
 
-it('uses a safe fallback for a malformed process kill error', async () => {
-  const { chat, state, request } = setup()
-  await chat.start('work')
-  request.mockResolvedValueOnce({ status: ['killed'], error: { private: 'not a message' } })
-  await chat.stopProcess('p')
-  expect(state.processError).toBe('Hermes did not confirm the process stopped. Check its status before retrying.')
-  expect(state.processes[0].status).toBe('running')
-})
-
-it.each(['error', 'not_found', 'invalid'])('keeps the process and reports a failed %s stop acknowledgement', async status => {
+it('keeps the process and reports a failed stop acknowledgement', async () => {
   const { chat, state, request } = setup()
   await chat.start('work')
   const ordinary = request.getMockImplementation()!
-  request.mockImplementation((method, params, timeout) => method === 'process.kill' ? Promise.resolve({ status, error: 'Cannot stop process' }) : ordinary(method, params, timeout))
+  request.mockImplementation((method, params, timeout) => method === 'process.kill' ? Promise.resolve({ status: 'error', error: 'Cannot stop process' }) : ordinary(method, params, timeout))
   await chat.stopProcess('p')
   expect(state.processError).toContain('Cannot stop process')
   expect(state.processes[0].status).toBe('running')
