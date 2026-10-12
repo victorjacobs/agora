@@ -254,17 +254,26 @@ onMounted(() => {
   const viewport = window.visualViewport
   if (viewport) {
     const style = document.documentElement.style
+    let unoccludedHeight = Math.max(window.innerHeight, viewport.height)
+    let viewportWidth = window.innerWidth
     const fitViewport = () => {
       // Pinch zoom must pan the existing layout, not shrink/reposition the app.
       if (viewport.scale !== 1) return
+      // Keep the pre-keyboard height: WebKit can shrink innerHeight as well.
+      if (!composerFocused.value || window.innerWidth !== viewportWidth) {
+        unoccludedHeight = Math.max(window.innerHeight, viewport.height)
+        viewportWidth = window.innerWidth
+      }
       style.setProperty('--app-height', `${viewport.height}px`)
       style.setProperty('--app-top', `${viewport.offsetTop}px`)
-      keyboardVisible.value = composerPointer.matches && window.innerHeight - viewport.height > 120
+      keyboardVisible.value = composerPointer.matches && unoccludedHeight - viewport.height > 120
     }
     fitViewport()
+    window.addEventListener('resize', fitViewport)
     viewport.addEventListener('resize', fitViewport)
     viewport.addEventListener('scroll', fitViewport)
     releaseViewport = () => {
+      window.removeEventListener('resize', fitViewport)
       viewport.removeEventListener('resize', fitViewport)
       viewport.removeEventListener('scroll', fitViewport)
       style.removeProperty('--app-height')

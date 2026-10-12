@@ -209,33 +209,64 @@ describe('chat interface', () => {
 
   it('hides mobile tabs only for a focused composer with a shrunken keyboard viewport', async () => {
     vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true, addEventListener() {}, removeEventListener() {} })))
-    const viewport = Object.assign(new EventTarget(), { height: window.innerHeight, offsetTop: 0, scale: 1 })
+    vi.stubGlobal('innerHeight', 844)
+    const viewport = Object.assign(new EventTarget(), { height: 844, offsetTop: 0, scale: 1 })
+    vi.stubGlobal('visualViewport', viewport)
+    const { host, client } = mountApp()
+    client.state.draft = 'Keep this draft\nwith a newline'
+    await nextTick()
+    const input = host.querySelector<HTMLTextAreaElement>('#prompt')!
+    input.focus(); await nextTick()
+    expect(host.querySelector('.keyboard-open')).toBeNull()
+    // Safari can resize both viewports, leaving their difference at zero.
+    vi.stubGlobal('innerHeight', 500)
+    viewport.height = 500
+    window.dispatchEvent(new Event('resize'))
+    viewport.dispatchEvent(new Event('resize')); await nextTick()
+    expect(host.querySelector('.keyboard-open')).not.toBeNull()
+    viewport.dispatchEvent(new Event('scroll')); await nextTick()
+    expect(host.querySelector('.keyboard-open')).not.toBeNull()
+    input.blur(); await nextTick()
+    expect(host.querySelector('.keyboard-open')).toBeNull()
+    vi.stubGlobal('innerHeight', 844)
+    viewport.height = 844
+    viewport.dispatchEvent(new Event('resize'))
+    input.focus(); await nextTick()
+    expect(host.querySelector('.keyboard-open')).toBeNull()
+    viewport.height = 500
+    viewport.dispatchEvent(new Event('resize')); await nextTick()
+    expect(host.querySelector('.keyboard-open')).not.toBeNull()
+    input.blur(); await nextTick()
+    expect(client.state.draft).toBe('Keep this draft\nwith a newline')
+  })
+
+  it('preserves the layout while pinch zoom pans a smaller visual viewport', async () => {
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true, addEventListener() {}, removeEventListener() {} })))
+    vi.stubGlobal('innerHeight', 844)
+    vi.stubGlobal('innerWidth', 390)
+    const viewport = Object.assign(new EventTarget(), { height: 844, offsetTop: 0, scale: 1 })
     vi.stubGlobal('visualViewport', viewport)
     const { host } = mountApp()
     await nextTick()
     const input = host.querySelector<HTMLTextAreaElement>('#prompt')!
     input.focus(); await nextTick()
-    expect(host.querySelector('.keyboard-open')).toBeNull()
-    viewport.height -= 300
-    viewport.dispatchEvent(new Event('resize')); await nextTick()
-    expect(host.querySelector('.keyboard-open')).not.toBeNull()
-    input.blur(); await nextTick()
-    expect(host.querySelector('.keyboard-open')).toBeNull()
-  })
-
-  it('preserves the layout while pinch zoom pans a smaller visual viewport', async () => {
-    const viewport = Object.assign(new EventTarget(), { height: 844, offsetTop: 0, scale: 1 })
-    vi.stubGlobal('visualViewport', viewport)
-    mountApp()
-    await nextTick()
     Object.assign(viewport, { height: 422, offsetTop: 100, scale: 2 })
     viewport.dispatchEvent(new Event('resize'))
     viewport.dispatchEvent(new Event('scroll'))
     expect(document.documentElement.style.getPropertyValue('--app-height')).toBe('844px')
     expect(document.documentElement.style.getPropertyValue('--app-top')).toBe('0px')
-    Object.assign(viewport, { height: 600, offsetTop: 0, scale: 1 })
-    viewport.dispatchEvent(new Event('resize'))
-    expect(document.documentElement.style.getPropertyValue('--app-height')).toBe('600px')
+    expect(host.querySelector('.keyboard-open')).toBeNull()
+    // Rotation changes the unoccluded baseline even while an external keyboard is focused.
+    vi.stubGlobal('innerWidth', 700)
+    vi.stubGlobal('innerHeight', 390)
+    Object.assign(viewport, { height: 390, offsetTop: 0, scale: 1 })
+    window.dispatchEvent(new Event('resize')); await nextTick()
+    expect(document.documentElement.style.getPropertyValue('--app-height')).toBe('390px')
+    expect(host.querySelector('.keyboard-open')).toBeNull()
+    vi.stubGlobal('innerHeight', 200)
+    viewport.height = 200
+    viewport.dispatchEvent(new Event('resize')); await nextTick()
+    expect(host.querySelector('.keyboard-open')).not.toBeNull()
   })
 
   it('pins a chat locally without opening it and displays a separate pinned group', async () => {
