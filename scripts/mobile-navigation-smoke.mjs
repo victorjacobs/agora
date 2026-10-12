@@ -61,6 +61,8 @@ try {
   })
   await page.goto(`http://127.0.0.1:${server.httpServer.address().port}/?session=notes`)
   await page.getByText('The checks passed. Two follow-ups are ready to review.', { exact: true }).waitFor()
+  assert.match(await page.locator('meta[name="viewport"]').getAttribute('content'), /viewport-fit=cover/)
+  await page.evaluate(() => document.documentElement.style.setProperty('--app-safe-bottom', '34px'))
   const rail = page.locator('.app-rail'), sheet = page.locator('.navigation-sheet'), selector = page.locator('.mobile-selector')
   const tab = name => rail.getByRole('button', { name, exact: true })
   const assertLayout = async () => {
@@ -68,6 +70,9 @@ try {
     assert.equal(await page.locator('.shell > main').evaluate(el => el.scrollWidth <= el.clientWidth), true)
     assert.equal(await page.locator('.shell > main').evaluate(el => el.getBoundingClientRect().left), 0)
     assert.ok((await rail.boundingBox()).y > 700)
+    assert.equal(await rail.evaluate(el => Math.round(el.getBoundingClientRect().bottom)), 844)
+    assert.equal(await rail.evaluate(el => parseFloat(getComputedStyle(el).paddingBottom)), 40)
+    assert.equal(await rail.locator('button').evaluateAll(buttons => buttons.every(button => button.getBoundingClientRect().bottom <= 810)), true)
     if (await selector.isVisible()) {
       const box = await selector.boundingBox()
       assert.equal(box.x, 16)
@@ -75,7 +80,7 @@ try {
       assert.ok(box.y < 100)
     }
   }
-  const capture = async (name, view) => { await assertLayout(); const path = resolve(output, `${name}.png`); await page.screenshot({ path }); images.push({ path, view, viewport: page.viewportSize(), browser: browser.version(), data: 'Fictional HTTP and WebSocket fixtures; actual full Vue App, normal / route; no private Hermes data.' }) }
+  const capture = async (name, view) => { await assertLayout(); const path = resolve(output, `${name}.png`); await page.screenshot({ path }); images.push({ path, view, viewport: page.viewportSize(), browser: browser.version(), simulatedSafeAreaBottom: 34, data: 'Fictional HTTP and WebSocket fixtures; actual full Vue App, normal / route; no private Hermes data.' }) }
   await page.locator('#prompt').fill('Keep this unsent draft')
   await page.locator('#prompt').blur()
   await page.locator('.transcript').evaluate(el => { el.scrollTop = 0 })
@@ -117,6 +122,9 @@ try {
   await capture('mobile-jobs', 'Jobs / Daily brief')
   await selector.click()
   await capture('mobile-job-selector', 'Jobs / Choose a job sheet')
+  assert.equal(await sheet.evaluate(el => Math.round(el.getBoundingClientRect().bottom)), 844)
+  assert.equal(await sheet.evaluate(el => parseFloat(getComputedStyle(el).paddingBottom)), 34)
+  assert.ok((await sheet.getByRole('button', { name: 'New job' }).boundingBox()).y + (await sheet.getByRole('button', { name: 'New job' }).boundingBox()).height <= 810)
   await sheet.getByRole('button', { name: /^Weather summary/ }).click()
   await sheet.waitFor({ state: 'hidden' })
   assert.match(await selector.innerText(), /Weather summary/)
@@ -147,9 +155,13 @@ try {
   await page.locator('#prompt').blur()
   await page.waitForFunction(() => !document.querySelector('.shell').classList.contains('keyboard-open'))
   await page.evaluate(() => { delete window.visualViewport.height; window.visualViewport.dispatchEvent(new Event('resize')) })
+  await page.evaluate(() => document.documentElement.style.removeProperty('--app-safe-bottom'))
+  assert.equal(await rail.evaluate(el => parseFloat(getComputedStyle(el).paddingBottom)), 6)
+  checks.push('34px bottom safe area: bar and sheet backgrounds reach the viewport edge, controls remain above the inset, and removing the inset restores normal spacing')
   checks.push('390x844: four labelled tabs; all result/Memory/job selections; modal focus containment/restoration, Escape, backdrop, selection closure; draft preserved; simulated visualViewport keyboard hide/blur restore; no horizontal overflow; composer above tabs')
   await page.setViewportSize({ width: 1280, height: 900 })
   await page.waitForFunction(() => getComputedStyle(document.querySelector('.app-rail')).flexDirection === 'column')
+  await page.locator('.sidebar').waitFor({ state: 'visible' })
   assert.equal(await selector.count(), 0)
   assert.equal(await page.locator('.sidebar').isVisible(), true)
   assert.equal(await page.locator('.app-rail').evaluate(el => el.getBoundingClientRect().width), 54)
@@ -159,7 +171,7 @@ try {
   checks.push('1280x900: desktop 54px vertical rail and permanent sidebar; mobile labels/selectors hidden')
   assert.deepEqual(errors, [])
   const git = (...args) => execFileSync('git', args, { encoding: 'utf8' }).trim()
-  const manifest = { branch: git('branch', '--show-current'), base: git('merge-base', 'HEAD', 'origin/main'), changedFiles: git('status', '--short'), command: `AGORA_BROWSER_PATH=${executablePath} nix develop path:. --command node scripts/mobile-navigation-smoke.mjs`, result: 'PASS', images, checks, pageErrors: errors, limitations: ['Chromium emulation, not physical iOS', 'Keyboard visibility simulated through visualViewport height; no physical virtual-keyboard evidence', 'Fictional fixtures, not live authenticated Hermes acceptance'] }
+  const manifest = { branch: git('branch', '--show-current'), base: git('merge-base', 'HEAD', 'origin/main'), changedFiles: git('status', '--short'), command: `AGORA_BROWSER_PATH=${executablePath} nix develop path:. --command node scripts/mobile-navigation-smoke.mjs`, result: 'PASS', images, checks, pageErrors: errors, limitations: ['Chromium emulation, not physical iOS', 'Bottom safe area simulated as 34px; physical home-indicator confirmation remains outstanding', 'Keyboard visibility simulated through visualViewport height; no physical virtual-keyboard evidence', 'Fictional fixtures, not live authenticated Hermes acceptance'] }
   await writeFile(resolve(output, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n')
   console.log(JSON.stringify(manifest, null, 2))
   await context.close()
