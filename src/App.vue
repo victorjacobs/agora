@@ -53,6 +53,7 @@ const menuButton = ref<HTMLButtonElement>()
 const closeMenuButton = ref<HTMLButtonElement>()
 const transcript = ref<HTMLElement>()
 const composer = ref<HTMLTextAreaElement>()
+const composerPointer = window.matchMedia('(pointer: coarse)')
 const slashPicker = ref<InstanceType<typeof SlashCommands>>()
 const following = ref(true)
 const dialog = ref<HTMLDialogElement>()
@@ -155,7 +156,7 @@ async function send() {
     state.images = images
   }
   if (state.running ? !chat.canSteer() : !chat.canSend()) return
-  const touchKeyboard = window.matchMedia('(pointer: coarse)').matches
+  const touchKeyboard = composerPointer.matches
   if (touchKeyboard) composer.value?.blur()
 
   if (state.running) await chat.steer()
@@ -167,6 +168,7 @@ async function send() {
 }
 
 function composerKey(event: KeyboardEvent) {
+  if (event.key === 'Enter' && composerPointer.matches) return
   if (slashPicker.value?.keydown(event)) return
   if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); void send() }
 }
@@ -368,7 +370,7 @@ onBeforeUnmount(() => { releaseViewport(); clearInterval(dateTimer); window.remo
           <ImageAttachments ref="attachments" :images="state.images" :scope="JSON.stringify([state.selected, state.profile])" :disabled="state.sending || state.readingImages || state.running || state.compressing || state.connection !== 'ready'" @add="state.images.push($event)" @remove="state.images = state.images.filter(image => image.id !== $event)" @error="state.error = $event" @busy="state.readingImages = $event" />
           <SlashCommands ref="slashPicker" :draft="state.draft" :scope="JSON.stringify([state.runtime, state.profile])" :connected="state.connection === 'ready'" :load="() => chat.commands()" @select="state.draft = $event; composer?.focus()" />
           <label class="sr-only" for="prompt">Message Hermes</label>
-          <textarea id="prompt" ref="composer" v-model="state.draft" :role="slashPicker?.visible ? 'combobox' : undefined" :aria-expanded="slashPicker?.visible ? true : undefined" :aria-controls="slashPicker?.visible ? 'slash-options' : undefined" :aria-activedescendant="slashPicker?.activeId" :aria-autocomplete="slashPicker?.visible ? 'list' : undefined" rows="2" placeholder="Message Hermes…" :title="state.running ? 'Enter to steer · Shift + Enter for a new line' : 'Enter to send · Shift + Enter for a new line'" :disabled="state.connection === 'expired' || state.connection === 'closed'" @keydown="composerKey"></textarea>
+          <textarea id="prompt" ref="composer" v-model="state.draft" :role="slashPicker?.visible ? 'combobox' : undefined" :aria-expanded="slashPicker?.visible ? true : undefined" :aria-controls="slashPicker?.visible ? 'slash-options' : undefined" :aria-activedescendant="slashPicker?.activeId" :aria-autocomplete="slashPicker?.visible ? 'list' : undefined" rows="2" enterkeyhint="enter" placeholder="Message Hermes…" :title="composerPointer.matches ? 'Enter for a new line' : state.running ? 'Enter to steer · Shift + Enter for a new line' : 'Enter to send · Shift + Enter for a new line'" :disabled="state.connection === 'expired' || state.connection === 'closed'" @keydown="composerKey"></textarea>
           <div class="composer-bottom">
             <div class="composer-options"><ComposerSettings :state="state" @model="chat.chooseModel($event)" @reasoning="chat.chooseReasoning($event)" @confirm="state.modelConfirmation && chat.chooseModel(state.modelConfirmation, true)" @cancel="state.modelConfirmation = undefined" @retry="chat.refreshSettings()" /></div>
             <button v-if="state.running" type="button" class="stop" :disabled="actionsDisabled" @click="chat.stop()">■ Stop</button>

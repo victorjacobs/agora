@@ -886,6 +886,74 @@ describe('chat interface', () => {
     expect(document.activeElement).not.toBe(input)
   })
 
+  it.each([false, true])('leaves touch Enter native without sending or steering (running: %s)', async running => {
+    vi.stubGlobal('matchMedia', vi.fn(query => ({ matches: query === '(pointer: coarse)' })))
+    const { host, client } = mountApp()
+    client.state.running = running
+    client.state.draft = 'First line'
+    const send = vi.spyOn(client, 'send').mockResolvedValue()
+    const steer = vi.spyOn(client, 'steer').mockResolvedValue()
+    await nextTick()
+    const input = host.querySelector<HTMLTextAreaElement>('textarea')!
+    for (const shiftKey of [false, true]) {
+      const enter = new KeyboardEvent('keydown', { key: 'Enter', shiftKey, bubbles: true, cancelable: true })
+      input.dispatchEvent(enter)
+      expect(enter.defaultPrevented).toBe(false)
+      expect(send).not.toHaveBeenCalled()
+      expect(steer).not.toHaveBeenCalled()
+    }
+    expect(client.state.draft).toBe('First line')
+  })
+
+  it.each([false, true])('submits exact multiline text only with the touch Send/Steer button (running: %s)', async running => {
+    vi.stubGlobal('matchMedia', vi.fn(query => ({ matches: query === '(pointer: coarse)' })))
+    const { host, client } = mountApp()
+    client.state.running = running
+    const submit = vi.spyOn(client, running ? 'steer' : 'send').mockImplementation(async () => {
+      expect(client.state.draft).toBe('First line\nSecond line')
+    })
+    await nextTick()
+    const input = host.querySelector<HTMLTextAreaElement>('textarea')!
+    expect(input.getAttribute('enterkeyhint')).toBe('enter')
+    expect(input.title).toBe('Enter for a new line')
+    input.value = 'First line\nSecond line'
+    input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertLineBreak' }))
+    await nextTick()
+    expect(submit).not.toHaveBeenCalled()
+    host.querySelector<HTMLButtonElement>('.composer .send')!.click()
+    expect(submit).toHaveBeenCalledOnce()
+  })
+
+  it.each([false, true])('leaves IME confirmation native (touch: %s)', async touch => {
+    vi.stubGlobal('matchMedia', vi.fn(query => ({ matches: touch && query === '(pointer: coarse)' })))
+    const { host, client } = mountApp()
+    client.state.draft = 'Composing text'
+    const send = vi.spyOn(client, 'send').mockResolvedValue()
+    await nextTick()
+    const enter = new KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true, cancelable: true })
+    host.querySelector('textarea')!.dispatchEvent(enter)
+    expect(enter.defaultPrevented).toBe(false)
+    expect(send).not.toHaveBeenCalled()
+    expect(client.state.draft).toBe('Composing text')
+  })
+
+  it('keeps touch Enter native even when slash suggestions are visible', async () => {
+    vi.stubGlobal('matchMedia', vi.fn(query => ({ matches: query === '(pointer: coarse)' })))
+    const { host, client } = mountApp()
+    vi.spyOn(client, 'commands').mockResolvedValue([{ name: '/help', description: 'Fictional help' }])
+    const send = vi.spyOn(client, 'send').mockResolvedValue()
+    client.state.draft = '/he'
+    await vi.waitFor(() => expect(host.querySelector('[role="option"]')).not.toBeNull())
+    const input = host.querySelector('textarea')!
+    const enter = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
+    input.dispatchEvent(enter)
+    expect(enter.defaultPrevented).toBe(false)
+    expect(client.state.draft).toBe('/he')
+    expect(send).not.toHaveBeenCalled()
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }))
+    expect(client.state.draft).toBe('/help ')
+  })
+
   it('sends on Enter, preserves Shift+Enter, and steers while running', async () => {
     const { host, client } = mountApp()
     const send = vi.spyOn(client, 'send').mockResolvedValue()
@@ -895,9 +963,13 @@ describe('chat interface', () => {
     input.value = 'synthetic question'
     input.dispatchEvent(new Event('input', { bubbles: true }))
     await nextTick()
-    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', shiftKey: true, bubbles: true, cancelable: true }))
+    const shiftEnter = new KeyboardEvent('keydown', { key: 'Enter', shiftKey: true, bubbles: true, cancelable: true })
+    input.dispatchEvent(shiftEnter)
+    expect(shiftEnter.defaultPrevented).toBe(false)
     expect(send).not.toHaveBeenCalled()
-    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+    const enter = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
+    input.dispatchEvent(enter)
+    expect(enter.defaultPrevented).toBe(true)
     expect(send).toHaveBeenCalledOnce()
     client.state.sessions = [{ id: 'stored', profile: 'work', title: 'Synthetic conversation' }]
     await nextTick()
