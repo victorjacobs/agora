@@ -52,7 +52,7 @@ sign-in. Agora provides the chat interface.
   Running tasks stay above the composer; finished tasks remain in the transcript.
 - Model and reasoning-effort choices scoped to each conversation.
 - Slash commands with server-provided suggestions: type `/`, choose with ↑/↓ and
-  Enter or Tab, add arguments, then send. Command output appears in the chat.
+  Tab (or Enter on desktop), or tap a suggestion, add arguments, then send. Command output appears in the chat.
 - Command approval cards with readable command text, **Allow once**, and **Reject**.
   Remembered approvals appear only when Hermes offers them. Clarification questions
   can be answered directly in chat.
@@ -68,7 +68,7 @@ sign-in. Agora provides the chat interface.
   Inputs clear on submission, cancellation, or disconnection. Requires Hermes's
   vault server-request hooks; this does not embed or control a browser in Agora.
 - New chats, history, rename, delete, and stop controls.
-- **Steer** a running turn with text from the composer, or press Enter. Hermes
+- **Steer** a running turn with text from the composer, or press Enter on desktop. Hermes
   accepts the guidance without interrupting the turn and applies it when safe;
   a compression race can queue it for a later turn. Images and approval prompts
   must be handled separately. Rejected steers stay in the draft; uncertain sends
@@ -206,6 +206,7 @@ After `direnv allow` and `npm ci`:
 | `npm run build` | Build the UI into `dist/`. |
 | `node tests/session-runtime.mjs [package-path]` | Real Node-process session smoke test with a synthetic PKCE upstream; verifies restart persistence, rotated refresh tokens, and durable logout. Optionally tests a built package path. |
 | `AGORA_BROWSER_PATH=/path/to/chromium node scripts/sudo-request-smoke.mjs` | Fictional HTTP/WebSocket fixtures: exact sudo submission, cancellation, withdrawal, replay, disconnect/recovery, no chat/storage leakage, and desktop/mobile/landscape controls. No real sudo execution or live Hermes access. |
+| `AGORA_BROWSER_PATH=/path/to/chromium node scripts/composer-enter-smoke.mjs` | Fictional HTTP/WebSocket fixtures: native Enter newlines on touch phones/tablets, exact multiline Send payloads, and unchanged desktop shortcuts, including narrow desktop windows. No live Hermes access. |
 | `agora-start` | Serve a built UI with the local Hermes connection service. |
 | `agora-screenshot` | Regenerate the README screenshots using sample data. |
 | `agora-icons` | Regenerate raster favicons from the original [icon](docs/branding/icon.png). |
@@ -380,8 +381,13 @@ keyboard/browser zoom remain available. Touch-device text fields use at least
 16px text to avoid iOS focus zoom. Physical iPhone/iPad gesture behavior still
 needs confirmation.
 
-On touch devices, submitting a message or steer dismisses the keyboard without
-reopening it when Hermes responds. Desktop submissions keep composer focus.
+On touch-first devices (the same coarse-pointer detection used for keyboard
+dismissal), Enter adds a native newline, including with an attached keyboard and
+in landscape. Use **Send** or **Steer** to submit. Desktop Enter sends or steers;
+Shift+Enter adds a newline. A narrow desktop window retains desktop shortcuts.
+Touch Enter also leaves slash suggestions untouched; tap a suggestion or use Tab.
+Submitting on touch devices dismisses the keyboard without reopening it when
+Hermes responds. Desktop submissions keep composer focus.
 
 Links in messages and reasoning traces request a separate browser context instead
 of replacing Agora. In an installed iOS/iPadOS PWA, ordinary HTTPS link clicks use
