@@ -99,6 +99,7 @@ export class ChatClient {
   private promptSyncRevision = 0
   private taskRevision = 0
   private taskRequest?: object
+  private taskRosterObservation?: { selection: number; connection: number }
   private processRequests = new Map<string, object>()
   private processStopRequests = new Map<string, object>()
   private processRevisions = new Map<string, Map<string, number>>()
@@ -685,7 +686,15 @@ export class ChatClient {
       })
       if (this.stopped || generation !== this.selectionGeneration || connection !== this.connectionGeneration || revision !== this.taskRevision) return
       if (!Array.isArray(roster.subagents)) return
-      this.state.tasks = anchorFinishedTasks(reconcileTasks(this.state.tasks, roster), this.state.messages)
+      const previous = this.state.tasks
+      // The first roster after recovery is not an observed completion of stale cached work.
+      const liveObservation = this.taskRosterObservation?.selection === generation && this.taskRosterObservation?.connection === connection
+      this.state.tasks = reconcileTasks(previous, roster).flatMap(task => {
+        const existing = previous.find(row => row.key === task.key)
+        const observed = Boolean(liveObservation && existing && (taskRunning(existing) || existing.status === 'unknown') && !taskRunning(task) && task.status !== 'unknown')
+        return anchorFinishedTasks([task], this.state.messages, observed)
+      })
+      this.taskRosterObservation = { selection: generation, connection }
       this.taskCache.set(this.taskScope(), this.state.tasks)
       this.state.taskError = ''
     } catch {
@@ -699,7 +708,7 @@ export class ChatClient {
     const tasks = taskEvent(this.state.tasks, event)
     if (tasks === this.state.tasks) return
     this.taskRevision++
-    this.state.tasks = anchorFinishedTasks(tasks, this.state.messages)
+    this.state.tasks = anchorFinishedTasks(tasks, this.state.messages, true)
     this.taskCache.set(this.taskScope(), this.state.tasks)
   }
 

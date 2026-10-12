@@ -335,22 +335,79 @@ last tool, and completion summaries are shown in the conversation. Recently fail
 delegations returned by Hermes also appear. Reasoning chunks are not displayed.
 Roster replies are guarded against session changes and newer live events.
 
-Observed completions remain in memory when switching conversations; Hermes's
-stored `async_delegation_complete` and `process_complete` rows appear as expandable
-timeline notices after reload. A child disappearing from the live roster is marked
-as no longer listed, not assumed successful. Its card is anchored during history
-recovery even if the roster probe fails; matching stored delegation notices provide
-its historical placement without inferring an individual child's outcome from
-aggregate completion counts. Unknown cards without a matching notice stay before
-the loaded transcript; recovery also discards older cached anchors to unrelated
-replies. Loading older messages can place the card after a newly found matching
-notice, and that verified notice anchor survives later bounded history recovery.
-Observed terminal-task anchors remain unchanged. A live child recovered from an
-unknown state returns
-to the pinned roster and clears its obsolete transcript anchor.
-Older gateways without `subagent.list`
-show a status-unavailable notice and can still display supported live events.
-`background.complete` side-agent results are also displayed when received.
+Observed completions remain in memory when switching conversations. The existing
+expandable saved-result renderer **predates this fix**: it already renders
+`async_delegation_complete` rows at their stored positions, including a cold
+refresh with an empty cache and roster. This change fixes placement and
+conservative deduplication, not individual-child rehydration or retrieval of older
+unloaded history. Running children remain pinned. `process_complete` rows also
+render as saved timeline notices.
+
+A shared display kind or delegation ID proves identity, **not child coverage**.
+Early single-child failure warnings retain every sibling's unique result and
+unknown card. The installed `tools/process_registry_notifications.py` formatter
+owns the first line: `[ASYNC DELEGATION COMPLETE — <id>]` for a single unit, or
+`[ASYNC DELEGATION BATCH COMPLETE — <id>]` for a consolidated unit. With matching
+metadata identity, these exact first-line envelopes establish historical
+**placement only**. They repair terminal/unknown anchors, including bad cached
+placements, without assigning individual outcomes. Early-warning envelopes do
+not establish a final-unit anchor.
+
+**Batch child deduplication is disabled.** Goals, context, recovery tails and child
+output are inserted verbatim, without escaping or framing. A quoted
+`--- ✓/✗/⚠ TASK ...` header can look identical to a real boundary. Even section
+counts, denominators, header sequences and matching summary text cannot prove
+child coverage from this raw body. Indexed and unindexed client children therefore
+remain beside the saved batch card, even for apparently canonical complete bodies.
+Duplicate-looking cards are an intentional tradeoff to preserve unique evidence;
+safe batch deduplication needs structured persisted child coverage upstream.
+
+For a single unit, the installed formatter always inserts one
+`\n--- RESULT ---\n` delimiter. Deduplication requires that exact delimiter and
+exactly one formatter-shaped `--- RESULT` occurrence in the whole message, plus
+any client summary appearing after that boundary. Quoted delimiters in goals,
+context or output, malformed/additional delimiters, missing delimiters and unsaved
+summaries retain the separate card. This is a narrow, source-verified formatter
+check, not a structured raw-text parsing guarantee. No statuses or child records
+are constructed from text.
+
+History recovery and older-page loading update the same conversation/profile
+cache even when the roster RPC fails. Without a matching final envelope, a cold
+terminal child stays before the loaded transcript, never at the latest reply;
+genuine observed anchors remain stable. Unsupported cached notification anchors
+are cleared rather than treated as evidence. Disappearance remains unknown, not
+successful. Recovering live activity clears the old anchor and returns the child
+to the pinned roster; an authoritative observed completion creates a fresh anchor.
+
+**Durability limit:** the installed gateway's
+`session_notifications._async_delegation_display_metadata` persists
+`delegation_id`, `task_count`, `completed_count`, `failed_count`, `display_text`,
+and optional `duration_seconds`. Its formatted message body contains the saved
+source and task results. It does not persist a structured child roster, child IDs,
+models, tool counts, or individual outcomes in that metadata. Agora therefore
+renders the existing saved batch card and its full text; it does not parse prose
+into invented children or assign aggregate outcomes to an unknown child. The
+early-warning `task_failure_notice` flag and result indexes are not persisted in
+this display metadata. Source inspection confirmed this in
+`tools/async_delegation.py:948–975` and
+`tui_gateway/session_notifications.py:782–794`; formatter-owned first lines,
+verbatim fields and the single inserted RESULT delimiter are in
+`tools/process_registry_notifications.py:142–156,159–175,195–241,263–299`.
+The current installed source was located through the `hermes` launcher and its
+Python environment's resolved `site-packages`, not an assumed source checkout.
+Synthetic unit/browser fixtures exercise early warnings plus successful, unknown
+and running siblings, conservative later batch placement, quoted delimiters in
+both single/batch context and output, fake goal headers, malformed formatter
+cases, and cold refresh. They are not an authenticated live Hermes test.
+
+Successful ended children are removed from the live registry; `subagent.list`
+can additionally return durable failed delegations. No matching **loaded** history
+means no recoverable saved result card yet: use **Load older messages** to recover
+older notices. Client-only results (including `background.complete`) cannot
+survive a cold reload after roster pruning unless Hermes retained a saved notice.
+Agora does not persist transcripts or child rosters in browser storage.
+Older gateways without `subagent.list` show a status-unavailable notice and can
+still display saved notices and supported live events.
 This is task visibility within chat, not a task-management interface or a global
 installation roster. It does not enumerate unrelated background shell processes
 or initiate `/background` side agents.
