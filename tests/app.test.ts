@@ -34,6 +34,40 @@ function mountApp(connection: 'ready' | 'connecting' = 'ready') {
 }
 
 describe('chat interface', () => {
+  it('uses a mobile modal selector and closes selection idempotently without losing the chat draft', async () => {
+    vi.stubGlobal('matchMedia', vi.fn(query => ({ matches: query === '(max-width: 760px)', addEventListener() {}, removeEventListener() {} })))
+    Object.defineProperties(HTMLDialogElement.prototype, {
+      showModal: { configurable: true, value() { this.open = true } },
+      close: { configurable: true, value() { this.open = false; this.dispatchEvent(new Event('close')) } },
+    })
+    vi.spyOn(ChatClient.prototype, 'pendingMemory').mockResolvedValue({ previews: [] })
+    const { host, client } = mountApp()
+    client.state.draft = 'Keep this draft'
+    await nextTick()
+    expect([...host.querySelectorAll('.rail-label')].map(label => label.textContent)).toEqual(['Chat', 'Results', 'Memory', 'Jobs'])
+    host.querySelector<HTMLButtonElement>('[aria-label="Memory"]')!.click()
+    await nextTick()
+    const selector = host.querySelector<HTMLButtonElement>('.mobile-selector')!
+    expect(selector.textContent).toContain('Pending updates')
+    selector.click()
+    await nextTick()
+    const sheet = host.querySelector<HTMLDialogElement>('.navigation-sheet')!
+    expect(sheet.open).toBe(true)
+    expect(sheet.querySelector('[aria-label="Memory sections"]')).not.toBeNull()
+    sheet.querySelector<HTMLButtonElement>('.session')!.click()
+    await nextTick()
+    expect(sheet.open).toBe(false)
+    sheet.dispatchEvent(new Event('close'))
+    await nextTick()
+    expect(sheet.open).toBe(false)
+    host.querySelector<HTMLButtonElement>('[aria-label="Chat"]')!.click()
+    await nextTick()
+    expect(client.state.draft).toBe('Keep this draft')
+    expect(client.state.runtime).toBe('runtime')
+    expect(client.state.profile).toBe('work')
+    Reflect.deleteProperty(HTMLDialogElement.prototype, 'showModal')
+    Reflect.deleteProperty(HTMLDialogElement.prototype, 'close')
+  })
   it('keeps processes beside pinned tasks, collapsed by default with individual output and Stop controls', async () => {
     const { host, client } = mountApp()
     client.state.processes = [{ id: 'p', command: 'sleep 100', status: 'running', uptime: 12, output: '<script>inert</script>\nready' }]
@@ -173,19 +207,66 @@ describe('chat interface', () => {
     expect(style.getPropertyValue('--app-top')).toBe('')
   })
 
-  it('preserves the layout while pinch zoom pans a smaller visual viewport', async () => {
+  it('hides mobile tabs only for a focused composer with a shrunken keyboard viewport', async () => {
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true, addEventListener() {}, removeEventListener() {} })))
+    vi.stubGlobal('innerHeight', 844)
     const viewport = Object.assign(new EventTarget(), { height: 844, offsetTop: 0, scale: 1 })
     vi.stubGlobal('visualViewport', viewport)
-    mountApp()
+    const { host, client } = mountApp()
+    client.state.draft = 'Keep this draft\nwith a newline'
     await nextTick()
+    const input = host.querySelector<HTMLTextAreaElement>('#prompt')!
+    input.focus(); await nextTick()
+    expect(host.querySelector('.keyboard-open')).toBeNull()
+    // Safari can resize both viewports, leaving their difference at zero.
+    vi.stubGlobal('innerHeight', 500)
+    viewport.height = 500
+    window.dispatchEvent(new Event('resize'))
+    viewport.dispatchEvent(new Event('resize')); await nextTick()
+    expect(host.querySelector('.keyboard-open')).not.toBeNull()
+    viewport.dispatchEvent(new Event('scroll')); await nextTick()
+    expect(host.querySelector('.keyboard-open')).not.toBeNull()
+    input.blur(); await nextTick()
+    expect(host.querySelector('.keyboard-open')).toBeNull()
+    vi.stubGlobal('innerHeight', 844)
+    viewport.height = 844
+    viewport.dispatchEvent(new Event('resize'))
+    input.focus(); await nextTick()
+    expect(host.querySelector('.keyboard-open')).toBeNull()
+    viewport.height = 500
+    viewport.dispatchEvent(new Event('resize')); await nextTick()
+    expect(host.querySelector('.keyboard-open')).not.toBeNull()
+    input.blur(); await nextTick()
+    expect(client.state.draft).toBe('Keep this draft\nwith a newline')
+  })
+
+  it('preserves the layout while pinch zoom pans a smaller visual viewport', async () => {
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true, addEventListener() {}, removeEventListener() {} })))
+    vi.stubGlobal('innerHeight', 844)
+    vi.stubGlobal('innerWidth', 390)
+    const viewport = Object.assign(new EventTarget(), { height: 844, offsetTop: 0, scale: 1 })
+    vi.stubGlobal('visualViewport', viewport)
+    const { host } = mountApp()
+    await nextTick()
+    const input = host.querySelector<HTMLTextAreaElement>('#prompt')!
+    input.focus(); await nextTick()
     Object.assign(viewport, { height: 422, offsetTop: 100, scale: 2 })
     viewport.dispatchEvent(new Event('resize'))
     viewport.dispatchEvent(new Event('scroll'))
     expect(document.documentElement.style.getPropertyValue('--app-height')).toBe('844px')
     expect(document.documentElement.style.getPropertyValue('--app-top')).toBe('0px')
-    Object.assign(viewport, { height: 600, offsetTop: 0, scale: 1 })
-    viewport.dispatchEvent(new Event('resize'))
-    expect(document.documentElement.style.getPropertyValue('--app-height')).toBe('600px')
+    expect(host.querySelector('.keyboard-open')).toBeNull()
+    // Rotation changes the unoccluded baseline even while an external keyboard is focused.
+    vi.stubGlobal('innerWidth', 700)
+    vi.stubGlobal('innerHeight', 390)
+    Object.assign(viewport, { height: 390, offsetTop: 0, scale: 1 })
+    window.dispatchEvent(new Event('resize')); await nextTick()
+    expect(document.documentElement.style.getPropertyValue('--app-height')).toBe('390px')
+    expect(host.querySelector('.keyboard-open')).toBeNull()
+    vi.stubGlobal('innerHeight', 200)
+    viewport.height = 200
+    viewport.dispatchEvent(new Event('resize')); await nextTick()
+    expect(host.querySelector('.keyboard-open')).not.toBeNull()
   })
 
   it('pins a chat locally without opening it and displays a separate pinned group', async () => {

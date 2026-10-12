@@ -88,12 +88,36 @@ const loginUrl = computed(() => `/login?next=${encodeURIComponent(window.locatio
 const checkingSession = computed(() => !state.identity && ['connecting', 'recovering', 'reconnecting'].includes(state.connection))
 const showSignIn = computed(() => !state.identity && state.connection !== 'ready')
 
-async function toggleSidebar() {
-  sidebarOpen.value = !sidebarOpen.value
-  await nextTick()
-  if (sidebarOpen.value) closeMenuButton.value?.focus()
-  else menuButton.value?.focus()
+const mobileMedia = window.matchMedia('(max-width: 760px)')
+const mobile = ref(mobileMedia.matches)
+const navigationSheet = ref<HTMLDialogElement>()
+const composerFocused = ref(false)
+const keyboardVisible = ref(false)
+const mobileSelectorTitle = computed(() => {
+  if (view.value === 'memory') return memoryTitle.value
+  if (view.value === 'results') return resultJobs.value.find(job => job.id === resultJob.value)?.name || resultJob.value || 'All results'
+  const job = cronJobs.value.find(job => job.id === cronView.value?.selected)
+  return job ? job.name || job.id : 'Choose a job'
+})
+let navigationFocus: HTMLElement | null = null
+
+function closeSidebar() { sidebarOpen.value = false }
+function openSidebar() {
+  navigationFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+  sidebarOpen.value = true
 }
+watch(sidebarOpen, async open => {
+  if (open && mobile.value) {
+    navigationSheet.value?.showModal()
+    await nextTick()
+    closeMenuButton.value?.focus()
+  } else {
+    if (navigationSheet.value?.open) navigationSheet.value.close()
+    if (navigationFocus?.isConnected) navigationFocus.focus()
+    navigationFocus = null
+  }
+}, { flush: 'post' })
+function changeMobile() { closeSidebar(); mobile.value = mobileMedia.matches }
 
 function openSwitcher() {
   view.value = 'chat'
@@ -217,6 +241,7 @@ watch(() => state.tasks.map(task => [task.key, task.status]), () => {
 }, { flush: 'post' })
 watch([() => state.draft, composer], resizeComposer, { flush: 'post' })
 watch(showSignIn, value => {
+  if (value) closeSidebar()
   if (value && switcherOpen.value) {
     switcher.value?.close()
     switcherOpen.value = false
@@ -229,16 +254,26 @@ onMounted(() => {
   const viewport = window.visualViewport
   if (viewport) {
     const style = document.documentElement.style
+    let unoccludedHeight = Math.max(window.innerHeight, viewport.height)
+    let viewportWidth = window.innerWidth
     const fitViewport = () => {
       // Pinch zoom must pan the existing layout, not shrink/reposition the app.
       if (viewport.scale !== 1) return
+      // Keep the pre-keyboard height: WebKit can shrink innerHeight as well.
+      if (!composerFocused.value || window.innerWidth !== viewportWidth) {
+        unoccludedHeight = Math.max(window.innerHeight, viewport.height)
+        viewportWidth = window.innerWidth
+      }
       style.setProperty('--app-height', `${viewport.height}px`)
       style.setProperty('--app-top', `${viewport.offsetTop}px`)
+      keyboardVisible.value = composerPointer.matches && unoccludedHeight - viewport.height > 120
     }
     fitViewport()
+    window.addEventListener('resize', fitViewport)
     viewport.addEventListener('resize', fitViewport)
     viewport.addEventListener('scroll', fitViewport)
     releaseViewport = () => {
+      window.removeEventListener('resize', fitViewport)
       viewport.removeEventListener('resize', fitViewport)
       viewport.removeEventListener('scroll', fitViewport)
       style.removeProperty('--app-height')
@@ -249,8 +284,9 @@ onMounted(() => {
   dateTimer = setInterval(() => { currentDate.value = new Date() }, 60_000)
   window.addEventListener('resize', resizeComposer)
   window.addEventListener('keydown', globalKey)
+  mobileMedia.addEventListener?.('change', changeMobile)
 })
-onBeforeUnmount(() => { releaseViewport(); clearInterval(dateTimer); window.removeEventListener('resize', resizeComposer); window.removeEventListener('keydown', globalKey); notifications.dispose(); chat.dispose() })
+onBeforeUnmount(() => { if (navigationSheet.value?.open) navigationSheet.value.close(); mobileMedia.removeEventListener?.('change', changeMobile); releaseViewport(); clearInterval(dateTimer); window.removeEventListener('resize', resizeComposer); window.removeEventListener('keydown', globalKey); notifications.dispose(); chat.dispose() })
 </script>
 
 <template>
@@ -260,20 +296,21 @@ onBeforeUnmount(() => { releaseViewport(); clearInterval(dateTimer); window.remo
     <p v-if="state.error" class="startup-error" role="alert">{{ state.error }}</p>
   </main>
   <SignInPage v-else-if="showSignIn" :login-url="loginUrl" :connection="state.connection" :error="state.error" @retry="chat.connect()" />
-  <div v-else class="shell" @keydown.esc="sidebarOpen && toggleSidebar()">
-    <button v-if="sidebarOpen" class="sidebar-backdrop" aria-label="Close navigation" @click="toggleSidebar()"></button>
+  <div v-else class="shell" :class="{ 'keyboard-open': view === 'chat' && composerFocused && keyboardVisible }">
+    <dialog ref="navigationSheet" class="navigation-sheet" :aria-label="view === 'chat' ? 'Choose a conversation' : view === 'memory' ? 'Choose a memory section' : view === 'results' ? 'Choose result jobs' : 'Choose a job'" @cancel.prevent="closeSidebar" @close="closeSidebar" @click="($event.target === navigationSheet) && closeSidebar()"><div id="mobile-navigation-content"></div></dialog>
     <nav class="app-rail" aria-label="Application views">
-      <button :class="{ active: view === 'chat' }" :aria-current="view === 'chat' ? 'page' : undefined" aria-label="Chat" title="Chat" @click="view = 'chat'; sidebarOpen = false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M5 4h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-6 4V6a2 2 0 0 1 2-2Z" /></svg></button>
-      <button :class="{ active: view === 'results' }" :aria-current="view === 'results' ? 'page' : undefined" aria-label="Results" title="Results" @click="view = 'results'; sidebarOpen = false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2" /><path d="M8 8h8M8 12h8M8 16h5" /></svg></button>
-      <button :class="{ active: view === 'memory' }" :aria-current="view === 'memory' ? 'page' : undefined" aria-label="Memory" title="Memory" @click="view = 'memory'; sidebarOpen = false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M12 5c-3-4-8-1-7 3-4 1-4 7 0 8-1 4 5 6 7 2V5Zm0 0c3-4 8-1 7 3 4 1 4 7 0 8 1 4-5 6-7 2V5ZM5 8l3 2m-3 6 3-2m11-6-3 2m3 6-3-2" /></svg><span v-if="memoryRequests.length" class="rail-badge">{{ memoryRequests.length }}</span></button>
-      <button :class="{ active: view === 'cron' }" :aria-current="view === 'cron' ? 'page' : undefined" aria-label="Cron jobs" title="Cron jobs" @click="view = 'cron'; sidebarOpen = false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 6v6l4 2" /></svg></button>
+      <button :class="{ active: view === 'chat' }" :aria-current="view === 'chat' ? 'page' : undefined" aria-label="Chat" title="Chat" @click="view = 'chat'; sidebarOpen = false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M5 4h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-6 4V6a2 2 0 0 1 2-2Z" /></svg><span class="rail-label">Chat</span></button>
+      <button :class="{ active: view === 'results' }" :aria-current="view === 'results' ? 'page' : undefined" aria-label="Results" title="Results" @click="view = 'results'; sidebarOpen = false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2" /><path d="M8 8h8M8 12h8M8 16h5" /></svg><span class="rail-label">Results</span></button>
+      <button :class="{ active: view === 'memory' }" :aria-current="view === 'memory' ? 'page' : undefined" aria-label="Memory" title="Memory" @click="view = 'memory'; sidebarOpen = false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M12 5c-3-4-8-1-7 3-4 1-4 7 0 8-1 4 5 6 7 2V5Zm0 0c3-4 8-1 7 3 4 1 4 7 0 8 1 4-5 6-7 2V5ZM5 8l3 2m-3 6 3-2m11-6-3 2m3 6-3-2" /></svg><span v-if="memoryRequests.length" class="rail-badge">{{ memoryRequests.length }}</span><span class="rail-label">Memory</span></button>
+      <button :class="{ active: view === 'cron' }" :aria-current="view === 'cron' ? 'page' : undefined" :aria-label="mobile ? 'Jobs' : 'Cron jobs'" title="Cron jobs" @click="view = 'cron'; sidebarOpen = false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 6v6l4 2" /></svg><span class="rail-label">Jobs</span></button>
     </nav>
+    <Teleport defer to="#mobile-navigation-content" :disabled="!mobile">
     <aside class="sidebar" :class="{ open: sidebarOpen }" :aria-label="view === 'chat' ? 'Conversations' : view === 'memory' ? 'Memory navigation' : view === 'results' ? 'Results navigation' : 'Cron navigation'">
       <div class="sidebar-heading">
-        <h2>{{ view === 'chat' ? 'Chats' : view === 'memory' ? 'Memory' : view === 'results' ? 'Results' : 'Cron' }}</h2>
-        <button ref="closeMenuButton" class="mobile-close text-button" :aria-label="view === 'chat' ? 'Close conversations' : view === 'memory' ? 'Close memory navigation' : view === 'results' ? 'Close results navigation' : 'Close cron navigation'" @click="toggleSidebar()">×</button>
-        <button v-if="view === 'chat'" class="new-chat text-button" :disabled="actionsDisabled" aria-label="New chat" title="New chat" @click="view = 'chat'; sidebarOpen = false; following = true; chat.newChat()"><span aria-hidden="true">＋</span></button>
-        <button v-if="view === 'cron'" class="new-chat text-button" :disabled="!cronView?.ready || cronView?.busy" aria-label="New cron job" title="New cron job" @click="cronView?.newJob(); sidebarOpen = false"><span aria-hidden="true">＋</span></button>
+        <h2>{{ mobile ? (view === 'chat' ? 'Conversations' : view === 'memory' ? 'Choose a section' : view === 'results' ? 'Choose result jobs' : 'Choose a job') : (view === 'chat' ? 'Chats' : view === 'memory' ? 'Memory' : view === 'results' ? 'Results' : 'Cron') }}</h2>
+        <button ref="closeMenuButton" class="mobile-close text-button" :aria-label="view === 'chat' ? 'Close conversations' : view === 'memory' ? 'Close memory navigation' : view === 'results' ? 'Close results navigation' : 'Close cron navigation'" @click="closeSidebar()">×</button>
+        <button v-if="view === 'chat'" class="new-chat text-button" :disabled="actionsDisabled" aria-label="New chat" title="New chat" @click="view = 'chat'; sidebarOpen = false; following = true; chat.newChat()"><span aria-hidden="true">{{ mobile ? '+' : '＋' }}</span></button>
+        <button v-if="view === 'cron' && !mobile" class="new-chat text-button" :disabled="!cronView?.ready || cronView?.busy" aria-label="New cron job" title="New cron job" @click="cronView?.newJob(); sidebarOpen = false"><span aria-hidden="true">＋</span></button>
       </div>
       <div v-if="view === 'chat'" class="chat-search">
         <input type="search" aria-label="Search chats" placeholder="Search chats" :value="state.searchQuery" @input="chat.searchConversations(($event.target as HTMLInputElement).value)" @keydown.esc.stop="chat.searchConversations('')" />
@@ -310,23 +347,26 @@ onBeforeUnmount(() => { releaseViewport(); clearInterval(dateTimer); window.remo
         <button v-for="section in memorySections" :key="section.id" class="session" :class="{ selected: memorySection === section.id }" :aria-current="memorySection === section.id ? 'page' : undefined" @click="memorySection = section.id; sidebarOpen = false"><span class="session-heading"><span class="session-title">{{ section.title }}</span><span v-if="section.id === 'pending' && memoryRequests.length" class="memory-section-count">{{ memoryRequests.length }}</span></span></button>
       </nav>
       <nav v-else-if="view === 'results'" class="session-list" aria-label="Result jobs"><button class="session" :class="{ selected: !resultJob }" :aria-current="!resultJob ? 'page' : undefined" @click="resultJob = ''; sidebarOpen = false"><span class="session-title">All results</span></button><h2 class="session-group-heading">Jobs</h2><button v-for="job in resultJobs" :key="job.id" class="session" :class="{ selected: resultJob === job.id }" :aria-current="resultJob === job.id ? 'page' : undefined" @click="resultJob = job.id; sidebarOpen = false"><span class="session-title">{{ job.name || job.id }}</span></button></nav>
-      <nav v-else class="session-list" aria-label="Scheduled jobs"><button v-for="job in cronJobs" :key="job.id" class="session" :class="{ selected: cronView?.selected === job.id }" :disabled="cronView?.busy" @click="cronView?.select(job.id); sidebarOpen = false"><span class="session-heading"><span class="session-title">{{ job.name || job.id }}</span><svg v-if="job.enabled === false || job.state === 'paused'" class="cron-paused" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" role="img" aria-label="Paused"><path d="M8 5v14M16 5v14" /></svg></span></button></nav>
+      <nav v-else class="session-list" aria-label="Scheduled jobs"><button v-for="job in cronJobs" :key="job.id" class="session" :class="{ selected: cronView?.selected === job.id }" :aria-current="cronView?.selected === job.id ? 'page' : undefined" :disabled="cronView?.busy" @click="cronView?.select(job.id); sidebarOpen = false"><span class="session-heading"><span class="session-title">{{ job.name || job.id }}</span><svg v-if="job.enabled === false || job.state === 'paused'" class="cron-paused" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" role="img" aria-label="Paused"><path d="M8 5v14M16 5v14" /></svg></span><span v-if="mobile && job.schedule_display" class="job-selector-meta">{{ job.schedule_display }}</span></button></nav>
       <div v-show="view === 'chat'" class="sidebar-footer">
         <NotificationToggle :state="notificationSettings" @toggle="notifications.toggle()" />
         <ProviderQuota :providers="state.modelProviders" :current-provider="state.provider" :profile="state.profile" :connected="state.connection === 'ready'" :load="(provider, profile) => chat.providerQuota(provider, profile)" />
       </div>
+      <button v-if="mobile && view === 'cron'" class="sheet-new-job" :disabled="!cronView?.ready || cronView?.busy" @click="cronView?.newJob(); sidebarOpen = false"><span aria-hidden="true">+</span> New job</button>
     </aside>
+    </Teleport>
 
     <main :inert="sidebarOpen">
       <header class="conversation-header">
-        <button ref="menuButton" class="mobile-menu" :aria-label="view === 'chat' ? 'Open conversations' : view === 'memory' ? 'Open memory navigation' : view === 'results' ? 'Open results navigation' : 'Open cron navigation'" :aria-expanded="sidebarOpen" @click="toggleSidebar()">☰</button>
-        <div class="conversation-heading"><h1>{{ view === 'memory' ? memoryTitle : view === 'cron' ? 'Cron jobs' : view === 'results' ? 'Results' : state.title }}</h1></div>
+        <button v-if="view === 'chat'" ref="menuButton" class="mobile-menu" aria-label="Open conversations" aria-haspopup="dialog" :aria-expanded="sidebarOpen" @click="openSidebar()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M5 4h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-6 4V6a2 2 0 0 1 2-2Z" /></svg></button>
+        <div class="conversation-heading"><h1>{{ view === 'memory' ? (mobile ? 'Memory' : memoryTitle) : view === 'cron' ? (mobile ? 'Jobs' : 'Cron jobs') : view === 'results' ? 'Results' : state.title }}</h1></div>
         <div v-if="state.selected && view === 'chat'" class="header-actions">
           <ConversationPin :pinned="pins.isPinned(currentSession)" :disabled="state.connection !== 'ready'" @toggle="pins.toggle(currentSession)" />
           <button :disabled="actionsDisabled" @click="showDialog('rename')">Rename</button>
           <button :disabled="actionsDisabled || state.running || state.sending" @click="showDialog('delete')">Delete</button>
         </div>
       </header>
+      <div v-if="view !== 'chat'" class="mobile-selector-row"><button class="mobile-selector" aria-haspopup="dialog" :aria-expanded="sidebarOpen" :disabled="view === 'cron' && cronView?.busy" @click="openSidebar()"><span>{{ mobileSelectorTitle }}</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg></button></div>
 
       <div v-if="state.error" class="banner warning" role="alert"><span>{{ state.error }}</span><button v-if="state.connection === 'failed'" @click="chat.connect()">Retry connection</button><button v-else class="text-button" aria-label="Dismiss error" @click="state.error = ''">×</button></div>
       <div v-if="state.uncertain" class="banner warning" role="alert"><div>The last send may have reached Hermes. Check the recovered conversation before sending again. Your draft is retained.</div><button :disabled="state.connection !== 'ready'" @click="chat.acknowledgeUncertain()">I’ve checked; keep editing</button></div>
@@ -370,7 +410,7 @@ onBeforeUnmount(() => { releaseViewport(); clearInterval(dateTimer); window.remo
           <ImageAttachments ref="attachments" :images="state.images" :scope="JSON.stringify([state.selected, state.profile])" :disabled="state.sending || state.readingImages || state.running || state.compressing || state.connection !== 'ready'" @add="state.images.push($event)" @remove="state.images = state.images.filter(image => image.id !== $event)" @error="state.error = $event" @busy="state.readingImages = $event" />
           <SlashCommands ref="slashPicker" :draft="state.draft" :scope="JSON.stringify([state.runtime, state.profile])" :connected="state.connection === 'ready'" :load="() => chat.commands()" @select="state.draft = $event; composer?.focus()" />
           <label class="sr-only" for="prompt">Message Hermes</label>
-          <textarea id="prompt" ref="composer" v-model="state.draft" :role="slashPicker?.visible ? 'combobox' : undefined" :aria-expanded="slashPicker?.visible ? true : undefined" :aria-controls="slashPicker?.visible ? 'slash-options' : undefined" :aria-activedescendant="slashPicker?.activeId" :aria-autocomplete="slashPicker?.visible ? 'list' : undefined" rows="2" enterkeyhint="enter" placeholder="Message Hermes…" :title="composerPointer.matches ? 'Enter for a new line' : state.running ? 'Enter to steer · Shift + Enter for a new line' : 'Enter to send · Shift + Enter for a new line'" :disabled="state.connection === 'expired' || state.connection === 'closed'" @keydown="composerKey"></textarea>
+          <textarea id="prompt" ref="composer" v-model="state.draft" @focus="composerFocused = true" @blur="composerFocused = false" :role="slashPicker?.visible ? 'combobox' : undefined" :aria-expanded="slashPicker?.visible ? true : undefined" :aria-controls="slashPicker?.visible ? 'slash-options' : undefined" :aria-activedescendant="slashPicker?.activeId" :aria-autocomplete="slashPicker?.visible ? 'list' : undefined" rows="2" enterkeyhint="enter" placeholder="Message Hermes…" :title="composerPointer.matches ? 'Enter for a new line' : state.running ? 'Enter to steer · Shift + Enter for a new line' : 'Enter to send · Shift + Enter for a new line'" :disabled="state.connection === 'expired' || state.connection === 'closed'" @keydown="composerKey"></textarea>
           <div class="composer-bottom">
             <div class="composer-options"><ComposerSettings :state="state" @model="chat.chooseModel($event)" @reasoning="chat.chooseReasoning($event)" @confirm="state.modelConfirmation && chat.chooseModel(state.modelConfirmation, true)" @cancel="state.modelConfirmation = undefined" @retry="chat.refreshSettings()" /></div>
             <button v-if="state.running" type="button" class="stop" :disabled="actionsDisabled" @click="chat.stop()">■ Stop</button>

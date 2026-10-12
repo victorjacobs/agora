@@ -80,6 +80,11 @@ sign-in. Agora provides the chat interface.
   suspended apps require Web Push, which is not implemented. HTTPS or localhost
   and desktop browser notification support are required.
 - Automatic light/dark appearance and a layout that works on desktop and mobile.
+  Mobile uses labelled **Chat**, **Results**, **Memory**, and **Jobs** bottom tabs.
+  Full-width selectors open bottom sheets for result jobs, memory sections, and
+  scheduled jobs; the chat-header conversation button opens the chat picker.
+  The desktop rail and permanent sidebar are unchanged. Tabs hide while the
+  focused composer has a shrunken virtual-keyboard viewport and return on blur.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/chat-dark.png">
@@ -207,6 +212,7 @@ After `direnv allow` and `npm ci`:
 | `node tests/session-runtime.mjs [package-path]` | Real Node-process session smoke test with a synthetic PKCE upstream; verifies restart persistence, rotated refresh tokens, and durable logout. Optionally tests a built package path. |
 | `AGORA_BROWSER_PATH=/path/to/chromium node scripts/sudo-request-smoke.mjs` | Fictional HTTP/WebSocket fixtures: exact sudo submission, cancellation, withdrawal, replay, disconnect/recovery, no chat/storage leakage, and desktop/mobile/landscape controls. No real sudo execution or live Hermes access. |
 | `AGORA_BROWSER_PATH=/path/to/chromium node scripts/composer-enter-smoke.mjs` | Fictional HTTP/WebSocket fixtures: native Enter newlines on a wide touch tablet, exact multiline Send payloads, and unchanged shortcuts in a narrow non-touch desktop window. No live Hermes access. |
+| `AGORA_BROWSER_PATH=/path/to/chromium node scripts/mobile-navigation-smoke.mjs` | Actual full-app navigation with fictional HTTP/WebSocket fixtures at 390×844 and 1280×900. Checks selectors, modal closing/focus, draft preservation, and simulated keyboard layout; captures dark screenshots and a provenance manifest. Set `AGORA_EVIDENCE_DIR` to choose the output directory. No live Hermes access or physical-device keyboard claim. |
 | `agora-start` | Serve a built UI with the local Hermes connection service. |
 | `agora-screenshot` | Regenerate the README screenshots using sample data. |
 | `agora-icons` | Regenerate raster favicons from the original [icon](docs/branding/icon.png). |
