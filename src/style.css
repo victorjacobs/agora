@@ -24,6 +24,7 @@ a { color: var(--link); text-underline-offset: 3px; }
 .session-list { flex: 1; overflow-y: auto; min-height: 0; }
 .session { display: block; text-align: left; width: 100%; padding: 7px 13px; margin: 1px 0; border: 1px solid transparent; background: transparent; }
 .session-row { position: relative; }
+.session-list .session-row > .session { padding-right: 44px; }
 .session-row > .conversation-pin { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); opacity: 0; pointer-events: none; background: var(--sidebar); box-shadow: -6px 0 6px var(--sidebar); }
 .session-row:has(.session.selected) > .conversation-pin { background: var(--selected); box-shadow: -6px 0 6px var(--selected); }
 .session-row:hover > .conversation-pin, .session-row:focus-within > .conversation-pin { opacity: 1; pointer-events: auto; }

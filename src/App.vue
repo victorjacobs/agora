@@ -4,6 +4,7 @@ import { ChatClient, initialState } from './hermes/chat'
 import NotificationToggle from './NotificationToggle.vue'
 import { notificationState, ReplyNotifications } from './reply-notifications'
 import ConversationPin from './ConversationPin.vue'
+import ConversationIndicators from './ConversationIndicators.vue'
 import { conversationKey, usePinnedConversations } from './pinned-conversations'
 import { groupSessions } from './session-groups'
 import { conversationTimeline } from './hermes/transcript'
@@ -334,9 +335,7 @@ onBeforeUnmount(() => { if (navigationSheet.value?.open) navigationSheet.value.c
           <div v-for="session in group.sessions" :key="conversationKey(session)" class="session-row"><button class="session" :class="{ selected: conversationKey(session) === conversationKey(currentSession) }" :aria-current="conversationKey(session) === conversationKey(currentSession) ? 'page' : undefined" :disabled="['connecting', 'reconnecting', 'expired', 'closed'].includes(state.connection)" @click="selectSession(session)">
             <span class="session-heading">
               <span class="session-title">{{ session.title || 'Untitled conversation' }}</span>
-              <span v-if="chat.hasUnreadReply(session)" class="unread-reply" role="img" aria-label="Unread response" title="Unread response"></span>
-              <span v-if="chat.sessionStatus(session)" class="session-indicator" :class="{ waiting: chat.sessionStatus(session) === 'waiting' }" :aria-label="chat.sessionStatus(session) === 'waiting' ? 'Waiting for input' : 'Running'" :title="chat.sessionStatus(session) === 'waiting' ? 'Waiting for input' : 'Running'" role="img"></span>
-              <svg v-if="chat.sessionProcessCount(session)" class="session-process-indicator" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" role="img" :aria-label="chat.sessionProcessCount(session) === 1 ? 'Background process running' : `${chat.sessionProcessCount(session)} background processes running`"><title>{{ chat.sessionProcessCount(session) === 1 ? 'Background process running' : `${chat.sessionProcessCount(session)} background processes running` }}</title><rect x="3" y="5" width="18" height="14" rx="2" /><path d="m7 9 3 3-3 3m6 0h4" /></svg>
+              <ConversationIndicators :status="chat.sessionStatus(session)" :process-count="chat.sessionProcessCount(session)" :unread="chat.hasUnreadReply(session)" />
             </span>
           </button><ConversationPin :pinned="pins.isPinned(session)" :disabled="state.connection !== 'ready'" @toggle="pins.toggle(session)" /></div>
         </section>
@@ -421,7 +420,7 @@ onBeforeUnmount(() => { if (navigationSheet.value?.open) navigationSheet.value.c
       </footer>
     </main>
 
-    <ConversationSwitcher ref="switcher" :sessions="visibleSessions" :query="state.searchQuery" :loading="searching ? state.searchLoading : state.listLoading" :error="state.searchError || state.listError" :selected="state.selected" :limited="searching && state.searchResults.length >= 100" :has-more="state.sessions.length < state.total" :more-loading="state.listLoading" @search="chat.searchConversations($event)" @select="selectSession" @close="closeSwitcher" @retry="searching ? chat.searchConversations(state.searchQuery) : chat.refreshSessions()" @more="chat.refreshSessions(true)" />
+    <ConversationSwitcher ref="switcher" :sessions="visibleSessions" :session-status="session => chat.sessionStatus(session)" :process-count="session => chat.sessionProcessCount(session)" :has-unread="session => chat.hasUnreadReply(session)" :is-pinned="pins.isPinned" :query="state.searchQuery" :loading="searching ? state.searchLoading : state.listLoading" :error="state.searchError || state.listError" :selected="state.selected" :limited="searching && state.searchResults.length >= 100" :has-more="state.sessions.length < state.total" :more-loading="state.listLoading" @search="chat.searchConversations($event)" @select="selectSession" @close="closeSwitcher" @retry="searching ? chat.searchConversations(state.searchQuery) : chat.refreshSessions()" @more="chat.refreshSessions(true)" />
     <dialog ref="dialog" @cancel="mutationPending && $event.preventDefault()">
       <form @submit.prevent="mutate">
         <h2>{{ dialogKind === 'rename' ? 'Rename conversation' : 'Delete conversation?' }}</h2>

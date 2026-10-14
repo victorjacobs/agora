@@ -136,6 +136,55 @@ describe('chat interface', () => {
     expect(row.querySelector('.session-indicator, .session-process-indicator')).toBeNull()
   })
 
+  it('shares live activity and unread marks between the mobile picker and search switcher', async () => {
+    vi.stubGlobal('matchMedia', vi.fn(query => ({ matches: query === '(max-width: 760px)', addEventListener() {}, removeEventListener() {} })))
+    Object.defineProperties(HTMLDialogElement.prototype, {
+      showModal: { configurable: true, value() { this.open = true } },
+      close: { configurable: true, value() { this.open = false; this.dispatchEvent(new Event('close')) } },
+    })
+    const { host, client } = mountApp()
+    const unmount = cleanup
+    cleanup = () => {
+      unmount()
+      Reflect.deleteProperty(HTMLDialogElement.prototype, 'showModal')
+      Reflect.deleteProperty(HTMLDialogElement.prototype, 'close')
+    }
+    client.state.sessions = [{ id: 'stored', title: 'Fictional active chat', profile: 'work' }]
+    client.state.running = true
+    client.state.unreadReplies = [{ id: 'stored', profile: 'work' }]
+    client.state.processes = [{ id: 'process', command: 'sleep', status: 'running', uptime: 1, output: '' }]
+    vi.spyOn(client, 'searchConversations').mockImplementation(query => { client.state.searchQuery = query })
+    await nextTick()
+    host.querySelector<HTMLButtonElement>('[aria-label="Open conversations"]')!.click()
+    await nextTick()
+    const sheet = host.querySelector<HTMLDialogElement>('.navigation-sheet')!
+    expect(sheet.open).toBe(true)
+    sheet.querySelector<HTMLButtonElement>('[aria-label="Pin conversation"]')!.click()
+    sheet.querySelector<HTMLButtonElement>('[aria-label="Switch conversation"]')!.click()
+    await nextTick()
+    const option = host.querySelector('.conversation-switcher [role="option"]')!
+    const row = sheet.querySelector('.session-row')!
+    for (const target of [option, row]) {
+      expect(target.querySelector('[aria-label="Running"]')).not.toBeNull()
+      expect(target.querySelector('[aria-label="Background process running"]')).not.toBeNull()
+      expect(target.querySelector('[aria-label="Unread response"]')).not.toBeNull()
+    }
+    expect(option.querySelector('[aria-label="Pinned conversation"]')).not.toBeNull()
+    expect(option.querySelector('button')).toBeNull()
+    client.state.requests = [{ id: 'question', method: 'clarification', params: {} }]
+    await nextTick()
+    for (const target of [option, row]) {
+      expect(target.querySelector('[aria-label="Waiting for input"]')).not.toBeNull()
+      expect(target.querySelector('[aria-label="Background process running"]')).not.toBeNull()
+    }
+    client.state.running = false
+    client.state.requests = []
+    client.state.processes[0]!.status = 'unknown'
+    client.state.unreadReplies = []
+    await nextTick()
+    for (const target of [option, row]) expect(target.querySelector('.session-indicator, .session-process-indicator, .unread-reply')).toBeNull()
+  })
+
   it('renders safe user Markdown without changing its source text', async () => {
     const { host, client } = mountApp()
     const text = '**Safe** <script>alert(1)</script> <img src=x onerror=alert(1)> [Unsafe](javascript:alert(1))'
