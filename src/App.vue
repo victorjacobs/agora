@@ -192,6 +192,11 @@ async function send() {
   if (!touchKeyboard) composer.value?.focus()
 }
 
+function keepComposerFocus(event: PointerEvent) {
+  // Blur restores the mobile tabs and moves the submit target before click.
+  if (composerPointer.matches && composerFocused.value && keyboardVisible.value && event.isPrimary && event.button === 0 && !(event.currentTarget as HTMLButtonElement).disabled) event.preventDefault()
+}
+
 function composerKey(event: KeyboardEvent) {
   if (event.key === 'Enter' && composerPointer.matches) return
   if (slashPicker.value?.keydown(event)) return
@@ -413,8 +418,8 @@ onBeforeUnmount(() => { if (navigationSheet.value?.open) navigationSheet.value.c
           <div class="composer-bottom">
             <div class="composer-options"><ComposerSettings :state="state" @model="chat.chooseModel($event)" @reasoning="chat.chooseReasoning($event)" @confirm="state.modelConfirmation && chat.chooseModel(state.modelConfirmation, true)" @cancel="state.modelConfirmation = undefined" @retry="chat.refreshSettings()" /></div>
             <button v-if="state.running" type="button" class="stop" :disabled="actionsDisabled" @click="chat.stop()">■ Stop</button>
-            <button v-if="state.running" class="primary send" :disabled="!chat.canSteer()" type="submit" title="Send guidance to the running turn without interrupting it">{{ state.sending ? 'Steering…' : 'Steer ↑' }}</button>
-            <button v-else class="primary send" :disabled="state.runtime ? !chat.canSend() : state.connection !== 'ready' || state.settingsPending || state.readingImages || (!state.draft.trim() && !state.images.length)" type="submit">{{ state.sending ? 'Sending…' : 'Send ↑' }}</button>
+            <button v-if="state.running" class="primary send" @pointerdown="keepComposerFocus" :disabled="!chat.canSteer()" type="submit" title="Send guidance to the running turn without interrupting it">{{ state.sending ? 'Steering…' : 'Steer ↑' }}</button>
+            <button v-else class="primary send" @pointerdown="keepComposerFocus" :disabled="state.runtime ? !chat.canSend() : state.connection !== 'ready' || state.settingsPending || state.readingImages || (!state.draft.trim() && !state.images.length)" type="submit">{{ state.sending ? 'Sending…' : 'Send ↑' }}</button>
           </div>
         </form>
       </footer>
