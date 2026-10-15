@@ -1,8 +1,15 @@
 <script setup lang="ts">
 import { nextTick, ref, watch } from 'vue'
 import type { SessionRow } from './hermes/types'
+import ConversationIndicators from './ConversationIndicators.vue'
 
-const props = defineProps<{ sessions: SessionRow[]; query: string; loading: boolean; error: string; selected: string; limited: boolean; hasMore: boolean; moreLoading: boolean }>()
+const props = defineProps<{
+  sessions: SessionRow[]; query: string; loading: boolean; error: string; selected: string; limited: boolean; hasMore: boolean; moreLoading: boolean
+  sessionStatus: (session: SessionRow) => 'working' | 'waiting' | undefined
+  processCount: (session: SessionRow) => number
+  hasUnread: (session: SessionRow) => boolean
+  isPinned: (session: SessionRow) => boolean
+}>()
 const emit = defineEmits<{ search: [query: string]; select: [session: SessionRow]; close: []; retry: []; more: [] }>()
 const dialog = ref<HTMLDialogElement>()
 const input = ref<HTMLInputElement>()
@@ -70,6 +77,7 @@ defineExpose({ open, close })
       <div id="switcher-results" role="listbox" aria-label="Conversations">
         <div v-for="(session, index) in sessions" :id="`switcher-option-${index}`" :key="`${session.profile}:${session.id}`" role="option" :aria-selected="index === active" class="switcher-option" :class="{ active: index === active }" @mouseenter="active = index" @mousedown.prevent @click="choose(session)">
           <span class="switcher-title">{{ session.title || 'Untitled conversation' }}</span>
+          <ConversationIndicators :status="sessionStatus(session)" :process-count="processCount(session)" :unread="hasUnread(session)" :pinned="isPinned(session)" />
           <span v-if="session.id === selected" class="switcher-current">Current</span>
           <span v-if="index === active" class="switcher-enter" aria-hidden="true">↵</span>
         </div>
