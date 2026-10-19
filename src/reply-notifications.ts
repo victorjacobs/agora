@@ -2,7 +2,7 @@ import type { SessionRow } from './hermes/types'
 
 const preferenceKey = 'agora.reply-notifications'
 export function notificationState() {
-  return { supported: false, enabled: false, permission: 'default' as NotificationPermission, busy: false, error: '' }
+  return { supported: false, enabled: false, permission: 'default' as NotificationPermission, busy: false, error: '', pushEnabled: false, pushConfigured: false, pushSupported: false, pushStatus: '', help: '' }
 }
 type NotificationState = ReturnType<typeof notificationState>
 
@@ -15,7 +15,8 @@ export class ReplyNotifications {
     window.addEventListener('focus', this.refreshPermission)
   }
   refreshPermission = () => {
-    this.state.supported = window.isSecureContext && 'Notification' in window
+    const mobile = /iPhone|iPad|iPod|Android/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+    this.state.supported = window.isSecureContext && 'Notification' in window && !mobile
     if (this.state.supported) this.state.permission = Notification.permission
   }
   async toggle() {
@@ -41,6 +42,8 @@ export class ReplyNotifications {
   }
   show(session: SessionRow) {
     this.refreshPermission()
+    if (this.state.pushEnabled) return
+    try { if (localStorage.getItem('agora.web-push-enabled') === 'true') return } catch { /* Storage may be unavailable. */ }
     if (this.disposed || !this.state.enabled || !this.state.supported || this.state.permission !== 'granted') return
     if (document.visibilityState === 'visible' && document.hasFocus()) return
     const endpoint = this.endpoint()

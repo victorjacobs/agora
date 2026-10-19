@@ -3,7 +3,9 @@ import type { IncomingMessage, Server, ServerResponse } from 'node:http'
 import type { Duplex } from 'node:stream'
 import WebSocket, { WebSocketServer } from 'ws'
 import { BridgeError, createAuthorization, endpointURL, NativeSession, upstreamURL } from './native-session.ts'
-import { DEFAULT_SESSION_IDLE_SECONDS, SessionStore, type StoredSession } from './session-store.ts'
+import { DEFAULT_SESSION_IDLE_SECONDS, SessionStore, sessionOwner, type StoredSession, type PushWatch } from './session-store.ts'
+import { validateSubscription, type PushConfig } from './push.ts'
+import { PushObserver } from './push-observer.ts'
 
 const CALLBACK_PATH = '/auth/native/callback'
 const LOGIN_TTL = 5 * 60_000
@@ -20,6 +22,8 @@ interface BrowserSession {
   native: NativeSession
   sockets: Set<WebSocket>
   lastUsed: number
+  routes: Map<string, PushWatch>
+  observer?: PushObserver
 }
 
 function cookie(request: IncomingMessage, name: string): string | undefined {
@@ -84,12 +88,12 @@ function allowedRoute(path: string, method: string) {
   return ['GET', 'PATCH', 'DELETE'].includes(method) && /^\/api\/sessions\/[^/]+$/.test(path)
 }
 
-async function readBody(request: IncomingMessage): Promise<string | undefined> {
+async function readBody(request: IncomingMessage, limit = MAX_BODY): Promise<string | undefined> {
   const parts: Buffer[] = []
   let length = 0
   for await (const part of request) {
     length += part.length
-    if (length > MAX_BODY) throw new BridgeError(413, 'Request body is too large.')
+    if (length > limit) throw new BridgeError(413, 'Request body is too large.')
     parts.push(Buffer.from(part))
   }
   return length ? Buffer.concat(parts).toString('utf8') : undefined
@@ -109,13 +113,15 @@ export class HermesBridge {
   private disposed = false
   private servers = new Set<Server>()
   private sessionIdleSeconds: number
+  private pushConfig?: PushConfig
 
-  constructor(endpoint: string, fetcher: typeof fetch = fetch, options: { publicOrigin?: string; sessionDb?: string; sessionIdleSeconds?: number } = {}) {
+  constructor(endpoint: string, fetcher: typeof fetch = fetch, options: { publicOrigin?: string; sessionDb?: string; sessionIdleSeconds?: number; push?: PushConfig } = {}) {
     this.endpoint = endpointURL(endpoint)
     this.publicOrigin = options.publicOrigin === undefined ? undefined : publicOriginURL(options.publicOrigin)
     this.sessionCookie = this.publicOrigin ? '__Host-agora_session' : 'agora_local_session'
     this.loginCookie = this.publicOrigin ? '__Host-agora_login' : 'agora_local_login'
     this.fetcher = fetcher
+    this.pushConfig = options.push
     this.sessionIdleSeconds = options.sessionIdleSeconds ?? DEFAULT_SESSION_IDLE_SECONDS
     if (!Number.isSafeInteger(this.sessionIdleSeconds) || this.sessionIdleSeconds <= 0 || !Number.isSafeInteger(this.sessionIdleSeconds * 1000)) {
       throw new Error('AGORA_SESSION_IDLE_SECONDS must be a positive integer number of seconds.')
@@ -124,6 +130,10 @@ export class HermesBridge {
     this.store.prune(Date.now() - this.sessionIdleSeconds * 1000)
     this.cleanupTimer = setInterval(() => this.cleanup(), 60_000)
     this.cleanupTimer.unref()
+    if (this.pushConfig) for (const owner of this.store.pushOwners()) {
+      const stored = this.store.getOwner(owner)
+      if (stored) { const session = this.createSession(owner, stored); this.sessions.set(owner, session); this.startObserver(owner, session) }
+    }
   }
 
   attach(server: Server) {
@@ -153,11 +163,11 @@ export class HermesBridge {
       tokens: stored?.tokens,
       onTokens: tokens => {
         if (this.disposed) throw new BridgeError(503, 'The Agora service is shutting down.')
-        if (tokens) { session.lastUsed = Date.now(); this.store.save(id, tokens, session.lastUsed) }
+        if (tokens) this.store.saveOwner(id, tokens, session.lastUsed)
         else this.removeSession(id)
       },
     })
-    const session = { native, sockets: new Set<WebSocket>(), lastUsed: stored?.lastUsed ?? Date.now() }
+    const session: BrowserSession = { native, sockets: new Set<WebSocket>(), lastUsed: stored?.lastUsed ?? Date.now(), routes: new Map() }
     return session
   }
 
@@ -203,11 +213,11 @@ export class HermesBridge {
       }
       this.logins.delete(loginId!)
       const id = randomBytes(32).toString('base64url')
-      const session = this.createSession(id)
+      const session = this.createSession(sessionOwner(id))
       await session.native.exchange(code, pending.verifier)
       const previous = cookie(request, this.sessionCookie)
-      if (previous) this.removeSession(previous)
-      this.sessions.set(id, session)
+      if (previous) this.removeSession(sessionOwner(previous))
+      this.sessions.set(sessionOwner(id), session)
       return redirect(response, pending.next, [this.browserCookie(this.sessionCookie, id, this.sessionIdleSeconds), this.browserCookie(this.loginCookie, '', 0)])
     }
     checkOrigin(request, origin, !['GET', 'HEAD'].includes(method))
@@ -234,11 +244,12 @@ export class HermesBridge {
 
     if (url.pathname === '/auth/logout' && method === 'POST') {
       const id = cookie(request, this.sessionCookie)
-      if (id) this.removeSession(id)
+      if (id) this.removeSession(sessionOwner(id))
       const loginId = cookie(request, this.loginCookie)
       if (loginId) this.logins.delete(loginId)
       return redirect(response, '/', [this.browserCookie(this.sessionCookie, '', 0), this.browserCookie(this.loginCookie, '', 0)])
     }
+    if (url.pathname === '/api/agora/push') return this.handlePush(request, response, method)
     if (!allowedRoute(url.pathname, method)) throw new BridgeError(404, 'Unsupported Agora API route.')
     if (url.pathname === '/api/agora/connection') {
       return json(response, 200, { mode: this.publicOrigin ? 'hosted' : 'local', endpoint: this.endpoint.href.replace(/\/$/, '') })
@@ -249,7 +260,7 @@ export class HermesBridge {
     const upstream = await native.request(url.pathname + url.search, { method, body: await readBody(request) }, !publicRoute)
     if (upstream.status >= 300 && upstream.status < 400) throw new BridgeError(502, 'Hermes unexpectedly redirected an API request.')
     const sessionId = cookie(request, this.sessionCookie)
-    if (session && sessionId && upstream.ok && this.sessions.get(sessionId) === session) {
+    if (session && sessionId && upstream.ok && this.sessions.get(sessionOwner(sessionId)) === session) {
       response.setHeader('Set-Cookie', this.browserCookie(this.sessionCookie, sessionId, this.sessionIdleSeconds))
     }
     if (url.pathname === '/api/fs/download' && upstream.ok) {
@@ -262,10 +273,11 @@ export class HermesBridge {
 
   private browserSession(request: IncomingMessage): BrowserSession {
     if (this.disposed) throw new BridgeError(401, 'This Agora service has stopped.')
-    const id = cookie(request, this.sessionCookie)
+    const rawId = cookie(request, this.sessionCookie)
+    const id = rawId ? sessionOwner(rawId) : undefined
     let session = id ? this.sessions.get(id) : undefined
     if (id && !session) {
-      const stored = this.store.get(id)
+      const stored = this.store.getOwner(id)
       if (stored) { session = this.createSession(id, stored); this.sessions.set(id, session) }
     }
     if (!session) throw new BridgeError(401, 'Sign in to your Hermes server to continue.')
@@ -274,7 +286,7 @@ export class HermesBridge {
       throw new BridgeError(401, 'Your Agora login expired after inactivity. Sign in again.')
     }
     session.lastUsed = Date.now()
-    this.store.touch(id!, session.lastUsed)
+    this.store.touchOwner(id!, session.lastUsed)
     return session
   }
 
@@ -299,7 +311,7 @@ export class HermesBridge {
     if (!ticketResponse.ok) throw new BridgeError(ticketResponse.status, 'Hermes rejected the WebSocket ticket.')
     const { ticket } = await ticketResponse.json()
     if (typeof ticket !== 'string' || !ticket) throw new BridgeError(502, 'Hermes returned an invalid ticket.')
-    if (this.sessions.get(cookie(request, this.sessionCookie) || '') !== session) throw new BridgeError(401, 'This Agora login was cancelled.')
+    if (this.sessions.get(sessionOwner(cookie(request, this.sessionCookie) || '')) !== session) throw new BridgeError(401, 'This Agora login was cancelled.')
     const url = upstreamURL(this.endpoint, '/api/ws')
     url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
     const upstream = new WebSocket(url, ['hermes-gateway-v1', `hermes-gateway-ticket.${ticket}`], { handshakeTimeout: 15_000, maxPayload: MAX_BODY, followRedirects: false })
@@ -308,13 +320,21 @@ export class HermesBridge {
     socket.once('close', () => upstream.terminate())
     // Attach the upstream reader before the upgrade completes so gateway.ready
     // cannot disappear between the remote handshake and the browser handshake.
-    upstream.on('message', (data, binary) => { if (browser?.readyState === WebSocket.OPEN) browser.send(data, { binary }) })
+    const observed = new Map<string, { profile?: string }>()
+    const owner = sessionOwner(cookie(request, this.sessionCookie) || '')
+    upstream.on('message', (data, binary) => {
+      if (!binary) this.observeRoutes(owner, session, data.toString(), observed, false)
+      if (browser?.readyState === WebSocket.OPEN) browser.send(data, { binary })
+    })
     upstream.once('open', () => {
-      if (socket.destroyed || !this.sessions.has(cookie(request, this.sessionCookie) || '')) { upstream.terminate(); socket.destroy(); return }
+      if (socket.destroyed || !this.sessions.has(sessionOwner(cookie(request, this.sessionCookie) || ''))) { upstream.terminate(); socket.destroy(); return }
       this.socketServer.handleUpgrade(request, socket, head, connected => {
         browser = connected
         session.sockets.add(connected)
-        connected.on('message', (data, binary) => { if (upstream.readyState === WebSocket.OPEN) upstream.send(data, { binary }) })
+        connected.on('message', (data, binary) => {
+          if (!binary) this.observeRoutes(owner, session, data.toString(), observed, true)
+          if (upstream.readyState === WebSocket.OPEN) upstream.send(data, { binary })
+        })
         connected.on('error', () => upstream.terminate())
         connected.on('close', () => { session.sockets.delete(connected); upstream.close() })
       })
@@ -329,14 +349,87 @@ export class HermesBridge {
     })
   }
 
+  private startObserver(owner: string, session: BrowserSession) {
+    if (!this.pushConfig || !this.store.subscriptions(owner).length || (session.observer && session.observer.status !== 'off')) return
+    session.observer = new PushObserver(owner, session.native, this.store, this.pushConfig,
+      () => !this.disposed && this.sessions.get(owner) === session && session.lastUsed > Date.now() - this.sessionIdleSeconds * 1000,
+      () => this.removeSession(owner))
+  }
+
+  private async handlePush(request: IncomingMessage, response: ServerResponse, method: string) {
+    if (!['GET', 'POST', 'DELETE'].includes(method)) throw new BridgeError(405, 'Unsupported push operation.')
+    const session = this.browserSession(request)
+    const id = cookie(request, this.sessionCookie)!
+    const owner = sessionOwner(id)
+    const identity = await session.native.request('/api/auth/me')
+    if (identity.status === 401) { this.removeSession(owner); throw new BridgeError(401, 'Sign in again.') }
+    if (!identity.ok) throw new BridgeError(503, 'Hermes authentication is unavailable.')
+    if (this.sessions.get(owner) !== session) throw new BridgeError(401, 'This login was cancelled.')
+    response.setHeader('Set-Cookie', this.browserCookie(this.sessionCookie, id, this.sessionIdleSeconds))
+    if (method === 'GET') return json(response, 200, {
+      configured: Boolean(this.pushConfig), publicKey: this.pushConfig?.publicKey,
+      devices: this.store.subscriptions(owner).map(subscription => sessionOwner(subscription.endpoint)),
+      observer: session.observer?.status || 'off', watched: this.store.watches(owner).length,
+    })
+    let value: { subscription?: unknown; endpoint?: unknown }
+    try { value = JSON.parse(await readBody(request, 8192) || '{}') } catch (error) {
+      if (error instanceof BridgeError) throw error
+      throw new BridgeError(400, 'Invalid push request.')
+    }
+    if (!value || typeof value !== 'object') throw new BridgeError(400, 'Invalid push request.')
+    if (method === 'DELETE') {
+      if (typeof value.endpoint !== 'string' || value.endpoint.length > 2048) throw new BridgeError(400, 'Invalid device endpoint.')
+      this.store.deleteSubscription(owner, value.endpoint)
+      if (!this.store.subscriptions(owner).length) { session.observer?.stop(); session.observer = undefined }
+      return json(response, 200, { enabled: false })
+    }
+    if (!this.pushConfig) throw new BridgeError(503, 'Web Push is not configured by the operator.')
+    const subscription = validateSubscription(value.subscription)
+    try { this.store.saveSubscription(owner, subscription) } catch { throw new BridgeError(409, 'Could not link this device. Disable its old subscription or sign in again; eight devices maximum.') }
+    for (const watch of session.routes.values()) {
+      if (!this.store.watches(owner).some(row => row.runtime === watch.runtime)) this.store.saveWatch(owner, watch)
+    }
+    this.startObserver(owner, session)
+    return json(response, 200, { enabled: true })
+  }
+
+  private observeRoutes(owner: string, session: BrowserSession, data: string, pending: Map<string, { profile?: string }>, outbound: boolean) {
+    if (!this.pushConfig || this.disposed || this.sessions.get(owner) !== session) return
+    try {
+      for (const line of data.split('\n').filter(line => line.trim())) {
+        const frame = JSON.parse(line)
+        if (frame.jsonrpc !== '2.0' || frame.id === undefined) continue
+        const id = String(frame.id)
+        if (outbound) {
+          if (['session.create', 'session.resume'].includes(frame.method) && pending.size < 128) pending.set(id, { profile: typeof frame.params?.profile === 'string' ? frame.params.profile : undefined })
+          continue
+        }
+        const request = pending.get(id)
+        pending.delete(id)
+        if (!request || frame.error || !frame.result) continue
+        const snapshot = frame.result
+        const runtime = snapshot.session_id
+        const stored = snapshot.stored_session_id || snapshot.session_key || snapshot.info?.stored_session_id
+        const profile = snapshot.info?.profile_name || request.profile
+        if (![runtime, stored, profile].every(value => typeof value === 'string' && value.length > 0 && value.length <= 256)) continue
+        const existing = this.store.watches(owner).find(row => row.runtime === runtime)
+        const watch: PushWatch = existing || { runtime, stored, profile, epoch: '', seq: 0, seen: [] }
+        if (session.routes.size >= 64) session.routes.delete(session.routes.keys().next().value!)
+        session.routes.set(runtime, watch)
+        this.store.saveWatch(owner, watch)
+      }
+    } catch { /* Observing metadata must never disrupt the browser's transport. */ }
+  }
+
   private removeSession(id: string) {
-    this.store.delete(id)
+    this.store.deleteOwner(id)
     const session = this.sessions.get(id)
     if (session) this.closeSession(session)
     this.sessions.delete(id)
   }
 
   private closeSession(session: BrowserSession) {
+    session.observer?.stop()
     session.native.dispose()
     for (const socket of session.sockets) socket.terminate()
   }
@@ -345,7 +438,7 @@ export class HermesBridge {
     const now = Date.now()
     for (const [id, login] of this.logins) if (login.expires < now) this.logins.delete(id)
     for (const [id, session] of this.sessions) {
-      if (session.sockets.size) { session.lastUsed = now; this.store.touch(id, now) }
+      if (session.sockets.size) { session.lastUsed = now; this.store.touchOwner(id, now) }
       else if (session.lastUsed <= now - this.sessionIdleSeconds * 1000) this.removeSession(id)
     }
     this.store.prune(now - this.sessionIdleSeconds * 1000)

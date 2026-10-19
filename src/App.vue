@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import { ChatClient, initialState } from './hermes/chat'
 import NotificationToggle from './NotificationToggle.vue'
 import { notificationState, ReplyNotifications } from './reply-notifications'
+import { PushNotifications } from './push-notifications'
 import ConversationPin from './ConversationPin.vue'
 import ConversationIndicators from './ConversationIndicators.vue'
 import { conversationKey, usePinnedConversations } from './pinned-conversations'
@@ -35,6 +36,24 @@ const chat = new ChatClient(state)
 const notificationSettings = reactive(notificationState())
 const notifications = new ReplyNotifications(notificationSettings, () => state.endpoint || window.location.origin, session => {
   if (state.connection === 'ready') selectSession(session)
+})
+const pushNotifications = new PushNotifications(notificationSettings)
+function toggleNotifications() {
+  if (notificationSettings.pushEnabled || (!notificationSettings.enabled && notificationSettings.pushConfigured && notificationSettings.pushSupported)) void pushNotifications.toggle()
+  else void notifications.toggle()
+}
+async function signOut() {
+  try {
+    const response = await fetch('/auth/logout', { method: 'POST', credentials: 'same-origin', redirect: 'manual' })
+    if (!response.ok && response.type !== 'opaqueredirect' && response.status !== 303) throw new Error()
+    chat.dispose(); notifications.clear()
+    await pushNotifications.clearDevice()
+    window.location.assign('/')
+  } catch { notificationSettings.error = 'Could not sign out. Check your connection and try again.' }
+}
+watch(() => state.connection, value => {
+  if (value === 'ready') void pushNotifications.refresh()
+  if (value === 'expired') { notifications.clear(); void pushNotifications.clearDevice() }
 })
 chat.onReply = session => notifications.show(session)
 const sidebarOpen = ref(false)
@@ -286,13 +305,13 @@ onMounted(() => {
       style.removeProperty('--app-top')
     }
   }
-  void chat.start(import.meta.env.VITE_HERMES_PROFILE)
+  void chat.start(new URLSearchParams(window.location.search).get('profile') || import.meta.env.VITE_HERMES_PROFILE)
   dateTimer = setInterval(() => { currentDate.value = new Date() }, 60_000)
   window.addEventListener('resize', resizeComposer)
   window.addEventListener('keydown', globalKey)
   mobileMedia.addEventListener?.('change', changeMobile)
 })
-onBeforeUnmount(() => { if (navigationSheet.value?.open) navigationSheet.value.close(); mobileMedia.removeEventListener?.('change', changeMobile); releaseViewport(); clearInterval(dateTimer); window.removeEventListener('resize', resizeComposer); window.removeEventListener('keydown', globalKey); notifications.dispose(); chat.dispose() })
+onBeforeUnmount(() => { if (navigationSheet.value?.open) navigationSheet.value.close(); mobileMedia.removeEventListener?.('change', changeMobile); releaseViewport(); clearInterval(dateTimer); window.removeEventListener('resize', resizeComposer); window.removeEventListener('keydown', globalKey); pushNotifications.dispose(); notifications.dispose(); chat.dispose() })
 </script>
 
 <template>
@@ -353,7 +372,8 @@ onBeforeUnmount(() => { if (navigationSheet.value?.open) navigationSheet.value.c
       <nav v-else-if="view === 'results'" class="session-list" aria-label="Result jobs"><button class="session" :class="{ selected: !resultJob }" :aria-current="!resultJob ? 'page' : undefined" @click="resultJob = ''; sidebarOpen = false"><span class="session-title">All results</span></button><h2 class="session-group-heading">Jobs</h2><button v-for="job in resultJobs" :key="job.id" class="session" :class="{ selected: resultJob === job.id }" :aria-current="resultJob === job.id ? 'page' : undefined" @click="resultJob = job.id; sidebarOpen = false"><span class="session-title">{{ job.name || job.id }}</span></button></nav>
       <nav v-else class="session-list" aria-label="Scheduled jobs"><button v-for="job in cronJobs" :key="job.id" class="session" :class="{ selected: cronView?.selected === job.id }" :aria-current="cronView?.selected === job.id ? 'page' : undefined" :disabled="cronView?.busy" @click="cronView?.select(job.id); sidebarOpen = false"><span class="session-heading"><span class="session-title">{{ job.name || job.id }}</span><svg v-if="job.enabled === false || job.state === 'paused'" class="cron-paused" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" role="img" aria-label="Paused"><path d="M8 5v14M16 5v14" /></svg></span><span v-if="mobile && job.schedule_display" class="job-selector-meta">{{ job.schedule_display }}</span></button></nav>
       <div v-show="view === 'chat'" class="sidebar-footer">
-        <NotificationToggle :state="notificationSettings" @toggle="notifications.toggle()" />
+        <NotificationToggle :state="notificationSettings" @toggle="toggleNotifications" />
+        <button v-if="state.identity" class="sidebar-action" @click="signOut">Sign out</button>
         <ProviderQuota :providers="state.modelProviders" :current-provider="state.provider" :profile="state.profile" :connected="state.connection === 'ready'" :load="(provider, profile) => chat.providerQuota(provider, profile)" />
       </div>
       <button v-if="mobile && view === 'cron'" class="sheet-new-job" :disabled="!cronView?.ready || cronView?.busy" @click="cronView?.newJob(); sidebarOpen = false"><span aria-hidden="true">+</span> New job</button>

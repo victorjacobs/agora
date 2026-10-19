@@ -4,6 +4,10 @@ import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import type { Tokens } from './native-session.ts'
+import type { Subscription } from './push.ts'
+
+export const sessionOwner = (id: string) => createHash('sha256').update(id).digest('hex')
+export interface PushWatch { runtime: string; stored: string; profile: string; epoch: string; seq: number; seen: string[] }
 
 export const DEFAULT_SESSION_IDLE_SECONDS = 30 * 24 * 60 * 60
 
@@ -38,6 +42,7 @@ export class SessionStore {
     this.database.exec(`
       PRAGMA busy_timeout = 5000;
       PRAGMA secure_delete = ON;
+      PRAGMA foreign_keys = ON;
       CREATE TABLE IF NOT EXISTS sessions (
         scope TEXT NOT NULL,
         id_hash TEXT NOT NULL,
@@ -45,30 +50,75 @@ export class SessionStore {
         last_used INTEGER NOT NULL,
         PRIMARY KEY (scope, id_hash)
       ) STRICT;
+      CREATE TABLE IF NOT EXISTS push_subscriptions (
+        scope TEXT NOT NULL, owner TEXT NOT NULL, endpoint_hash TEXT NOT NULL, subscription TEXT NOT NULL,
+        PRIMARY KEY (scope, endpoint_hash),
+        FOREIGN KEY (scope, owner) REFERENCES sessions(scope, id_hash) ON DELETE CASCADE
+      ) STRICT;
+      CREATE TABLE IF NOT EXISTS push_watches (
+        scope TEXT NOT NULL, owner TEXT NOT NULL, runtime TEXT NOT NULL, metadata TEXT NOT NULL,
+        PRIMARY KEY (scope, owner, runtime),
+        FOREIGN KEY (scope, owner) REFERENCES sessions(scope, id_hash) ON DELETE CASCADE
+      ) STRICT;
     `)
   }
 
-  private key(id: string) { return createHash('sha256').update(id).digest('hex') }
+  private key(id: string) { return sessionOwner(id) }
 
-  get(id: string): StoredSession | undefined {
-    const row = this.database.prepare('SELECT tokens, last_used FROM sessions WHERE scope = ? AND id_hash = ?').get(this.scope, this.key(id))
+  get(id: string): StoredSession | undefined { return this.getOwner(this.key(id)) }
+
+  getOwner(owner: string): StoredSession | undefined {
+    const row = this.database.prepare('SELECT tokens, last_used FROM sessions WHERE scope = ? AND id_hash = ?').get(this.scope, owner)
     if (!row) return undefined
     return { tokens: JSON.parse(String(row.tokens)) as Tokens, lastUsed: Number(row.last_used) }
   }
 
-  save(id: string, tokens: Tokens, lastUsed: number) {
+  save(id: string, tokens: Tokens, lastUsed: number) { this.saveOwner(this.key(id), tokens, lastUsed) }
+
+  saveOwner(owner: string, tokens: Tokens, lastUsed: number) {
     this.database.prepare(`
       INSERT INTO sessions (scope, id_hash, tokens, last_used) VALUES (?, ?, ?, ?)
       ON CONFLICT (scope, id_hash) DO UPDATE SET tokens = excluded.tokens, last_used = excluded.last_used
-    `).run(this.scope, this.key(id), JSON.stringify(tokens), lastUsed)
+    `).run(this.scope, owner, JSON.stringify(tokens), lastUsed)
   }
 
-  touch(id: string, lastUsed: number) {
-    this.database.prepare('UPDATE sessions SET last_used = ? WHERE scope = ? AND id_hash = ?').run(lastUsed, this.scope, this.key(id))
+  touch(id: string, lastUsed: number) { this.touchOwner(this.key(id), lastUsed) }
+  touchOwner(owner: string, lastUsed: number) {
+    this.database.prepare('UPDATE sessions SET last_used = ? WHERE scope = ? AND id_hash = ?').run(lastUsed, this.scope, owner)
   }
 
-  delete(id: string) {
-    this.database.prepare('DELETE FROM sessions WHERE scope = ? AND id_hash = ?').run(this.scope, this.key(id))
+  delete(id: string) { this.deleteOwner(this.key(id)) }
+  deleteOwner(owner: string) {
+    this.database.prepare('DELETE FROM sessions WHERE scope = ? AND id_hash = ?').run(this.scope, owner)
+  }
+
+  pushOwners(): string[] {
+    return this.database.prepare('SELECT DISTINCT owner FROM push_subscriptions WHERE scope = ?').all(this.scope).map(row => String(row.owner))
+  }
+  subscriptions(owner: string): Subscription[] {
+    return this.database.prepare('SELECT subscription FROM push_subscriptions WHERE scope = ? AND owner = ?').all(this.scope, owner).map(row => JSON.parse(String(row.subscription)) as Subscription)
+  }
+  saveSubscription(owner: string, subscription: Subscription) {
+    const hash = this.key(subscription.endpoint)
+    const existing = this.database.prepare('SELECT owner FROM push_subscriptions WHERE scope = ? AND endpoint_hash = ?').get(this.scope, hash)
+    if (existing && existing.owner !== owner) throw new Error('Subscription already belongs to a different login. Unsubscribe this device first.')
+    if (!existing && this.subscriptions(owner).length >= 8) throw new Error('At most eight devices can use this login.')
+    this.database.prepare('INSERT OR REPLACE INTO push_subscriptions VALUES (?, ?, ?, ?)').run(this.scope, owner, hash, JSON.stringify(subscription))
+  }
+  deleteSubscription(owner: string, endpoint: string) {
+    this.database.prepare('DELETE FROM push_subscriptions WHERE scope = ? AND owner = ? AND endpoint_hash = ?').run(this.scope, owner, this.key(endpoint))
+    if (!this.subscriptions(owner).length) this.database.prepare('DELETE FROM push_watches WHERE scope = ? AND owner = ?').run(this.scope, owner)
+  }
+  watches(owner: string): PushWatch[] {
+    return this.database.prepare('SELECT metadata FROM push_watches WHERE scope = ? AND owner = ?').all(this.scope, owner).map(row => JSON.parse(String(row.metadata)) as PushWatch)
+  }
+  saveWatch(owner: string, watch: PushWatch) {
+    if (!this.subscriptions(owner).length) return
+    if (!this.watches(owner).some(row => row.runtime === watch.runtime) && this.watches(owner).length >= 64) {
+      const oldest = this.database.prepare('SELECT runtime FROM push_watches WHERE scope = ? AND owner = ? ORDER BY rowid LIMIT 1').get(this.scope, owner)
+      if (oldest) this.database.prepare('DELETE FROM push_watches WHERE scope = ? AND owner = ? AND runtime = ?').run(this.scope, owner, oldest.runtime!)
+    }
+    this.database.prepare('INSERT OR REPLACE INTO push_watches VALUES (?, ?, ?, ?)').run(this.scope, owner, watch.runtime, JSON.stringify(watch))
   }
 
   prune(before: number) {

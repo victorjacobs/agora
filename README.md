@@ -80,12 +80,13 @@ sign-in. Agora provides the chat interface.
   a compression race can queue it for a later turn. Images and approval prompts
   must be handled separately. Rejected steers stay in the draft; uncertain sends
   are never automatically retried. Requires Hermes `session.steer` support.
-- Opt-in desktop notifications when a response finishes while Agora is unfocused.
-  Enable **Notifications** at the bottom of the Chats sidebar and allow the browser
-  permission prompt. Notifications contain no conversation title or response text;
-  clicking one opens its chat. Agora must stay open and connected; closed or
-  suspended apps require Web Push, which is not implemented. HTTPS or localhost
-  and desktop browser notification support are required.
+- Opt-in Web Push for completed replies and attention requests, even with Agora
+  closed. Uses the existing login and a device permission gesture; iPhone/iPad
+  requires the installed Home Screen app. Titles and short previews may appear on
+  the lock screen; sudo/credential requests always stay generic. Only chats opened
+  in Agora are watched. The operator must provision stable VAPID keys; see
+  [Web Push setup, privacy and delivery limits](docs/push.md). Desktop-only reply
+  notifications remain the open-and-connected fallback, without duplicate push.
 - Automatic light/dark appearance and a layout that works on desktop and mobile.
   Mobile uses labelled **Chat**, **Results**, **Memory**, and **Jobs** bottom tabs.
   Full-width selectors open bottom sheets for result jobs, memory sections, and
@@ -148,6 +149,7 @@ Hermes's grants remain valid. Desktop packaging is not implemented yet.
 | `HERMES_ENDPOINT` | Remote dashboard URL for the Node bridge. HTTPS is required except for loopback test servers. URL path prefixes are supported. |
 | `VITE_HERMES_PROFILE` | Optional Hermes profile. Omit it to use the server's launch profile. Vite reads this when starting development or building the UI. |
 | `AGORA_PUBLIC_ORIGIN` | Optional canonical HTTPS origin, e.g. `https://agora.example.com`. Enables hosted bridge login; requires the Hermes callback allowlist change. Omit for laptop mode. |
+| `AGORA_PUSH_VAPID_FILE` | Runtime path to private stable VAPID JSON (`publicKey`, `privateKey`, `subject`). Unset disables background Web Push. See [setup](docs/push.md). |
 | `AGORA_PORT` | Port for `agora-start`; defaults to `5173`. |
 | `AGORA_SESSION_DB` | SQLite login-session cache path for the Node bridge (including Vite development). Defaults to `$XDG_STATE_HOME/agora/sessions.sqlite`, or `~/.local/state/agora/sessions.sqlite` if unset. Set `:memory:` to disable disk persistence. |
 | `AGORA_SESSION_IDLE_SECONDS` | Positive integer rolling idle limit; defaults to `2592000` (30 days). Authenticated HTTP activity renews the limit and cookie lifetime. |

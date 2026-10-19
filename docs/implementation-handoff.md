@@ -1,5 +1,12 @@
 # Implementation handoff
 
+## Background Web Push
+
+See [push.md](push.md) for the implemented, owner-approved scope, public passive
+replay contract, storage exception, lifecycle, operator provisioning and physical-
+device acceptance limits. The observer never attaches an interactive renderer or
+executes session/agent operations.
+
 ## Terminal sudo password prompts
 
 The installed `tui_gateway/contracts/server_requests.py` registers terminal
@@ -66,8 +73,12 @@ loopback PKCE service; native desktop packaging remains deferred.
 Vue, Nix/direnv, direct Hermes manage/dashboard integration, and login through
 Hermes OIDC are fixed. Hermes owns conversation persistence and execution; no
 Agora identity or conversation database, agent runner, or independent authentication
-backend. The sole storage exception is the disposable server-side SQLite
-login-session cache described in [integration.md](integration.md#login-session-cache).
+backend. Storage exceptions are the disposable server-side SQLite login-session
+cache described in [integration.md](integration.md#login-session-cache), plus the
+owner-approved auth-bound subscription and minimal replay/dedupe/watch metadata
+for [Web Push](push.md). Notification content is never persisted. This explicit
+approval supersedes the original sole-exception wording for that narrow feature;
+Hermes storage access and an Agora conversation database remain forbidden.
 
 **Suggested:** Vue 3 + TypeScript + Vite, npm with a lockfile, static production
 assets, and a single server/profile. Choose remaining libraries during

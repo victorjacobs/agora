@@ -60,8 +60,12 @@ desktop packaging is deferred.
   after a process restart. This cache is not an identity or transcript database.
   Signed-out users see a dedicated sign-in screen with
   one prominent sign-in action; connection errors remain visible there.
-- Opt-in desktop completion notifications while Agora is open, connected, and
-  unfocused, with no conversation content in notifications. No background push.
+- Opt-in per-device background Web Push for replies and attention requests in
+  conversations opened in Agora. Existing login, no pairing. Titles and short
+  previews are approved; secure inputs/sudo use generic text. Durable subscription
+  and minimal replay/dedupe metadata are an explicitly approved storage exception,
+  never a transcript database. Desktop-only notifications remain a fallback.
+  See [push.md](push.md) for setup, privacy and best-effort limits.
 - Responsive layout, keyboard-accessible controls, visible focus, and sensible
   scrolling that does not drag a reader away from older messages.
   On mobile, four labelled bottom tabs replace the rail. Secondary selection
@@ -86,7 +90,7 @@ states returned by Hermes, including work started from another client.
 
 Multiple-server/profile management, global model/provider settings, prompt editing or
 branching, non-image uploads, inline PDF viewing, voice, terminal/file browser, tasks/boards, skills,
-MCP management, analytics, closed-app push notifications, offline mode, and custom account
+MCP management, analytics, offline mode, and custom account
 management. No feature parity with Hermes's dashboard, Conduit, or hermes-webui.
 
 ## Acceptance

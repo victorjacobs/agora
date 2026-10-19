@@ -1,7 +1,8 @@
 import type { GatewayEvent, ServerRequest } from './types'
 
 export class RpcError extends Error {
-  constructor(public code: number, message: string) { super(message) }
+  code: number
+  constructor(code: number, message: string) { super(message); this.code = code }
 }
 
 export class ConnectionLost extends Error {
@@ -31,7 +32,8 @@ export class Gateway {
   private generation = 0
   private ready = false
 
-  constructor(private factory: (url: string, protocols: string[]) => Socket = (url, protocols) => new WebSocket(url, protocols)) {}
+  private factory: (url: string, protocols: string[]) => Socket
+  constructor(factory: (url: string, protocols: string[]) => Socket = (url, protocols) => new WebSocket(url, protocols)) { this.factory = factory }
 
   connect(url: string, ticket?: string): Promise<void> {
     this.close()

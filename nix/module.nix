@@ -46,6 +46,13 @@ in
       description = "Rolling login-session idle limit in seconds, renewed by authenticated HTTP activity. Does not extend upstream token expiry or revocation.";
     };
 
+    pushVapidFile = mkOption {
+      type = types.nullOr types.str;
+      default = null;
+      example = "/run/secrets/agora-push-vapid";
+      description = "Runtime path to a private JSON file containing stable VAPID publicKey, privateKey and subject. Passed with systemd LoadCredential, never read into the Nix store. Null disables background Web Push.";
+    };
+
     profile = mkOption {
       type = types.nullOr types.str;
       default = null;
@@ -80,6 +87,8 @@ in
         NODE_ENV = "production";
       } // lib.optionalAttrs (cfg.publicOrigin != null) {
         AGORA_PUBLIC_ORIGIN = cfg.publicOrigin;
+      } // lib.optionalAttrs (cfg.pushVapidFile != null) {
+        AGORA_PUSH_VAPID_FILE = "%d/push-vapid";
       };
 
       serviceConfig = {
@@ -96,6 +105,8 @@ in
         RestrictSUIDSGID = true;
         LockPersonality = true;
         RestrictAddressFamilies = [ "AF_UNIX" "AF_INET" "AF_INET6" ];
+      } // lib.optionalAttrs (cfg.pushVapidFile != null) {
+        LoadCredential = [ "push-vapid:${cfg.pushVapidFile}" ];
       } // lib.optionalAttrs cfg.sessionPersistence {
         StateDirectory = "agora";
         StateDirectoryMode = "0700";

@@ -1,3 +1,11 @@
+# Web Push
+
+The server uses unmodified `web-push` 3.6.7 (Mozilla Public License 2.0)
+for Web Push encryption and VAPID request construction. Its source and license
+are included in the installed npm dependency.
+
+Source: https://github.com/web-push-libs/web-push
+
 # Hermes gateway contracts
 
 The narrowed wire types in `src/hermes/types.ts` and slash command contracts in
