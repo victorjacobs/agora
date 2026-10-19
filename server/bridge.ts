@@ -3,7 +3,7 @@ import type { IncomingMessage, Server, ServerResponse } from 'node:http'
 import type { Duplex } from 'node:stream'
 import WebSocket, { WebSocketServer } from 'ws'
 import { BridgeError, createAuthorization, endpointURL, NativeSession, upstreamURL } from './native-session.ts'
-import { DEFAULT_SESSION_IDLE_SECONDS, SessionStore, sessionOwner, type StoredSession, type PushWatch } from './session-store.ts'
+import { DEFAULT_SESSION_IDLE_SECONDS, MAX_PUSH_WATCHES, SessionStore, sessionOwner, type StoredSession, type PushWatch } from './session-store.ts'
 import { validateSubscription, type PushConfig } from './push.ts'
 import { PushObserver } from './push-observer.ts'
 
@@ -414,7 +414,7 @@ export class HermesBridge {
         if (![runtime, stored, profile].every(value => typeof value === 'string' && value.length > 0 && value.length <= 256)) continue
         const existing = this.store.watches(owner).find(row => row.runtime === runtime)
         const watch: PushWatch = existing || { runtime, stored, profile, epoch: '', seq: 0, seen: [] }
-        if (session.routes.size >= 64) session.routes.delete(session.routes.keys().next().value!)
+        if (!session.routes.has(runtime) && session.routes.size >= MAX_PUSH_WATCHES) session.routes.delete(session.routes.keys().next().value!)
         session.routes.set(runtime, watch)
         this.store.saveWatch(owner, watch)
       }

@@ -61,7 +61,9 @@ desktop packaging is deferred.
   Signed-out users see a dedicated sign-in screen with
   one prominent sign-in action; connection errors remain visible there.
 - Opt-in per-device background Web Push for replies and attention requests in
-  conversations opened in Agora. Existing login, no pairing. Titles and short
+  conversations opened in Agora, up to five registered chats per login (oldest
+  registrations replaced, not most-recently-active or sent-message-only). Existing
+  login, no pairing. Titles and short
   previews are approved; secure inputs/sudo use generic text. Durable subscription
   and minimal replay/dedupe metadata are an explicitly approved storage exception,
   never a transcript database. Desktop-only notifications remain a fallback.

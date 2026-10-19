@@ -84,7 +84,8 @@ sign-in. Agora provides the chat interface.
   closed. Uses the existing login and a device permission gesture; iPhone/iPad
   requires the installed Home Screen app. Titles and short previews may appear on
   the lock screen; sudo/credential requests always stay generic. Only chats opened
-  in Agora are watched. The operator must provision stable VAPID keys; see
+  in Agora are watched, up to five per login; new registrations replace the oldest.
+  The operator must provision stable VAPID keys; see
   [Web Push setup, privacy and delivery limits](docs/push.md). Desktop-only reply
   notifications remain the open-and-connected fallback, without duplicate push.
 - Automatic light/dark appearance and a layout that works on desktop and mobile.

@@ -20,8 +20,13 @@ observer. No paid relay or Apple developer membership is required.
    delivery guarantee. Disable using the same control.
 
 Only conversations actually opened or created in this Agora login are watched
-(up to 64; oldest registrations are replaced). Other unopened Hermes chats and
-individual child-task/process completions are not included. Replies, approvals,
+(up to 5 per login; new registrations replace the oldest retained registrations).
+Reopening an already watched runtime and polling its replay cursor do not refresh
+that order: this is not a most-recently-active or sent-message-only policy. On
+startup, existing caches are trimmed to the five newest stored watch entries per
+login before observers start; retained replay/dedupe metadata is unchanged.
+Other unopened Hermes chats and individual child-task/process completions are not
+included. Replies, approvals,
 clarification questions and secure-input requests can notify, including while
 Agora is visible. Existing desktop completion notifications are suppressed for a
 push-enabled device. With Web Push unavailable, desktop-only notifications retain
@@ -144,7 +149,7 @@ Hermes currently has **no size/count bound** on that separate collection, so thi
 is an explicit client resource policy, not a guarantee to accept every possible
 upstream response. Larger frames fail closed without advancing that watch.
 
-Watch read/processing failures use an in-memory, at-most-64-entry backoff map
+Watch read/processing failures use an in-memory, at-most-5-entry backoff map
 (6 seconds doubling to 60 seconds). Stable round-robin position survives socket
 reconnects independently of SQLite row order, so one unavailable, oversized or
 malformed watch cannot repeatedly lead a sweep and starve other chats. Such

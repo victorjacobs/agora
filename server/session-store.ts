@@ -9,6 +9,7 @@ import type { Subscription } from './push.ts'
 export const sessionOwner = (id: string) => createHash('sha256').update(id).digest('hex')
 export interface PushWatch { runtime: string; stored: string; profile: string; epoch: string; seq: number; seen: string[] }
 
+export const MAX_PUSH_WATCHES = 5
 export const DEFAULT_SESSION_IDLE_SECONDS = 30 * 24 * 60 * 60
 
 export function sessionStorageOptions(environment: NodeJS.ProcessEnv = process.env) {
@@ -61,6 +62,13 @@ export class SessionStore {
         FOREIGN KEY (scope, owner) REFERENCES sessions(scope, id_hash) ON DELETE CASCADE
       ) STRICT;
     `)
+    this.database.prepare(`
+      DELETE FROM push_watches WHERE scope = ? AND rowid NOT IN (
+        SELECT kept.rowid FROM push_watches AS kept
+        WHERE kept.scope = push_watches.scope AND kept.owner = push_watches.owner
+        ORDER BY kept.rowid DESC LIMIT ?
+      )
+    `).run(this.scope, MAX_PUSH_WATCHES)
   }
 
   private key(id: string) { return sessionOwner(id) }
@@ -114,11 +122,15 @@ export class SessionStore {
   }
   saveWatch(owner: string, watch: PushWatch) {
     if (!this.subscriptions(owner).length) return
-    if (!this.watches(owner).some(row => row.runtime === watch.runtime) && this.watches(owner).length >= 64) {
+    const watches = this.watches(owner)
+    if (!watches.some(row => row.runtime === watch.runtime) && watches.length >= MAX_PUSH_WATCHES) {
       const oldest = this.database.prepare('SELECT runtime FROM push_watches WHERE scope = ? AND owner = ? ORDER BY rowid LIMIT 1').get(this.scope, owner)
       if (oldest) this.database.prepare('DELETE FROM push_watches WHERE scope = ? AND owner = ? AND runtime = ?').run(this.scope, owner, oldest.runtime!)
     }
-    this.database.prepare('INSERT OR REPLACE INTO push_watches VALUES (?, ?, ?, ?)').run(this.scope, owner, watch.runtime, JSON.stringify(watch))
+    this.database.prepare(`
+      INSERT INTO push_watches (scope, owner, runtime, metadata) VALUES (?, ?, ?, ?)
+      ON CONFLICT (scope, owner, runtime) DO UPDATE SET metadata = excluded.metadata
+    `).run(this.scope, owner, watch.runtime, JSON.stringify(watch))
   }
 
   prune(before: number) {

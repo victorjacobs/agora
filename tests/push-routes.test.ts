@@ -17,6 +17,16 @@ function fixture() {
     internal.observeRoutes('owner', session, JSON.stringify({ jsonrpc: '2.0', id: 1, result }), pending, false)
   } }
 }
+it('keeps five routes without evicting another chat when an existing runtime is reopened', () => {
+  const { session, open } = fixture()
+  const resume = (runtime: string) => open('session.resume', 'work', { session_id: runtime, session_key: `${runtime}-stored`, info: { profile_name: 'work' } })
+  for (let index = 0; index < 5; index++) resume(String(index))
+  resume('2')
+  expect([...session.routes.keys()]).toEqual(['0', '1', '2', '3', '4'])
+  resume('5')
+  expect([...session.routes.keys()]).toEqual(['1', '2', '3', '4', '5'])
+})
+
 it('retains fresh create and live unpersisted draft resume routes with upstream default profile', () => {
   const { session, open } = fixture()
   open('session.create', undefined, { session_id: 'fresh-runtime', stored_session_id: 'fresh-key', info: { profile_name: 'launch-profile', lazy: true } })
