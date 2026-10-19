@@ -789,7 +789,7 @@ describe('chat interface', () => {
     expect(host.querySelector('.session-list')).toBeNull()
   })
 
-  it.each([false, true])('keeps the touch submit target in place until click (steering: %s)', async running => {
+  it.each([false, true])('cancels touch compatibility mousedown without submitting before click (steering: %s)', async running => {
     vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true, addEventListener() {}, removeEventListener() {} })))
     vi.stubGlobal('innerHeight', 844)
     const viewport = Object.assign(new EventTarget(), { height: 844, offsetTop: 0, scale: 1 })
@@ -802,47 +802,48 @@ describe('chat interface', () => {
     await nextTick()
     const input = host.querySelector<HTMLTextAreaElement>('#prompt')!
     const button = host.querySelector<HTMLButtonElement>('.composer .send')!
-    const pointerDown = (options = {}) => {
-      const event = Object.assign(new Event('pointerdown', { bubbles: true, cancelable: true }), { button: 0, isPrimary: true, pointerType: 'touch', ...options })
+    const mouseDown = (buttonNumber = 0) => {
+      const event = new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: buttonNumber })
       button.dispatchEvent(event)
       return event
     }
     input.focus(); await nextTick()
-    expect(pointerDown().defaultPrevented).toBe(false)
+    expect(mouseDown().defaultPrevented).toBe(false)
     vi.stubGlobal('innerHeight', 500)
     viewport.height = 500
     viewport.dispatchEvent(new Event('resize')); await nextTick()
     expect(host.querySelector('.keyboard-open')).not.toBeNull()
-    expect(pointerDown({ isPrimary: false }).defaultPrevented).toBe(false)
-    expect(pointerDown({ button: 2 }).defaultPrevented).toBe(false)
+    expect(mouseDown(2).defaultPrevented).toBe(false)
     client.state.uncertain = true
     await nextTick()
     expect(button.disabled).toBe(true)
-    expect(pointerDown().defaultPrevented).toBe(false)
+    expect(mouseDown().defaultPrevented).toBe(false)
     host.querySelector('form.composer')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
     expect(document.activeElement).toBe(input)
     expect(submit).not.toHaveBeenCalled()
     client.state.uncertain = false
     await nextTick()
 
-    pointerDown()
+    const pointerDown = Object.assign(new Event('pointerdown', { bubbles: true, cancelable: true }), { button: 0, isPrimary: true, pointerType: 'touch' })
+    button.dispatchEvent(pointerDown)
     button.dispatchEvent(new Event('pointercancel', { bubbles: true }))
     await nextTick()
     expect(submit).not.toHaveBeenCalled()
     expect(client.state.draft).toBe('First line\nSecond line')
 
-    // Model the browser's default focus before release: blur restores the tabs,
-    // moving Send away from the original hit target before click can activate it.
-    if (!pointerDown().defaultPrevented) button.focus()
-    await nextTick()
-    if (host.querySelector('.keyboard-open')) button.click()
+    // MouseEvent has no isPrimary; cancellation must work on the compatibility event itself.
+    expect(mouseDown().defaultPrevented).toBe(true)
+    expect(pointerDown.defaultPrevented).toBe(false)
+    expect(submit).not.toHaveBeenCalled()
+    expect(document.activeElement).toBe(input)
+    button.click()
     expect(submit).toHaveBeenCalledOnce()
     expect(newChat).not.toHaveBeenCalled()
     expect(document.activeElement).not.toBe(input)
     expect(client.state.draft).toBe('First line\nSecond line')
     await nextTick()
     expect(host.querySelector('.keyboard-open')).toBeNull()
-    expect(pointerDown().defaultPrevented).toBe(false)
+    expect(mouseDown().defaultPrevented).toBe(false)
   })
 
   it.each([false, true])('dismisses the touch keyboard on submission (steering: %s) without refocusing after the reply', async running => {
