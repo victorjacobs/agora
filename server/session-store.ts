@@ -120,6 +120,12 @@ export class SessionStore {
   watches(owner: string): PushWatch[] {
     return this.database.prepare('SELECT metadata FROM push_watches WHERE scope = ? AND owner = ?').all(this.scope, owner).map(row => JSON.parse(String(row.metadata)) as PushWatch)
   }
+  hasWatch(owner: string, runtime: string): boolean {
+    return Boolean(this.database.prepare('SELECT 1 FROM push_watches WHERE scope = ? AND owner = ? AND runtime = ?').get(this.scope, owner, runtime))
+  }
+  updateWatch(owner: string, watch: PushWatch): boolean {
+    return this.database.prepare('UPDATE push_watches SET metadata = ? WHERE scope = ? AND owner = ? AND runtime = ?').run(JSON.stringify(watch), this.scope, owner, watch.runtime).changes > 0
+  }
   saveWatch(owner: string, watch: PushWatch) {
     if (!this.subscriptions(owner).length) return
     const watches = this.watches(owner)

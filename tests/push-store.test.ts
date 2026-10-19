@@ -56,6 +56,8 @@ it('keeps five watches per login in insertion order without cursor updates chang
     expect(store.watches(owner).find(row => row.runtime === '0')?.seq).toBe(42)
     store.saveWatch(owner, watch('5'))
     expect(store.watches(owner).map(row => row.runtime).sort()).toEqual(['1', '2', '3', '4', '5'])
+    expect(store.updateWatch(owner, watch('0', 99))).toBe(false)
+    expect(store.watches(owner).map(row => row.runtime).sort()).toEqual(['1', '2', '3', '4', '5'])
     expect(store.watches(sessionOwner('second')).map(row => row.runtime)).toEqual(['separate'])
   } finally { store.close() }
 })

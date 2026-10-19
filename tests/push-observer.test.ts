@@ -53,6 +53,21 @@ async function fixture(reply: (runtime: string, id: string, socket: any) => void
 const replay = (seq = 1) => ({ epoch: 'epoch', latest_seq: seq, truncated: false, events: [], open_requests: [] })
 const send = (socket: any, id: string, result: unknown) => socket.send(JSON.stringify({ jsonrpc: '2.0', id, result }))
 
+it.each(['empty', 'reply'])('does not recreate an evicted watch when its in-flight %s replay settles', async kind => {
+  const delivery = vi.spyOn(webpush, 'generateRequestDetails')
+  const watch = (runtime: string) => ({ runtime, stored: runtime + '-stored', profile: 'work', epoch: 'epoch', seq: 0, seen: [] })
+  const test = await fixture((runtime, id, socket) => {
+    if (runtime === 'a-failing') {
+      test.store.saveWatch(test.owner, watch('f-new'))
+      send(socket, id, { ...replay(), events: kind === 'reply' ? [{ session_id: runtime, type: 'message.complete', seq: 1, payload: { text: 'An evicted reply must not notify.' } }] : [] })
+    } else send(socket, id, replay())
+  })
+  for (const runtime of ['c', 'd', 'e']) test.store.saveWatch(test.owner, watch(runtime))
+  await test.sweep()
+  expect(test.store.watches(test.owner).map(row => row.runtime).sort()).toEqual(['b-healthy', 'c', 'd', 'e', 'f-new'])
+  expect(delivery).not.toHaveBeenCalled()
+})
+
 it('accepts a retained 4 MiB event plus its full wire envelope and still reads the healthy follower', async () => {
   const event = { session_id: 'a-failing', type: 'message.delta', payload: { text: '' } }
   event.payload.text = 'x'.repeat(4 * 1024 * 1024 - Buffer.byteLength(JSON.stringify(event)))
