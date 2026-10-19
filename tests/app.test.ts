@@ -94,6 +94,8 @@ describe('chat interface', () => {
     expect(host.querySelector('.conversation-heading h1')?.textContent).toBe('Settings')
     expect(host.querySelector('.app-rail [aria-label="More"]')?.getAttribute('aria-current')).toBe('page')
     expect(host.querySelector('.settings-view')?.textContent).toContain('Fictional operator')
+    expect(host.querySelector('.settings-signout > svg')?.getAttribute('aria-hidden')).toBe('true')
+    expect(host.querySelector('.settings-signout')?.textContent).not.toContain('↪')
     expect(host.querySelectorAll('.notification-control')).toHaveLength(1)
     expect(quota).not.toHaveBeenCalled()
     host.querySelector<HTMLButtonElement>('.quota-toggle')!.click()

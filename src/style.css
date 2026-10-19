@@ -234,7 +234,7 @@ dialog input { margin-top: 8px; }
 .account-identity strong { font-size: 15px; font-weight: 550; overflow-wrap: anywhere; }
 .account-identity p { margin: 3px 0 0; font-size: 12px; color: var(--muted); }
 .settings-signout { display: flex; align-items: center; gap: 16px; margin-top: 10px; color: var(--error); text-align: left; min-height: 62px; }
-.settings-signout > span:first-child { font-size: 24px; }
+.settings-signout > svg { width: 26px; height: 26px; flex-shrink: 0; }
 @media (pointer: coarse) {
   .chat-search .switcher-shortcut { display: none; }
   .chat-search input { padding-right: 34px; }

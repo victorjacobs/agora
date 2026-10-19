@@ -439,7 +439,7 @@ onBeforeUnmount(() => { if (moreSheet.value?.open) moreSheet.value.close(); if (
           <div class="settings-card"><ProviderQuota :providers="state.modelProviders" :current-provider="state.provider" :profile="state.profile" :connected="state.connection === 'ready'" :load="(provider, profile) => chat.providerQuota(provider, profile)" /></div>
           <h2>Account</h2>
           <div class="settings-card account-identity"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="12" cy="7" r="4"/><path d="M4 22v-3a8 8 0 0 1 16 0v3Z"/></svg><div><strong>{{ state.identity || 'Hermes connection' }}</strong><p>{{ state.identity ? 'Signed in through Hermes' : state.connection === 'ready' ? 'Connected to Hermes' : 'Reconnecting to Hermes' }}</p></div></div>
-          <button v-if="state.identity" class="settings-card settings-signout" @click="signOut"><span aria-hidden="true">↪</span> Sign out<span class="more-chevron" aria-hidden="true">›</span></button>
+          <button v-if="state.identity" class="settings-card settings-signout" @click="signOut"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4H4v16h5M14 8l4 4-4 4M8 12h10" /></svg> Sign out<span class="more-chevron" aria-hidden="true">›</span></button>
         </div>
       </section>
       <CronView ref="cronView" v-show="view === 'cron'" :active="view === 'cron'" :connected="state.connection === 'ready'" :profile="state.profile" :requested-job="requestedCronJob" @jobs="cronJobs = $event" />
