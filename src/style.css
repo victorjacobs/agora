@@ -44,7 +44,6 @@ a { color: var(--link); text-underline-offset: 3px; }
 @keyframes session-spin { to { transform: rotate(360deg); } }
 .session-title { display: block; font-size: 14px; font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .load-more { width: 100%; font-size: 12px; margin-top: 12px; background: transparent; }
-.sidebar-footer { margin: 15px 9px 0; padding-top: 15px; border-top: 1px solid var(--border); display: flex; align-items: center; flex-wrap: wrap; gap: 8px 15px; font-size: 12px; }
 .sidebar-action { display: flex; align-items: center; gap: 8px; width: 100%; padding: 5px 0; border: 0; background: transparent; text-align: left; color: var(--secondary-text); font-size: 12px; }
 .sidebar-action svg { width: 16px; height: 16px; flex-shrink: 0; }
 main { position: relative; min-width: 0; min-height: 0; flex: 1; display: flex; flex-direction: column; }
@@ -201,7 +200,6 @@ dialog input { margin-top: 8px; }
   .sheet-new-job { flex-shrink: 0; min-height: 48px; margin-top: 12px; color: var(--link); background: var(--selected); }
   .navigation-sheet .new-chat { min-width: 44px; min-height: 44px; }
   .navigation-sheet .session-list { flex: 0 1 auto; }
-  .navigation-sheet .sidebar-footer { flex-shrink: 0; }
 }
 
 .memory-section-count { flex-shrink: 0; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
@@ -210,3 +208,38 @@ dialog input { margin-top: 8px; }
 
 .markdown img[role="button"] { cursor: zoom-in; }
 .markdown img[role="button"]:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+
+.app-rail .rail-settings { margin-top: auto; }
+.more-content { padding: 16px; }
+.more-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+.more-heading h2 { margin: 0; font: 28px Georgia, serif; color: var(--heading); }
+.more-heading button { min-width: 44px; min-height: 44px; font-size: 25px; }
+.more-content nav { display: grid; gap: 10px; }
+.more-content nav button { display: flex; align-items: center; gap: 16px; width: 100%; min-height: 80px; padding: 15px; text-align: left; background: var(--surface); border-radius: 10px; }
+.more-content svg, .account-identity svg { width: 26px; height: 26px; color: var(--link); flex-shrink: 0; }
+.more-content strong { display: block; font-size: 16px; font-weight: 550; }
+.more-content small { display: block; font-size: 12px; color: var(--muted); margin-top: 3px; }
+.more-chevron { margin-left: auto; color: var(--muted); font-size: 24px; }
+.more-count { margin-left: auto; border-radius: 12px; padding: 1px 7px; font-size: 12px; background: var(--selected); color: var(--link); }
+.more-count + .more-chevron { margin-left: 0; }
+.more-back { color: var(--link); min-height: 44px; white-space: nowrap; }
+.more-back span { font-size: 24px; vertical-align: -2px; }
+.settings-view { flex: 1; min-height: 0; overflow-y: auto; padding: 28px 24px; }
+.settings-content { max-width: 640px; margin: 0 auto; }
+.settings-content h2 { margin: 26px 5px 10px; color: var(--muted); text-transform: uppercase; font-size: 11px; font-weight: 550; letter-spacing: .05em; }
+.settings-content h2:first-child { margin-top: 0; }
+.settings-card { width: 100%; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 16px; }
+.settings-card .sidebar-action { font-size: 14px; padding: 0; }
+.account-identity { display: flex; align-items: center; gap: 16px; }
+.account-identity strong { font-size: 15px; font-weight: 550; overflow-wrap: anywhere; }
+.account-identity p { margin: 3px 0 0; font-size: 12px; color: var(--muted); }
+.settings-signout { display: flex; align-items: center; gap: 16px; margin-top: 10px; color: var(--error); text-align: left; min-height: 62px; }
+.settings-signout > span:first-child { font-size: 24px; }
+@media (pointer: coarse) {
+  .chat-search .switcher-shortcut { display: none; }
+  .chat-search input { padding-right: 34px; }
+}
+@media (max-width: 760px) {
+  .settings-view { padding: 22px 16px; }
+  .more-sheet { max-height: calc(var(--app-height, 100dvh) - 24px); overflow-y: auto; }
+}

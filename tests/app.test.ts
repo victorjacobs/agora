@@ -44,8 +44,10 @@ describe('chat interface', () => {
     const { host, client } = mountApp()
     client.state.draft = 'Keep this draft'
     await nextTick()
-    expect([...host.querySelectorAll('.rail-label')].map(label => label.textContent)).toEqual(['Chat', 'Results', 'Memory', 'Jobs'])
-    host.querySelector<HTMLButtonElement>('[aria-label="Memory"]')!.click()
+    expect([...host.querySelectorAll('.rail-label')].map(label => label.textContent)).toEqual(['Chat', 'Results', 'More'])
+    host.querySelector<HTMLButtonElement>('.app-rail [aria-label="More"]')!.click()
+    await nextTick()
+    host.querySelector<HTMLButtonElement>('.more-sheet [aria-label="Memory"]')!.click()
     await nextTick()
     const selector = host.querySelector<HTMLButtonElement>('.mobile-selector')!
     expect(selector.textContent).toContain('Pending updates')
@@ -67,6 +69,46 @@ describe('chat interface', () => {
     expect(client.state.profile).toBe('work')
     Reflect.deleteProperty(HTMLDialogElement.prototype, 'showModal')
     Reflect.deleteProperty(HTMLDialogElement.prototype, 'close')
+  })
+  it('opens full Settings through More without eager quota or chat-state changes', async () => {
+    vi.stubGlobal('matchMedia', vi.fn(query => ({ matches: query === '(max-width: 760px)', addEventListener() {}, removeEventListener() {} })))
+    Object.defineProperties(HTMLDialogElement.prototype, {
+      showModal: { configurable: true, value() { this.open = true } },
+      close: { configurable: true, value() { this.open = false; this.dispatchEvent(new Event('close')) } },
+    })
+    const { host, client } = mountApp()
+    const unmount = cleanup
+    cleanup = () => { unmount(); Reflect.deleteProperty(HTMLDialogElement.prototype, 'showModal'); Reflect.deleteProperty(HTMLDialogElement.prototype, 'close') }
+    const quota = vi.spyOn(client, 'providerQuota').mockResolvedValue({ windows: [], details: [] })
+    Object.assign(client.state, { draft: 'Retain this', identity: 'Fictional operator', modelProviders: [{ slug: 'test', name: 'Test', models: [] }], provider: 'test', images: [{ id: 'image', name: 'fictional.png', dataUrl: 'data:image/png;base64,aA==', mime: 'image/png' }] })
+    await nextTick()
+    expect(host.querySelector('.sidebar .notification-control, .sidebar .provider-quota, .sidebar-footer')).toBeNull()
+    expect(host.querySelector('.settings-view')).toBeNull()
+    host.querySelector<HTMLButtonElement>('.app-rail [aria-label="More"]')!.click()
+    await nextTick()
+    const sheet = host.querySelector<HTMLDialogElement>('.more-sheet')!
+    await vi.waitFor(() => expect(sheet.open).toBe(true))
+    sheet.querySelector<HTMLButtonElement>('[aria-label="Settings"]')!.click()
+    await nextTick()
+    expect(sheet.open).toBe(false)
+    expect(host.querySelector('.conversation-heading h1')?.textContent).toBe('Settings')
+    expect(host.querySelector('.app-rail [aria-label="More"]')?.getAttribute('aria-current')).toBe('page')
+    expect(host.querySelector('.settings-view')?.textContent).toContain('Fictional operator')
+    expect(host.querySelectorAll('.notification-control')).toHaveLength(1)
+    expect(quota).not.toHaveBeenCalled()
+    host.querySelector<HTMLButtonElement>('.quota-toggle')!.click()
+    await vi.waitFor(() => expect(quota).toHaveBeenCalledExactlyOnceWith('test', 'work'))
+    host.querySelector<HTMLButtonElement>('[aria-label="Chat"]')!.click()
+    await nextTick()
+    expect(client.state.draft).toBe('Retain this')
+    expect(client.state.images).toHaveLength(1)
+    expect([client.state.selected, client.state.runtime, client.state.profile]).toEqual(['stored', 'runtime', 'work'])
+    host.querySelector<HTMLButtonElement>('.app-rail [aria-label="More"]')!.click()
+    await vi.waitFor(() => expect(sheet.open).toBe(true))
+    client.state.connection = 'expired'; client.state.identity = ''
+    await nextTick()
+    expect(host.querySelector('.sign-in-page')).not.toBeNull()
+    expect(sheet.open).toBe(false)
   })
   it('keeps processes beside pinned tasks, collapsed by default with individual output and Stop controls', async () => {
     const { host, client } = mountApp()
@@ -214,7 +256,7 @@ describe('chat interface', () => {
     vi.spyOn(CronApi.prototype, 'history').mockImplementation(async id => ({ session_id: id, messages: [{ id: 1, role: 'assistant', content: 'Readable result' }], pagination: { offset: 0, returned: 1, limit: 50 } }))
     const { host, client } = mountApp()
     await nextTick()
-    expect([...host.querySelectorAll('.app-rail button')].map(button => button.getAttribute('aria-label'))).toEqual(['Chat', 'Results', 'Memory', 'Cron jobs'])
+    expect([...host.querySelectorAll('.app-rail button')].map(button => button.getAttribute('aria-label'))).toEqual(['Chat', 'Results', 'Memory', 'Cron jobs', 'Settings'])
     host.querySelector<HTMLButtonElement>('[aria-label="Results"]')!.click()
     await vi.waitFor(() => expect(host.textContent).toContain('Readable result'))
     const manageJob = () => [...host.querySelectorAll<HTMLButtonElement>('.result-card footer button')].find(button => button.textContent?.trim() === 'Manage job')!.click()
@@ -745,7 +787,7 @@ describe('chat interface', () => {
     expect(host.textContent).not.toContain('https://remote-hermes.test')
     expect(host.querySelector('.sign-in-page')).toBeNull()
     expect(host.querySelector('form[action="/auth/logout"]')).toBeNull()
-    expect(host.querySelector('.provider-quota')).not.toBeNull()
+    expect(host.querySelector('.sidebar .provider-quota')).toBeNull()
   })
 
   it('shows a neutral startup screen until the session check finishes', async () => {
@@ -777,7 +819,7 @@ describe('chat interface', () => {
     expect(login()).toBeNull()
     expect(host.querySelector('textarea')).not.toBeNull()
     expect(host.querySelector('form[action="/auth/logout"]')).toBeNull()
-    expect(host.querySelector('.provider-quota')).not.toBeNull()
+    expect(host.querySelector('.sidebar .provider-quota')).toBeNull()
     client.state.connection = 'reconnecting'
     await nextTick()
     expect(host.querySelector('.sign-in-page')).toBeNull()

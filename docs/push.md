@@ -11,10 +11,11 @@ observer. No paid relay or Apple developer membership is required.
 1. Sign in to Agora normally. On iPhone/iPad (16.4 or later), use **Share → Add to
    Home Screen**, then open that installed app. Android users can also install
    Agora from the browser's install menu.
-2. Open a conversation, open the Chats sidebar/conversation picker, and tap
-   **Notifications off**. Permission is requested from that tap, not automatically.
+2. Open a conversation, then open **More → Settings** on mobile or the
+   bottom-gutter **Settings** cog on desktop. Tap the **Notifications** control
+   showing **Notifications off**. Permission is requested from that tap, not automatically.
 3. Allow notifications. **Background notifications on** means this device is
-   subscribed. The help text reports the observer's last checked state; focus or
+   subscribed. Notification **Details** reports the observer's last checked state; focus or
    reopen Agora to refresh it. An unavailable/reconnecting watcher is not a
    delivery guarantee. Disable using the same control.
 

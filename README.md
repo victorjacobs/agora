@@ -88,10 +88,14 @@ sign-in. Agora provides the chat interface.
   [Web Push setup, privacy and delivery limits](docs/push.md). Desktop-only reply
   notifications remain the open-and-connected fallback, without duplicate push.
 - Automatic light/dark appearance and a layout that works on desktop and mobile.
-  Mobile uses labelled **Chat**, **Results**, **Memory**, and **Jobs** bottom tabs.
+  Mobile uses labelled **Chat**, **Results**, and **More** bottom tabs.
+  **More** opens Memory, Jobs, and Settings.
   Full-width selectors open bottom sheets for result jobs, memory sections, and
   scheduled jobs; the chat-header conversation button opens the chat picker.
-  The desktop rail and permanent sidebar are unchanged. Tabs hide while the
+  Desktop keeps its rail and workspace sidebars, with Settings pinned at the bottom
+  of the gutter. Settings contains per-device notifications, on-demand provider
+  quota, the existing Hermes identity and sign out; the conversation picker is
+  only for finding, pinning, and opening chats. Tabs hide while the
   focused composer has a shrunken virtual-keyboard viewport and return on blur.
 
 <picture>
