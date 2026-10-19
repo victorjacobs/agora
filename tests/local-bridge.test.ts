@@ -181,6 +181,16 @@ async function fixture(publicOrigin?: string, options: { sessionDb?: string; ses
 }
 
 describe('local remote-Hermes connection', () => {
+  it('reports push unconfigured only to authenticated same-origin clients', async () => {
+    const test = await fixture()
+    expect((await test.request('/api/agora/push')).status).toBe(401)
+    const { cookie } = await test.login()
+    const response = await test.request('/api/agora/push', { headers: { Cookie: cookie } })
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ configured: false })
+    expect((await test.request('/api/agora/push', { method: 'POST', headers: { Cookie: cookie, Origin: 'https://evil.test' }, body: '{}' })).status).toBe(403)
+  })
+
   it('issues a persistent secure cookie and renews it on authenticated activity', async () => {
     const test = await fixture('https://agora.example.test', { sessionDb: sessionDatabase(), sessionIdleSeconds: 120 })
     const { cookie, completed } = await test.login()

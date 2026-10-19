@@ -17,6 +17,11 @@ let
     port = 8123;
     profile = "work";
   }).config;
+  push = (evaluate {
+    enable = true;
+    hermesEndpoint = "https://hermes.example.com";
+    pushVapidFile = "/run/secrets/agora-push-vapid";
+  }).config;
   disabled = (evaluate { }).config;
   memoryOnly = (evaluate {
     enable = true;
@@ -70,6 +75,10 @@ assert !(idleType.check 0);
 assert !(idleType.check (-1));
 assert !(idleType.check "3600");
 assert !(service.environment ? AGORA_PUBLIC_ORIGIN);
+assert !(service.environment ? AGORA_PUSH_VAPID_FILE);
+assert !(service.serviceConfig ? LoadCredential);
+assert push.systemd.services.agora.environment.AGORA_PUSH_VAPID_FILE == "%d/push-vapid";
+assert push.systemd.services.agora.serviceConfig.LoadCredential == [ "push-vapid:/run/secrets/agora-push-vapid" ];
 assert hosted.systemd.services.agora.environment.AGORA_PUBLIC_ORIGIN == "https://agora.foo.bar";
 assert !(builtins.any (entry: pkgs.lib.hasPrefix "services.agora.publicOrigin" entry.message) (failedAssertions hosted));
 assert builtins.any (entry: pkgs.lib.hasPrefix "services.agora.publicOrigin" entry.message) (failedAssertions invalidOrigin);

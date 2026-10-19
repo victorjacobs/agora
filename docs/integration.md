@@ -1,5 +1,9 @@
 # Integration and validation
 
+Background Web Push has its own [public-contract, storage and acceptance guide](push.md).
+Its explicitly approved durable metadata exception does not permit conversation
+storage, Hermes database access or an execution backend.
+
 ## Supported source baseline
 
 The initial client targets Hermes Agent revision

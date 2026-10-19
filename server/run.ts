@@ -4,6 +4,7 @@ import { existsSync } from 'node:fs'
 import sirv from 'sirv'
 import { HermesBridge } from './bridge.ts'
 import { sessionStorageOptions } from './session-store.ts'
+import { pushConfiguration } from './push.ts'
 
 for (const file of ['.env.local', '.env']) {
   if (existsSync(file)) process.loadEnvFile(file)
@@ -14,7 +15,7 @@ const dist = resolve('dist')
 if (!existsSync(resolve(dist, 'index.html'))) throw new Error('Run npm run build before npm start.')
 const port = Number(process.env.AGORA_PORT || 5173)
 if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('AGORA_PORT must be a valid TCP port.')
-const bridge = new HermesBridge(endpoint, fetch, { ...sessionStorageOptions(), publicOrigin: process.env.AGORA_PUBLIC_ORIGIN || undefined })
+const bridge = new HermesBridge(endpoint, fetch, { ...sessionStorageOptions(), push: pushConfiguration(), publicOrigin: process.env.AGORA_PUBLIC_ORIGIN || undefined })
 const files = sirv(dist, {
   single: true,
   dev: true,

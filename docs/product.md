@@ -60,14 +60,24 @@ desktop packaging is deferred.
   after a process restart. This cache is not an identity or transcript database.
   Signed-out users see a dedicated sign-in screen with
   one prominent sign-in action; connection errors remain visible there.
-- Opt-in desktop completion notifications while Agora is open, connected, and
-  unfocused, with no conversation content in notifications. No background push.
+- Opt-in per-device background Web Push for replies and attention requests in
+  conversations opened in Agora. Existing login, no pairing. Titles and short
+  previews are approved; secure inputs/sudo use generic text. Durable subscription
+  and minimal replay/dedupe metadata are an explicitly approved storage exception,
+  never a transcript database. Desktop-only notifications remain a fallback.
+  See [push.md](push.md) for setup, privacy and best-effort limits.
 - Responsive layout, keyboard-accessible controls, visible focus, and sensible
   scrolling that does not drag a reader away from older messages.
-  On mobile, four labelled bottom tabs replace the rail. Secondary selection
+  On mobile, three labelled bottom tabs—Chat, Results, More—replace the rail.
+  More opens a modal sheet for Memory, Jobs and Settings; it stays selected for
+  these secondary views. Settings is a full workspace for per-device notifications
+  with expandable details, collapsed on-demand quota, existing Hermes identity
+  and sign out. Desktop Settings lives at the bottom of the rail gutter, separate
+  from the workspace buttons. Secondary selection
   moves from the permanent desktop sidebar into full-width selectors and modal
   bottom sheets; Results retains an explicit All results choice. The conversation
-  picker opens from the chat header. Existing workspace actions remain unchanged.
+  picker opens from the chat header and contains only search, conversation history,
+  pins and new-chat actions. Existing workspace actions remain unchanged.
 
 Session deletion must use the upstream API and display upstream failures. Keep
 selection, history, and live events associated with the correct session when
@@ -86,7 +96,7 @@ states returned by Hermes, including work started from another client.
 
 Multiple-server/profile management, global model/provider settings, prompt editing or
 branching, non-image uploads, inline PDF viewing, voice, terminal/file browser, tasks/boards, skills,
-MCP management, analytics, closed-app push notifications, offline mode, and custom account
+MCP management, analytics, offline mode, and custom account
 management. No feature parity with Hermes's dashboard, Conduit, or hermes-webui.
 
 ## Acceptance

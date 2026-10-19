@@ -16,6 +16,7 @@ const jobs = ['Daily brief', 'Backup check', 'Weather summary'].map((name, index
 const answers = ['Three priorities are ready for your review. No urgent follow-ups today.', 'All systems are healthy. The fictional backup completed without issues.', 'Mild conditions today with light cloud. A pleasant afternoon ahead.']
 const approvals = ['Keep replies concise', 'Use European date formats'].map((text, index) => ({ request_id: `memory-${index}`, description: 'Save to memory: add to user profile', command: text, choices: ['once', 'deny'] }))
 const errors = [], images = [], checks = []
+let quotaCalls = 0
 const server = await createServer({ configFile: false, plugins: [vue()], server: { host: '127.0.0.1', port: 0 }, logLevel: 'error' })
 let browser
 try {
@@ -29,7 +30,9 @@ try {
     const url = new URL(route.request().url()), path = url.pathname
     let result
     if (path === '/api/agora/connection') result = { mode: 'local', endpoint: 'https://fixture.invalid' }
-    else if (path === '/api/status') result = { auth_required: false }
+    else if (path === '/api/status') result = { auth_required: true }
+    else if (path === '/api/auth/me') result = { display_name: 'Fictional operator' }
+    else if (path === '/api/agora/push') result = { configured: false }
     else if (path === '/api/sessions') result = { sessions, total: 1 }
     else if (path === '/api/cron/jobs') result = jobs
     else if (/^\/api\/cron\/jobs\/[^/]+\/runs$/.test(path)) { const id = path.split('/')[4]; result = { runs: [{ id: `run-${id}`, title: jobs.find(job => job.id === id).name, started_at: now - 3600, ended_at: now - 3500 }], limit: Number(url.searchParams.get('limit')) } }
@@ -53,10 +56,13 @@ try {
       else if (request.method === 'approval.respond') { const index = approvals.findIndex(approval => approval.request_id === request.params.request_id); if (index >= 0) approvals.splice(index, 1); result = { resolved: index >= 0 ? 1 : 0 } }
       else if (request.method === 'subagent.list') result = { subagents: [] }
       else if (request.method === 'process.list') result = { processes: [] }
-      else if (request.method === 'model.options') result = { providers: [] }
+      else if (request.method === 'model.options') result = { provider: 'fixture', providers: [{ slug: 'fixture', name: 'Fictional provider', models: ['fictional'] }] }
+      else if (request.method === 'cli.exec') { quotaCalls++; assert.deepEqual(request.params.argv, ['usage', '--provider', 'fixture', '--json', '--profile=default']); result = { blocked: false, code: 0, output: JSON.stringify({ windows: [], details: [] }) } }
       else if (request.method === 'config.get') result = { value: request.params.key === 'prompt' ? 'Ask before publishing.' : 'medium' }
       else if (request.method === 'profiles.describe') result = { name: 'default', soul: 'Be direct and practical.' }
       else if (request.method === 'command.dispatch') result = { type: 'exec', output: 'No pending memory writes.' }
+      else if (request.method === 'client.capabilities') result = {}
+      else throw new Error(`Unexpected fixture RPC: ${request.method}`)
       ws.send(JSON.stringify({ jsonrpc: '2.0', id: request.id, result }))
     })
   })
@@ -64,8 +70,10 @@ try {
   await page.getByText('The checks passed. Two follow-ups are ready to review.', { exact: true }).waitFor()
   assert.match(await page.locator('meta[name="viewport"]').getAttribute('content'), /viewport-fit=cover/)
   await page.evaluate(() => document.documentElement.style.setProperty('--app-safe-bottom', '34px'))
-  const rail = page.locator('.app-rail'), sheet = page.locator('.navigation-sheet'), selector = page.locator('.mobile-selector')
+  const rail = page.locator('.app-rail'), sheet = page.locator('.navigation-sheet:not(.more-sheet)'), selector = page.locator('.mobile-selector')
   const tab = name => rail.getByRole('button', { name, exact: true })
+  const more = page.locator('.more-sheet')
+  const secondary = async name => { await tab('More').click(); await more.getByRole('button', { name, exact: true }).click(); await more.waitFor({ state: 'hidden' }); assert.equal(await tab('More').getAttribute('aria-current'), 'page') }
   const assertLayout = async (safeBottom = 34) => {
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true)
     assert.equal(await page.locator('.shell > main').evaluate(el => el.scrollWidth <= el.clientWidth), true)
@@ -81,7 +89,7 @@ try {
       assert.ok(box.y < 100)
     }
   }
-  const capture = async (name, view) => { await assertLayout(); const path = resolve(output, `${name}.png`); await page.screenshot({ path }); images.push({ path, view, viewport: page.viewportSize(), browser: browser.version(), simulatedSafeAreaBottom: 34, data: 'Fictional HTTP and WebSocket fixtures; actual full Vue App, normal / route; no private Hermes data.' }) }
+  const capture = async (name, view) => { await page.evaluate(() => document.fonts.ready); await assertLayout(); const path = resolve(output, `${name}.png`); await page.screenshot({ path }); images.push({ path, view, viewport: page.viewportSize(), browser: browser.version(), simulatedSafeAreaBottom: 34, data: 'Fictional HTTP and WebSocket fixtures; actual full Vue App, normal / route; no private Hermes data.' }) }
   await page.locator('#prompt').fill('Keep this unsent draft')
   await page.locator('#prompt').blur()
   await page.locator('.transcript').evaluate(el => { el.scrollTop = 0 })
@@ -99,11 +107,47 @@ try {
   assert.ok((await page.locator('.composer').boundingBox()).y < (await rail.boundingBox()).y)
   await page.getByRole('button', { name: 'Open conversations', exact: true }).click()
   assert.equal(await sheet.evaluate(el => el.open), true)
+  assert.equal(await sheet.locator('.notification-control, .provider-quota, .sidebar-footer').count(), 0)
+  assert.equal(await sheet.getByRole('button', { name: 'Switch conversation', exact: true }).isVisible(), false)
+  await capture('mobile-conversation-picker', 'Chat / clean conversation picker')
   await page.keyboard.press('Tab')
   assert.equal(await page.evaluate(() => document.activeElement.closest('.navigation-sheet') !== null), true)
   await page.keyboard.press('Escape')
   await sheet.waitFor({ state: 'hidden' })
   assert.equal(await page.getByRole('button', { name: 'Open conversations', exact: true }).evaluate(el => el === document.activeElement), true)
+  assert.deepEqual(await rail.locator('.rail-label').allTextContents(), ['Chat', 'Results', 'More'])
+  await tab('More').click()
+  await more.waitFor({ state: 'visible' })
+  assert.equal(await more.evaluate(el => Math.round(el.getBoundingClientRect().bottom)), 844)
+  assert.equal(await tab('More').getAttribute('aria-describedby'), 'pending-memory-count')
+  assert.equal(await page.locator('#pending-memory-count').getAttribute('aria-label'), '2 pending memory updates')
+  assert.equal(await more.locator('.more-count').innerText(), '2')
+  await capture('mobile-more', 'More / Memory, Jobs, Settings')
+  for (const safeBottom of [0, 34]) {
+    await page.evaluate(inset => document.documentElement.style.setProperty('--app-safe-bottom', `${inset}px`), safeBottom)
+    assert.equal(await more.evaluate(el => Math.round(el.getBoundingClientRect().bottom)), 844)
+    assert.equal(await more.evaluate(el => parseFloat(getComputedStyle(el).paddingBottom)), safeBottom)
+    const last = await more.getByRole('button', { name: 'Settings', exact: true }).boundingBox()
+    assert.ok(last.y + last.height <= 844 - safeBottom)
+  }
+  await page.keyboard.press('Tab')
+  assert.equal(await page.evaluate(() => document.activeElement.closest('.more-sheet') !== null), true)
+  await page.keyboard.press('Escape')
+  await more.waitFor({ state: 'hidden' })
+  assert.equal(await tab('More').evaluate(el => el === document.activeElement), true)
+  await secondary('Settings')
+  assert.equal(quotaCalls, 0)
+  assert.equal(await page.locator('.settings-view details').evaluate(el => el.open), false)
+  assert.equal(await page.locator('.quota-toggle').getAttribute('aria-expanded'), 'false')
+  assert.equal(await page.locator('dialog[open]').count(), 0)
+  await capture('mobile-settings', 'Settings / notifications, collapsed quota, actual fixture identity and sign out')
+  await page.locator('.quota-toggle').click()
+  await page.waitForFunction(() => !document.querySelector('.quota-panel').textContent.includes('Checking quota'))
+  assert.equal(quotaCalls, 1)
+  await page.locator('.more-back').click()
+  await more.waitFor({ state: 'visible' })
+  await page.mouse.click(10, 100)
+  await more.waitFor({ state: 'hidden' })
   await tab('Results').click()
   await page.locator('.result-card').first().waitFor()
   await page.waitForFunction(() => document.querySelectorAll('.result-body .markdown').length === 3)
@@ -118,7 +162,7 @@ try {
   await sheet.getByRole('button', { name: 'All results', exact: true }).click()
   await sheet.waitFor({ state: 'hidden' })
   assert.equal(await page.locator('.result-card').count(), 3)
-  await tab('Memory').click()
+  await secondary('Memory')
   await page.locator('.memory-view .memory-approval').first().waitFor()
   await capture('mobile-memory', 'Memory / Pending updates')
   for (const section of ['Saved memory', 'User profile', 'Soul & instructions', 'Memory providers', 'Pending updates']) {
@@ -127,7 +171,7 @@ try {
     await sheet.waitFor({ state: 'hidden' })
     assert.match(await selector.innerText(), new RegExp(section))
   }
-  await tab('Jobs').click()
+  await secondary('Jobs')
   await page.locator('.cron-job-heading').waitFor()
   assert.match(await selector.innerText(), /Daily brief/)
   await capture('mobile-jobs', 'Jobs / Daily brief')
@@ -222,8 +266,11 @@ try {
   }
   await page.evaluate(() => document.documentElement.style.removeProperty('--app-safe-bottom'))
   checks.push('34px and 0px bottom insets: both innerHeight and visualViewport shrink to 500; tabs hidden; long multiline draft and attached fictional image retained; Send/remove trial clicks reachable; blur restores tabs; full viewport restores composer above tabs and correct inset spacing')
-  checks.push('390x844: four labelled tabs; all result/Memory/job selections; modal focus containment/restoration, Escape, backdrop, selection closure; draft preserved; mobile Enter inserts a native newline; no horizontal overflow')
+  checks.push('390x844: three labelled tabs; More secondary menu, full Settings, lazy quota and clean picker; all result/Memory/job selections; modal focus containment/restoration, Escape, backdrop, selection closure; draft preserved; mobile Enter inserts a native newline; no horizontal overflow')
+  await tab('More').click()
+  await more.waitFor({ state: 'visible' })
   await page.setViewportSize({ width: 1280, height: 900 })
+  await more.waitFor({ state: 'hidden' })
   await page.waitForFunction(() => getComputedStyle(document.querySelector('.app-rail')).flexDirection === 'column')
   await page.locator('.sidebar').waitFor({ state: 'visible' })
   assert.equal(await selector.count(), 0)
@@ -232,7 +279,24 @@ try {
   const path = resolve(output, 'desktop-chat.png')
   await page.screenshot({ path })
   images.push({ path, view: 'Desktop Chat / unchanged rail and sidebar', viewport: page.viewportSize(), browser: browser.version(), data: 'Same fictional full-App HTTP/WS fixture' })
-  checks.push('1280x900: desktop 54px vertical rail and permanent sidebar; mobile labels/selectors hidden')
+  const cog = page.locator('.rail-settings')
+  const cogBox = await cog.boundingBox()
+  assert.ok(cogBox.y > 830 && cogBox.y + cogBox.height <= 900)
+  await cog.click()
+  await page.locator('.settings-view').waitFor()
+  assert.equal(await page.locator('.sidebar').isVisible(), false)
+  assert.equal(await page.locator('.shell > main').evaluate(el => el.getBoundingClientRect().left), 54)
+  assert.equal(await cog.evaluate(el => { const box = el.getBoundingClientRect(); return document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2) === el || el.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2)) }), true)
+  await page.locator('.settings-content').evaluate(el => { el.style.minHeight = '1500px' })
+  await page.locator('.settings-view').evaluate(el => { el.scrollTop = el.scrollHeight })
+  assert.deepEqual(await cog.boundingBox(), cogBox)
+  await cog.click({ trial: true })
+  await page.locator('.settings-content').evaluate(el => { el.style.removeProperty('min-height') })
+  await page.locator('.settings-view').evaluate(el => { el.scrollTop = 0 })
+  const desktopSettings = resolve(output, 'desktop-settings.png')
+  await page.screenshot({ path: desktopSettings })
+  images.push({ path: desktopSettings, view: 'Desktop full Settings / cog pinned at bottom gutter', viewport: page.viewportSize(), browser: browser.version(), cogBox, data: 'Same fictional full-App HTTP/WS fixture' })
+  checks.push('1280x900: desktop 54px vertical rail and permanent workspace sidebar; full-width Settings; Settings cog bottom-pinned and hit-tested independently of Settings scrolling; mobile labels/selectors hidden')
   assert.deepEqual(errors, [])
   const git = (...args) => execFileSync('git', args, { encoding: 'utf8' }).trim()
   const manifest = { branch: git('branch', '--show-current'), base: git('merge-base', 'HEAD', 'origin/main'), changedFiles: git('status', '--short'), command: `AGORA_BROWSER_PATH=${executablePath} nix develop path:. --command node scripts/mobile-navigation-smoke.mjs`, result: 'PASS', images, checks, headerInspection, pageErrors: errors, limitations: ['Chromium emulation, not physical iOS', 'Bottom safe area simulated as 34px and 0px; physical home-indicator confirmation remains outstanding', 'Keyboard visibility simulated with BOTH innerHeight and visualViewport height at 500; cropped screenshots show actual app layout, not a physical virtual keyboard', 'Header computed styles and closed-dialog checks in Chromium do not prove iOS compositor behavior', 'Fictional fixtures, not live authenticated Hermes acceptance'] }

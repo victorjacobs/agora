@@ -1,5 +1,9 @@
 # Nix package and NixOS module
 
+Optional background Web Push uses `services.agora.pushVapidFile`, a private
+runtime JSON credential loaded with systemd `LoadCredential`. The generation and
+provisioning steps are below; see [push.md](push.md) for delivery and device limits.
+
 The flake exports `packages.<system>.default` and `packages.<system>.agora` for
 Apple Silicon macOS and x86_64/aarch64 Linux, plus `nixosModules.default` and
 `nixosModules.agora`. The standalone expressions in `nix/` remain importable.
@@ -61,8 +65,8 @@ must configure its own `hermesProfile` argument.
 The `agora.service` system service uses a dynamic user, starts after networking,
 and restarts on failure. It only listens on `127.0.0.1`; no firewall port is
 opened. With `publicOrigin = null`, use a browser on the NixOS machine. The endpoint must support Hermes's
-native PKCE login. Session grants stay in process memory, so a service restart
-requires signing in again. The service does not read or write Hermes storage.
+native PKCE login. Login grants persist in a private SQLite cache by default;
+`sessionPersistence = false` opts out. The service does not read or write Hermes storage.
 
 ```sh
 systemctl status agora
@@ -155,12 +159,17 @@ uses only the Agora origin, so neither proxy needs CORS headers or Origin rewrit
 | `port` | `5173` | Loopback HTTP port, used directly or by the reverse proxy. |
 | `profile` | `null` | Profile compiled into the default package. |
 | `package` | Module's package | Override the packaged application. |
+| `sessionPersistence` | `true` | Persist the private login cache and notification metadata across restarts. |
+| `sessionIdleSeconds` | `2592000` | Rolling idle expiry; background observation does not renew it. |
+| `pushVapidFile` | `null` | Runtime string path to the VAPID JSON secret; null disables background Web Push. |
 
 `publicOrigin` sets `AGORA_PUBLIC_ORIGIN` at runtime; it does not rebuild the UI.
 The bridge uses Secure, HttpOnly, host-only session/login cookies in hosted mode.
-Tokens are not written to disk. A process restart loses login sessions; a page
-refresh does not. Run a single process: multiple replicas do not share the
-in-memory login/session state. Logout clears the Agora session and sockets;
+The default cache at `/var/lib/agora/sessions.sqlite` contains plaintext tokens
+and notification metadata, not conversations. Protect it and exclude it from
+normal backups. With persistence disabled, process restarts lose logins and push
+registrations. Run a single process: active sockets and observers are not shared
+between replicas. Logout clears the Agora session, sockets and push registrations;
 it does not revoke your provider SSO session or sign out the Hermes dashboard.
 
 Open Agora, sign in, and check that the final redirect returns to its
@@ -173,6 +182,67 @@ not log callback query strings containing one-time codes.
 
 Tests exercise hosted login against a synthetic Hermes server. Live OIDC with
 the patched Hermes deployment remains to be verified.
+
+## Generate and provision the Web Push VAPID secret
+
+Generate the key pair **once**, outside the checkout and Nix store. From a checkout
+containing Web Push support, build the package and run its bundled helper with
+Node from the development shell; no global npm install or Apple developer account
+is needed:
+
+```sh
+nix build .
+mkdir -p -m 700 "$HOME/.local/share/agora-secrets"
+nix develop --command node ./result/share/agora/scripts/push-vapid.mjs \
+  "$HOME/.local/share/agora-secrets/vapid.json" \
+  mailto:operator@example.com
+```
+
+Replace `mailto:operator@example.com` with your real operator contact (an HTTPS
+contact URL is also accepted). The helper writes a new `0600` JSON file containing
+`publicKey`, `privateKey`, and `subject`, prints no key material, and refuses to
+overwrite an existing file. Ensure an already-existing parent directory is private.
+
+Provision that whole JSON file on the NixOS host through your existing secret
+manager, such as sops-nix/agenix. Alternatively, for a manually managed root-only
+runtime file, run the following **on the target host**, with the generated file
+securely transferred there first:
+
+```sh
+sudo install -d -m 700 /var/lib/agora-secrets
+sudo install -m 600 "$HOME/.local/share/agora-secrets/vapid.json" \
+  /var/lib/agora-secrets/vapid.json
+```
+
+Point the module at that file using a **quoted string**, not a Nix path literal:
+
+```nix
+services.agora = {
+  enable = true;
+  hermesEndpoint = "https://hermes.example.com";
+  publicOrigin = "https://agora.example.com";
+  pushVapidFile = "/var/lib/agora-secrets/vapid.json";
+  # With sops-nix instead:
+  # pushVapidFile = config.sops.secrets.agora-push-vapid.path;
+};
+```
+
+Keep the secret out of Git and Nix expressions. Do not use `builtins.readFile`,
+`builtins.toFile`, or an inline JSON secret: these can copy private material into
+the Nix store. `LoadCredential` makes the root-readable runtime file available to
+the dynamic service user without making the source file world-readable.
+
+Activate the configuration through your normal NixOS deployment workflow, then
+check `systemctl status agora`. Keep the same key file across rebuilds and
+restarts; store any recovery copy in an encrypted secret backup. Replacing the
+key requires devices to disable and re-enable notifications. Leaving
+`pushVapidFile = null` keeps push disabled; malformed keys fail service startup.
+
+After activation, open the installed Home Screen app, sign in, open a chat, and
+enable **Notifications** from the conversation picker. Test a reply with the app
+closed, tap the notification, then test disable/logout. No pairing code is needed.
+This physical-device acceptance remains necessary; see [push.md](push.md) for
+best-effort delivery and pending-request limitations.
 
 ## Verify changes
 
