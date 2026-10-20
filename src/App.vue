@@ -292,7 +292,7 @@ watch(() => state.selected, () => { following.value = true })
 watch(() => state.tasks.map(task => [task.key, task.status]), () => {
   if (following.value) void scrollToLatest(false)
 }, { flush: 'post' })
-watch([() => state.draft, composer], resizeComposer, { flush: 'post' })
+watch([() => state.draft, composer, mobile], resizeComposer, { flush: 'post' })
 watch(showSignIn, value => {
   if (value) { closeSidebar(); closeMore() }
   if (value && switcherOpen.value) {
@@ -481,7 +481,7 @@ onBeforeUnmount(() => { if (moreSheet.value?.open) moreSheet.value.close(); if (
           <ImageAttachments ref="attachments" :images="state.images" :scope="JSON.stringify([state.selected, state.profile])" :disabled="state.sending || state.readingImages || state.running || state.compressing || state.connection !== 'ready'" @add="state.images.push($event)" @remove="state.images = state.images.filter(image => image.id !== $event)" @error="state.error = $event" @busy="state.readingImages = $event" />
           <SlashCommands ref="slashPicker" :draft="state.draft" :scope="JSON.stringify([state.runtime, state.profile])" :connected="state.connection === 'ready'" :load="() => chat.commands()" @select="state.draft = $event; composer?.focus()" />
           <label class="sr-only" for="prompt">Message Hermes</label>
-          <textarea id="prompt" ref="composer" v-model="state.draft" @focus="composerFocused = true" @blur="composerFocused = false" :role="slashPicker?.visible ? 'combobox' : undefined" :aria-expanded="slashPicker?.visible ? true : undefined" :aria-controls="slashPicker?.visible ? 'slash-options' : undefined" :aria-activedescendant="slashPicker?.activeId" :aria-autocomplete="slashPicker?.visible ? 'list' : undefined" rows="2" enterkeyhint="enter" placeholder="Message Hermes…" :title="composerPointer.matches ? 'Enter for a new line' : state.running ? 'Enter to steer · Shift + Enter for a new line' : 'Enter to send · Shift + Enter for a new line'" :disabled="state.connection === 'expired' || state.connection === 'closed'" @keydown="composerKey"></textarea>
+          <textarea id="prompt" ref="composer" v-model="state.draft" @focus="composerFocused = true" @blur="composerFocused = false" :role="slashPicker?.visible ? 'combobox' : undefined" :aria-expanded="slashPicker?.visible ? true : undefined" :aria-controls="slashPicker?.visible ? 'slash-options' : undefined" :aria-activedescendant="slashPicker?.activeId" :aria-autocomplete="slashPicker?.visible ? 'list' : undefined" :rows="mobile ? 1 : 2" enterkeyhint="enter" placeholder="Message Hermes…" :title="composerPointer.matches ? 'Enter for a new line' : state.running ? 'Enter to steer · Shift + Enter for a new line' : 'Enter to send · Shift + Enter for a new line'" :disabled="state.connection === 'expired' || state.connection === 'closed'" @keydown="composerKey"></textarea>
           <div class="composer-bottom">
             <div class="composer-options"><ComposerSettings :state="state" @model="chat.chooseModel($event)" @reasoning="chat.chooseReasoning($event)" @confirm="state.modelConfirmation && chat.chooseModel(state.modelConfirmation, true)" @cancel="state.modelConfirmation = undefined" @retry="chat.refreshSettings()" /></div>
             <button v-if="state.running" type="button" class="stop" :disabled="actionsDisabled" @click="chat.stop()">■ Stop</button>
