@@ -61,7 +61,7 @@ export class PushNotifications {
       if (this.disposed) return
       this.save(enabled)
       this.state.permission = Notification.permission
-      this.state.help = enabled ? `Background replies and attention requests for chats opened in Agora. Lock screen shows titles and short previews; secure inputs stay generic. ${status.observer === 'watching' ? '' : 'Watcher: ' + status.observer + '. '}Up to 64 chats per login. Notifications may also appear while Agora is visible.` : 'Enable on this device for replies, approvals and questions, even when Agora is closed. Titles and short previews can appear on the lock screen. Secure-input requests use generic text.'
+      this.state.help = enabled ? `Background replies and attention requests for chats opened in Agora. Lock screen shows titles and short previews; secure inputs stay generic. ${status.observer === 'watching' ? '' : 'Watcher: ' + status.observer + '. '}Up to 5 chats per login. Notifications may also appear while Agora is visible.` : 'Enable on this device for replies, approvals and questions, even when Agora is closed. Titles and short previews can appear on the lock screen. Secure-input requests use generic text.'
     } catch {
       if (!this.disposed) { this.state.pushStatus = 'unavailable'; this.state.help = 'Web Push status is unavailable. Reconnect or sign in again; existing delivery may be paused.' }
     } finally { this.refreshing = false; this.state.busy = false }
@@ -98,7 +98,7 @@ export class PushNotifications {
       await this.request('POST', { subscription: subscription.toJSON() })
       this.save(true)
       this.state.pushStatus = 'connecting'
-      this.state.help = 'Background notifications enabled on this device. Replies and questions may show titles and short previews on the lock screen; secure inputs stay generic. Only chats opened in Agora are watched.'
+      this.state.help = 'Background notifications enabled on this device. Replies and questions may show titles and short previews on the lock screen; secure inputs stay generic. Only chats opened in Agora are watched, up to 5 per login.'
     } catch (error) {
       if (created) await created.unsubscribe().catch(() => {})
       if (!this.disposed) this.state.error = error instanceof Error ? error.message : 'Could not enable Web Push.'

@@ -99,14 +99,16 @@ export class PushObserver {
       for (let offset = 0; offset < watches.length; offset++) {
         const watch = watches[(start + offset) % watches.length]!
         if (this.stopped || !this.valid()) return
+        if (!this.store.hasWatch(this.owner, watch.runtime)) continue
         if ((this.watchFailures.get(watch.runtime)?.retryAt || 0) > Date.now()) continue
         // Advance before awaiting: a socket-closing watch must not lead the next reconnect.
         this.lastWatch = watch.runtime
         try {
           const replay = await this.gateway.request<Replay>('session.events.since', { session_id: watch.runtime, last_seen: watch.seq, profile: watch.profile }, 20_000)
           if (this.stopped || !this.valid()) return
+          if (!this.store.hasWatch(this.owner, watch.runtime)) continue
           const notices = replayNotifications(watch, replay)
-          if (!notices.length) { this.store.saveWatch(this.owner, watch); this.watchFailures.delete(watch.runtime); continue }
+          if (!notices.length) { this.store.updateWatch(this.owner, watch); this.watchFailures.delete(watch.runtime); continue }
           const identity = await this.native.request('/api/auth/me')
           if (identity.status === 401) throw new BridgeError(401, 'Login expired.')
           if (!identity.ok) throw new Error('Authentication unavailable.')
@@ -116,12 +118,14 @@ export class PushObserver {
           const detail = await titleResponse.json()
           const title = detail.title
           // Reserve before delivery: a crash may lose a notification, never persist its content or send it twice after restart.
-          this.store.saveWatch(this.owner, watch)
+          if (!this.store.updateWatch(this.owner, watch)) continue
           for (const notice of notices.slice(-16)) {
             for (const subscription of this.store.subscriptions(this.owner)) {
-              if (this.stopped || !this.valid() || !this.store.subscriptions(this.owner).some(row => row.endpoint === subscription.endpoint)) return
+              if (this.stopped || !this.valid()) return
+              if (!this.store.hasWatch(this.owner, watch.runtime)) break
+              if (!this.store.subscriptions(this.owner).some(row => row.endpoint === subscription.endpoint)) continue
               try {
-                const authorized = () => !this.stopped && this.valid() && this.store.subscriptions(this.owner).some(row => row.endpoint === subscription.endpoint)
+                const authorized = () => !this.stopped && this.valid() && this.store.hasWatch(this.owner, watch.runtime) && this.store.subscriptions(this.owner).some(row => row.endpoint === subscription.endpoint)
                 await sendPush(this.config, subscription, notificationPayload(watch.stored, watch.profile, title, notice.kind, notice.text), authorized)
                 this.deliveryUnavailable = false
               }
