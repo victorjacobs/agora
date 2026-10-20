@@ -130,7 +130,11 @@ dialog input { margin-top: 8px; }
   .transcript > .conversation-width { padding: 20px 0; }
   .message.user { max-width: 90%; padding: 11px 14px; }
   .composer-footer { padding: 0 13px 10px; }
-  .composer { padding: 12px; }
+  .composer { padding: 8px 12px; }
+  .composer textarea { min-height: 29px; }
+  .composer-bottom { align-items: center; margin-top: 4px; }
+  .composer-options { padding-left: 40px; }
+  .composer .send, .composer .stop { min-height: 44px; }
   .desktop-hint { display: none; }
   .empty-conversation h2 { font-size: 30px; }
   .banner { padding: 12px 15px; flex-wrap: wrap; }

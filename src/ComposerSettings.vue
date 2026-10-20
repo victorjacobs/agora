@@ -74,4 +74,10 @@ p { margin: 0 0 8px; }
 .settings-confirmation .button-row { margin-top: 6px; }
 .settings-confirmation button { padding: 4px 8px; font-size: 11px; }
 @media (max-width: 600px) { .composer-settings { gap: 2px; } .setting-control { padding-left: 4px; gap: 5px; } select { max-width: 160px; font-size: 12px; } }
+@media (max-width: 760px) {
+  .composer-settings { flex-wrap: nowrap; gap: 2px; }
+  .setting-control { flex: 1; min-height: 44px; padding: 0 3px; gap: 4px; }
+  .setting-chevron { right: 3px; width: 10px; }
+  select { width: 100%; max-width: none; padding-right: 12px; }
+}
 </style>

@@ -280,6 +280,28 @@ describe('chat interface', () => {
     expect(client.state.selected).toBe('stored')
     vi.restoreAllMocks()
   })
+  it('uses one mobile composer row and remeasures when crossing the desktop breakpoint', async () => {
+    const media = Object.assign(new EventTarget(), { matches: false })
+    vi.stubGlobal('matchMedia', vi.fn(query => query === '(max-width: 760px)' ? media : { matches: false }))
+    const { host, client } = mountApp()
+    await nextTick()
+    const input = host.querySelector<HTMLTextAreaElement>('#prompt')!
+    Object.defineProperty(input, 'scrollHeight', { get: () => input.rows === 1 ? 29 : 58 })
+    client.state.draft = 'Retain this draft'
+    await nextTick()
+    expect(input.rows).toBe(2)
+    expect(input.style.height).toBe('58px')
+    media.matches = true
+    media.dispatchEvent(new Event('change')); await nextTick()
+    expect(input.rows).toBe(1)
+    expect(input.style.height).toBe('29px')
+    media.matches = false
+    media.dispatchEvent(new Event('change')); await nextTick()
+    expect(input.rows).toBe(2)
+    expect(input.style.height).toBe('58px')
+    expect(input.value).toBe('Retain this draft')
+  })
+
   it('fits the application to the keyboard viewport and releases its listeners on unmount', async () => {
     const viewport = Object.assign(new EventTarget(), { height: 844, offsetTop: 0, scale: 1 })
     vi.stubGlobal('visualViewport', viewport)

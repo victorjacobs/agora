@@ -56,4 +56,7 @@ defineExpose({ paste, drop })
 .attachment-preview button { position: absolute; top: 3px; right: 3px; padding: 0; width: 22px; height: 22px; border-radius: 50%; background: var(--surface); font-size: 18px; }
 .attach-image { position: absolute; bottom: 14px; left: 14px; padding: 6px; border: 0; background: transparent; color: var(--muted); }
 .attach-image svg { display: block; width: 19px; height: 19px; }
+@media (max-width: 760px) {
+  .attach-image { display: grid; place-items: center; width: 44px; height: 44px; left: 8px; bottom: 9px; padding: 0; }
+}
 </style>
