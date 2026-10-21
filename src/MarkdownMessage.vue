@@ -41,6 +41,7 @@ watch([root, html], () => {
     const button = document.createElement('button')
     button.type = 'button'
     button.className = 'code-copy'
+    button.title = 'Copy code'
     const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
     for (const [name, value] of Object.entries({ viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.8', 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true' })) icon.setAttribute(name, value)
     const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
@@ -53,9 +54,9 @@ watch([root, html], () => {
     const status = document.createElement('span')
     status.className = 'code-copy-status'
     status.setAttribute('role', 'status')
-    toolbar.append(status, button)
+    toolbar.append(button)
     pre.replaceWith(block)
-    block.append(toolbar, pre)
+    block.append(toolbar, pre, status)
   }
 }, { flush: 'post' })
 async function copyCode(event: MouseEvent) {
@@ -72,13 +73,15 @@ async function copyCode(event: MouseEvent) {
   copyTimers.delete(button)
   status.textContent = ''
   label.textContent = 'Copy code'
+  button.removeAttribute('data-copied')
   button.disabled = true
   try {
     await navigator.clipboard.writeText(code.textContent || '')
     if (!active()) return
     label.textContent = 'Copied'
+    button.setAttribute('data-copied', '')
     copyTimers.set(button, setTimeout(() => {
-      if (active()) label.textContent = 'Copy code'
+      if (active()) { label.textContent = 'Copy code'; button.removeAttribute('data-copied') }
       copyTimers.delete(button)
     }, 2000))
   } catch {
@@ -121,14 +124,16 @@ onBeforeUnmount(() => { disposed = true; resetCopies() })
 </template>
 
 <style scoped>
-.markdown :deep(.code-block) { min-width: 0; margin: 1em 0; border: 1px solid var(--border); border-radius: 8px; background: var(--code); overflow: hidden; }
-.markdown :deep(.code-block pre) { margin: 0; border: 0; border-radius: 0; }
-.markdown :deep(.code-toolbar) { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding: 4px 8px; border-bottom: 1px solid var(--border); }
-.markdown :deep(.code-copy) { display: inline-flex; flex-shrink: 0; align-items: center; justify-content: center; gap: 6px; min-height: 36px; padding: 4px 8px; font-size: 12px; background: transparent; border-color: transparent; }
+.markdown :deep(.code-block) { position: relative; min-width: 0; min-height: 54px; margin: 1em 0; border: 1px solid var(--border); border-radius: 8px; background: var(--code); overflow: hidden; }
+.markdown :deep(.code-block pre) { margin: 0 52px 0 0; border: 0; border-radius: 0; }
+.markdown :deep(.code-toolbar) { position: absolute; top: 4px; right: 4px; }
+.markdown :deep(.code-copy) { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 0; font-size: 10px; background: transparent; border-color: transparent; }
 .markdown :deep(.code-copy svg) { width: 16px; height: 16px; }
+.markdown :deep(.code-copy:not([data-copied]) span) { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.markdown :deep(.code-copy[data-copied] svg) { display: none; }
 .markdown :deep(.code-copy:focus-visible) { outline: 2px solid var(--focus); outline-offset: -2px; }
-.markdown :deep(.code-copy-status) { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
-@media (pointer: coarse) { .markdown :deep(.code-copy) { min-height: 44px; } }
+.markdown :deep(.code-copy-status) { display: block; margin: 4px 15px 12px; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.markdown :deep(.code-copy-status:empty) { display: none; }
 .markdown :deep(.media-file) { display: flex; align-items: center; gap: 12px; width: fit-content; max-width: 100%; margin: 8px 0; padding: 12px 14px; border: 1px solid var(--border); border-radius: 9px; background: var(--panel); }
 .markdown :deep(.media-file-name) { min-width: 0; overflow-wrap: anywhere; font-size: 13px; }
 .markdown :deep(.media-file a) { flex-shrink: 0; font-size: 12px; }
