@@ -15,6 +15,8 @@ sign-in. Agora provides the chat interface.
 > Laptop mode works with unmodified Hermes.
 
 - Streamed replies, Markdown in user messages and replies, code, and inline generated images.
+  Fenced and indented code blocks have **Copy code** buttons with brief confirmation;
+  if clipboard access fails, Agora selects the code and offers manual-copy instructions.
   Messages sent through another client appear in the open chat when its turn starts.
 - Generated PDFs and other non-image `MEDIA:` files appear as filename cards with
   download links, including in saved chat history. Local files download through
