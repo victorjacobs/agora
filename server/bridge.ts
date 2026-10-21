@@ -9,7 +9,18 @@ import { PushObserver } from './push-observer.ts'
 
 const CALLBACK_PATH = '/auth/native/callback'
 const LOGIN_TTL = 5 * 60_000
-const MAX_BODY = 1024 * 1024
+const MAX_HTTP_BODY = 1024 * 1024
+// A 10 MiB image expands to roughly 13.3 MiB of base64 before RPC metadata.
+const MAX_WEBSOCKET_PAYLOAD = 16 * 1024 * 1024
+
+function logSocketError(peer: 'browser' | 'upstream', error: Error) {
+  const code = (error as NodeJS.ErrnoException).code
+  console.warn(JSON.stringify({
+    event: 'agora.websocket.error', peer,
+    code: code === 'WS_ERR_UNSUPPORTED_MESSAGE_LENGTH' ? code : 'TRANSPORT_ERROR',
+    maxPayloadBytes: MAX_WEBSOCKET_PAYLOAD,
+  }))
+}
 
 interface Login {
   state: string
@@ -88,7 +99,7 @@ function allowedRoute(path: string, method: string) {
   return ['GET', 'PATCH', 'DELETE'].includes(method) && /^\/api\/sessions\/[^/]+$/.test(path)
 }
 
-async function readBody(request: IncomingMessage, limit = MAX_BODY): Promise<string | undefined> {
+async function readBody(request: IncomingMessage, limit = MAX_HTTP_BODY): Promise<string | undefined> {
   const parts: Buffer[] = []
   let length = 0
   for await (const part of request) {
@@ -106,7 +117,7 @@ export class HermesBridge {
   private loginCookie: string
   private sessions = new Map<string, BrowserSession>()
   private logins = new Map<string, Login>()
-  private socketServer = new WebSocketServer({ noServer: true, maxPayload: MAX_BODY })
+  private socketServer = new WebSocketServer({ noServer: true, maxPayload: MAX_WEBSOCKET_PAYLOAD })
   private cleanupTimer: ReturnType<typeof setInterval>
   private fetcher: typeof fetch
   private store: SessionStore
@@ -314,7 +325,7 @@ export class HermesBridge {
     if (this.sessions.get(sessionOwner(cookie(request, this.sessionCookie) || '')) !== session) throw new BridgeError(401, 'This Agora login was cancelled.')
     const url = upstreamURL(this.endpoint, '/api/ws')
     url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
-    const upstream = new WebSocket(url, ['hermes-gateway-v1', `hermes-gateway-ticket.${ticket}`], { handshakeTimeout: 15_000, maxPayload: MAX_BODY, followRedirects: false })
+    const upstream = new WebSocket(url, ['hermes-gateway-v1', `hermes-gateway-ticket.${ticket}`], { handshakeTimeout: 15_000, maxPayload: MAX_WEBSOCKET_PAYLOAD, followRedirects: false })
     let browser: WebSocket | undefined
     session.sockets.add(upstream)
     socket.once('close', () => upstream.terminate())
@@ -335,11 +346,12 @@ export class HermesBridge {
           if (!binary) this.observeRoutes(owner, session, data.toString(), observed, true)
           if (upstream.readyState === WebSocket.OPEN) upstream.send(data, { binary })
         })
-        connected.on('error', () => upstream.terminate())
+        connected.on('error', error => { logSocketError('browser', error); upstream.terminate() })
         connected.on('close', () => { session.sockets.delete(connected); upstream.close() })
       })
     })
-    upstream.on('error', () => {
+    upstream.on('error', error => {
+      logSocketError('upstream', error)
       if (browser) browser.close(1011, 'Remote connection failed')
       else if (!socket.destroyed) socket.end('HTTP/1.1 502 Connection rejected\r\nConnection: close\r\n\r\n')
     })
