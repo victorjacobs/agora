@@ -94,7 +94,10 @@ sign-in. Agora provides the chat interface.
   Mobile uses labelled **Chat**, **Results**, and **More** bottom tabs.
   **More** opens Memory, Jobs, and Settings.
   Full-width selectors open bottom sheets for result jobs, memory sections, and
-  scheduled jobs; the chat-header conversation button opens the chat picker.
+  scheduled jobs; the chat-header conversation button opens a full-height left
+  drawer. An **experimental** exact-left-edge swipe also opens it (on iOS, only
+  in the installed PWA); physical iPhone testing is required before merge.
+  See the [trial boundaries and acceptance gate](docs/experimental-conversation-drawer.md).
   Desktop keeps its rail and workspace sidebars, with Settings pinned at the bottom
   of the gutter. Settings contains per-device notifications, on-demand provider
   quota, the existing Hermes identity and sign out; the conversation picker is

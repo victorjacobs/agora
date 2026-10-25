@@ -34,6 +34,103 @@ function mountApp(connection: 'ready' | 'connecting' = 'ready') {
 }
 
 describe('chat interface', () => {
+  it('finger-follows the mobile conversation drawer, restores cancellation and removes the edge on other views', async () => {
+    vi.stubGlobal('matchMedia', vi.fn(query => ({ matches: query === '(max-width: 760px)', addEventListener() {}, removeEventListener() {} })))
+    Object.defineProperties(HTMLDialogElement.prototype, {
+      showModal: { configurable: true, value() { this.open = true } },
+      close: { configurable: true, value() { this.open = false; this.dispatchEvent(new Event('close')) } },
+    })
+    const { host, client } = mountApp()
+    const unmount = cleanup
+    cleanup = () => { unmount(); Reflect.deleteProperty(HTMLDialogElement.prototype, 'showModal'); Reflect.deleteProperty(HTMLDialogElement.prototype, 'close') }
+    Object.assign(client.state, { draft: 'Retained draft', images: [{ id: 'image', name: 'fictional.png', dataUrl: 'data:image/png;base64,aA==', mime: 'image/png' }] })
+    await nextTick()
+    const dispatch = (target: EventTarget, type: string, x: number) => {
+      const event = new Event(type, { bubbles: true, cancelable: true })
+      Object.defineProperty(event, 'touches', { value: type === 'touchend' ? [] : [{ identifier: 0, clientX: x, clientY: 200 }] })
+      target.dispatchEvent(event)
+    }
+    const edge = host.querySelector('.conversation-edge')!
+    expect(edge).not.toBeNull()
+    const sheet = host.querySelector<HTMLDialogElement>('.conversation-drawer')!
+    dispatch(edge, 'touchstart', 2)
+    dispatch(window, 'touchmove', 90)
+    await nextTick()
+    expect(sheet.open).toBe(true)
+    expect(Number(sheet.style.getPropertyValue('--drawer-progress'))).toBeGreaterThan(0)
+    expect(Number(sheet.style.getPropertyValue('--drawer-progress'))).toBeLessThan(1)
+    expect(host.querySelector('main')?.hasAttribute('inert')).toBe(true)
+    await vi.waitFor(() => expect(document.activeElement?.getAttribute('aria-label')).toBe('Close conversations'))
+    window.dispatchEvent(new Event('touchcancel'))
+    await nextTick()
+    expect(sheet.open).toBe(false)
+    expect(client.state.draft).toBe('Retained draft')
+    expect(client.state.images).toHaveLength(1)
+    expect([client.state.runtime, client.state.profile]).toEqual(['runtime', 'work'])
+    // A real drag's compatibility click is intentionally swallowed.
+    window.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+    host.querySelector<HTMLButtonElement>('.app-rail [aria-label="Results"]')!.click()
+    await nextTick()
+    expect(host.querySelector('.conversation-edge')).toBeNull()
+    expect(sheet.classList.contains('conversation-drawer')).toBe(false)
+  })
+  it('does not intercept ordinary iOS Safari and removes an installed-PWA drag on auth or breakpoint changes', async () => {
+    vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue('iPhone')
+    let installed = false, narrow = true
+    let breakpoint = () => {}
+    vi.stubGlobal('matchMedia', vi.fn(query => ({
+      get matches() { return query === '(max-width: 760px)' ? narrow : query === '(display-mode: standalone)' && installed },
+      addEventListener(_type: string, callback: () => void) { if (query === '(max-width: 760px)') breakpoint = callback }, removeEventListener() {},
+    })))
+    Object.defineProperties(HTMLDialogElement.prototype, {
+      showModal: { configurable: true, value() { this.open = true } },
+      close: { configurable: true, value() { this.open = false; this.dispatchEvent(new Event('close')) } },
+    })
+    const { host, client } = mountApp()
+    const unmount = cleanup
+    cleanup = () => { unmount(); Reflect.deleteProperty(HTMLDialogElement.prototype, 'showModal'); Reflect.deleteProperty(HTMLDialogElement.prototype, 'close') }
+    await nextTick()
+    expect(host.querySelector('.conversation-edge')).toBeNull()
+    host.querySelector<HTMLButtonElement>('.mobile-menu')!.click()
+    await nextTick()
+    const sheet = host.querySelector<HTMLDialogElement>('.navigation-sheet')!
+    expect(sheet.open).toBe(true)
+    host.querySelector<HTMLButtonElement>('.mobile-close')!.click()
+    await nextTick()
+    installed = true
+    unmount()
+    const installedApp = mountApp()
+    const installedUnmount = cleanup
+    cleanup = () => { installedUnmount(); Reflect.deleteProperty(HTMLDialogElement.prototype, 'showModal'); Reflect.deleteProperty(HTMLDialogElement.prototype, 'close') }
+    const installedHost = installedApp.host
+    await nextTick()
+    const installedSheet = installedHost.querySelector<HTMLDialogElement>('.navigation-sheet')!
+    const gesture = () => {
+      const start = new Event('touchstart', { bubbles: true })
+      Object.defineProperty(start, 'touches', { value: [{ identifier: 0, clientX: 2, clientY: 200 }] })
+      installedHost.querySelector('.conversation-edge')!.dispatchEvent(start)
+      const move = new Event('touchmove', { cancelable: true })
+      Object.defineProperty(move, 'touches', { value: [{ identifier: 0, clientX: 180, clientY: 200 }] })
+      window.dispatchEvent(move)
+    }
+    gesture()
+    await nextTick()
+    expect(installedSheet.open).toBe(true)
+    narrow = false; breakpoint()
+    await nextTick()
+    expect(installedSheet.open).toBe(false)
+    expect(installedHost.querySelector('.conversation-edge')).toBeNull()
+    narrow = true; breakpoint()
+    await nextTick()
+    gesture()
+    await nextTick()
+    expect(installedSheet.open).toBe(true)
+    installedApp.client.state.connection = 'expired'; installedApp.client.state.identity = ''
+    await nextTick()
+    expect(installedSheet.open).toBe(false)
+    expect(installedHost.querySelector('.conversation-edge')).toBeNull()
+    expect(installedHost.querySelector('.sign-in-page')).not.toBeNull()
+  })
   it('uses a mobile modal selector and closes selection idempotently without losing the chat draft', async () => {
     vi.stubGlobal('matchMedia', vi.fn(query => ({ matches: query === '(max-width: 760px)', addEventListener() {}, removeEventListener() {} })))
     Object.defineProperties(HTMLDialogElement.prototype, {

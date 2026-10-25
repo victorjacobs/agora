@@ -30,6 +30,7 @@ import ConversationTurn from './ConversationTurn.vue'
 import RequestCard from './RequestCard.vue'
 import SignInPage from './SignInPage.vue'
 import type { SessionRow } from './hermes/types'
+import { createDrawerGesture, edgeOpeningAllowed } from './conversation-drawer'
 
 const state = reactive(initialState())
 const chat = new ChatClient(state)
@@ -147,7 +148,34 @@ const mobileSelectorTitle = computed(() => {
 })
 let navigationFocus: HTMLElement | null = null
 
-function closeSidebar() { sidebarOpen.value = false; if (navigationSheet.value?.open) navigationSheet.value.close() }
+const drawerProgress = ref(1)
+const drawerDragging = ref(false)
+const otherModalOpen = ref(false)
+const standalone = window.matchMedia('(display-mode: standalone)')
+const edgeSupported = computed(() => edgeOpeningAllowed(navigator.userAgent, navigator.maxTouchPoints, standalone.matches || Boolean((navigator as Navigator & { standalone?: boolean }).standalone)))
+const drawerEnabled = computed(() => mobile.value && view.value === 'chat' && !showSignIn.value && !checkingSession.value && !moreOpen.value && !switcherOpen.value && !otherModalOpen.value)
+const drawer = createDrawerGesture({
+  enabled: () => drawerEnabled.value,
+  open: () => sidebarOpen.value,
+  width: () => navigationSheet.value?.querySelector<HTMLElement>('#mobile-navigation-content')?.getBoundingClientRect().width || Math.min(window.innerWidth * 0.82, 360),
+  move: (progress, dragging) => { drawerProgress.value = progress; drawerDragging.value = dragging },
+  reveal: () => { navigationFocus = menuButton.value || null; sidebarOpen.value = true },
+  settle: open => { if (open) drawerProgress.value = 1; else closeSidebar() },
+})
+function startDrawer(event: TouchEvent, opening: boolean) {
+  if (opening && !edgeSupported.value) return
+  if (document.querySelector('dialog[open]:not(.conversation-drawer)')) return
+  if (!opening && (event.target as Element)?.closest('input, textarea, select')) return
+  drawer.start(event, opening)
+}
+watch(drawerEnabled, enabled => { if (!enabled) closeSidebar() })
+function closeSidebar() {
+  drawer.reset()
+  drawerDragging.value = false
+  drawerProgress.value = 1
+  sidebarOpen.value = false
+  if (navigationSheet.value?.open) navigationSheet.value.close()
+}
 function openSidebar() {
   closeMore()
   navigationFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
@@ -258,6 +286,7 @@ function resizeComposer() {
 }
 
 function showDialog(kind: 'rename' | 'delete') {
+  closeSidebar()
   dialogKind.value = kind
   newTitle.value = state.title
   dialog.value?.showModal()
@@ -288,6 +317,7 @@ watch(() => [state.requests.length, state.approvals.length, state.compressing], 
   if (following.value) void scrollToLatest(false)
 }, { flush: 'post' })
 watch(() => [state.endpoint, state.identity], () => notifications.clear())
+watch(() => [state.endpoint, state.identity, state.profile], closeSidebar)
 watch(() => state.selected, () => { following.value = true })
 watch(() => state.tasks.map(task => [task.key, task.status]), () => {
   if (following.value) void scrollToLatest(false)
@@ -303,7 +333,12 @@ watch(showSignIn, value => {
   }
 })
 let releaseViewport = () => {}
+let modalObserver: MutationObserver | undefined
 onMounted(() => {
+  modalObserver = new MutationObserver(() => {
+    otherModalOpen.value = Boolean(document.querySelector('dialog[open]:not(.navigation-sheet)'))
+  })
+  modalObserver.observe(document.body, { subtree: true, attributes: true, attributeFilter: ['open'] })
   const viewport = window.visualViewport
   if (viewport) {
     const style = document.documentElement.style
@@ -339,7 +374,7 @@ onMounted(() => {
   window.addEventListener('keydown', globalKey)
   mobileMedia.addEventListener?.('change', changeMobile)
 })
-onBeforeUnmount(() => { if (moreSheet.value?.open) moreSheet.value.close(); if (navigationSheet.value?.open) navigationSheet.value.close(); mobileMedia.removeEventListener?.('change', changeMobile); releaseViewport(); clearInterval(dateTimer); window.removeEventListener('resize', resizeComposer); window.removeEventListener('keydown', globalKey); pushNotifications.dispose(); notifications.dispose(); chat.dispose() })
+onBeforeUnmount(() => { modalObserver?.disconnect(); drawer.dispose(); if (moreSheet.value?.open) moreSheet.value.close(); if (navigationSheet.value?.open) navigationSheet.value.close(); mobileMedia.removeEventListener?.('change', changeMobile); releaseViewport(); clearInterval(dateTimer); window.removeEventListener('resize', resizeComposer); window.removeEventListener('keydown', globalKey); pushNotifications.dispose(); notifications.dispose(); chat.dispose() })
 </script>
 
 <template>
@@ -350,7 +385,8 @@ onBeforeUnmount(() => { if (moreSheet.value?.open) moreSheet.value.close(); if (
   </main>
   <SignInPage v-else-if="showSignIn" :login-url="loginUrl" :connection="state.connection" :error="state.error" @retry="chat.connect()" />
   <div v-else class="shell" :class="{ 'keyboard-open': view === 'chat' && composerFocused && keyboardVisible }">
-    <dialog ref="navigationSheet" class="navigation-sheet" :aria-label="view === 'chat' ? 'Choose a conversation' : view === 'memory' ? 'Choose a memory section' : view === 'results' ? 'Choose result jobs' : 'Choose a job'" @cancel.prevent="closeSidebar" @close="closeSidebar" @click="($event.target === navigationSheet) && closeSidebar()"><div id="mobile-navigation-content"></div></dialog>
+    <div v-if="drawerEnabled && edgeSupported && (!sidebarOpen || drawerDragging)" class="conversation-edge" aria-hidden="true" @touchstart.passive="startDrawer($event, true)"></div>
+    <dialog ref="navigationSheet" class="navigation-sheet" :class="{ 'conversation-drawer': mobile && view === 'chat', 'drawer-dragging': drawerDragging }" :style="mobile && view === 'chat' ? { '--drawer-progress': drawerProgress } : undefined" @touchstart.passive="view === 'chat' && startDrawer($event, false)" :aria-label="view === 'chat' ? 'Choose a conversation' : view === 'memory' ? 'Choose a memory section' : view === 'results' ? 'Choose result jobs' : 'Choose a job'" @cancel.prevent="closeSidebar" @close="closeSidebar" @click="($event.target === navigationSheet) && closeSidebar()"><div id="mobile-navigation-content"></div></dialog>
     <dialog ref="moreSheet" class="navigation-sheet more-sheet" aria-label="More" @cancel.prevent="closeMore" @close="closeMore" @click="($event.target === moreSheet) && closeMore()">
       <div class="more-content">
         <div class="more-heading"><h2>More</h2><button ref="moreCloseButton" class="text-button" aria-label="Close More" @click="closeMore">×</button></div>
@@ -374,9 +410,10 @@ onBeforeUnmount(() => { if (moreSheet.value?.open) moreSheet.value.close(); if (
       <div class="sidebar-heading">
         <h2>{{ mobile ? (view === 'chat' ? 'Conversations' : view === 'memory' ? 'Choose a section' : view === 'results' ? 'Choose result jobs' : 'Choose a job') : (view === 'chat' ? 'Chats' : view === 'memory' ? 'Memory' : view === 'results' ? 'Results' : 'Cron') }}</h2>
         <button ref="closeMenuButton" class="mobile-close text-button" :aria-label="view === 'chat' ? 'Close conversations' : view === 'memory' ? 'Close memory navigation' : view === 'results' ? 'Close results navigation' : 'Close cron navigation'" @click="closeSidebar()">×</button>
-        <button v-if="view === 'chat'" class="new-chat text-button" :disabled="actionsDisabled" aria-label="New chat" title="New chat" @click="view = 'chat'; sidebarOpen = false; following = true; chat.newChat()"><span aria-hidden="true">{{ mobile ? '+' : '＋' }}</span></button>
+        <button v-if="view === 'chat' && !mobile" class="new-chat text-button" :disabled="actionsDisabled" aria-label="New chat" title="New chat" @click="view = 'chat'; sidebarOpen = false; following = true; chat.newChat()"><span aria-hidden="true">{{ mobile ? '+' : '＋' }}</span></button>
         <button v-if="view === 'cron' && !mobile" class="new-chat text-button" :disabled="!cronView?.ready || cronView?.busy" aria-label="New cron job" title="New cron job" @click="cronView?.newJob(); sidebarOpen = false"><span aria-hidden="true">＋</span></button>
       </div>
+      <button v-if="mobile && view === 'chat'" class="drawer-new-chat" :disabled="actionsDisabled" @click="closeSidebar(); following = true; chat.newChat()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M12 4v16M4 12h16" /></svg>New conversation</button>
       <div v-if="view === 'chat'" class="chat-search">
         <input type="search" aria-label="Search chats" placeholder="Search chats" :value="state.searchQuery" @input="chat.searchConversations(($event.target as HTMLInputElement).value)" @keydown.esc.stop="chat.searchConversations('')" />
         <button v-if="state.searchQuery" class="text-button" aria-label="Clear search" @click="chat.searchConversations('')">×</button>
@@ -417,7 +454,7 @@ onBeforeUnmount(() => { if (moreSheet.value?.open) moreSheet.value.close(); if (
 
     <main :inert="sidebarOpen || moreOpen">
       <header class="conversation-header">
-        <button v-if="view === 'chat'" ref="menuButton" class="mobile-menu" aria-label="Open conversations" aria-haspopup="dialog" :aria-expanded="sidebarOpen" @click="openSidebar()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M5 4h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-6 4V6a2 2 0 0 1 2-2Z" /></svg></button>
+        <button v-if="view === 'chat'" ref="menuButton" class="mobile-menu" aria-label="Open conversations" aria-haspopup="dialog" :aria-expanded="sidebarOpen" @click="openSidebar()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5" /></svg></button>
         <button v-if="mobile && secondaryView" class="more-back text-button" @click="openMore"><span aria-hidden="true">‹</span> More</button>
         <div class="conversation-heading"><h1>{{ view === 'settings' ? 'Settings' : view === 'memory' ? (mobile ? 'Memory' : memoryTitle) : view === 'cron' ? (mobile ? 'Jobs' : 'Cron jobs') : view === 'results' ? 'Results' : state.title }}</h1></div>
         <div v-if="state.selected && view === 'chat'" class="header-actions">
