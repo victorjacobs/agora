@@ -34,9 +34,9 @@ function mountApp(connection: 'ready' | 'connecting' = 'ready') {
 }
 
 describe('chat interface', () => {
-  it('hides subagent chats from the sidebar and switcher without dropping branches or pagination rows', async () => {
+  it.each(['subagent', 'desktop'])('hides delegated %s chats from the sidebar and switcher without dropping branches or pagination rows', async source => {
     localStorage.setItem('agora.pinned-conversations', JSON.stringify({ [window.location.origin]: [{ id: 'child', profile: 'work' }] }))
-    vi.spyOn(HermesApi.prototype, 'session').mockResolvedValue({ id: 'child', profile: 'work', title: 'Internal delegate', source: 'subagent' })
+    vi.spyOn(HermesApi.prototype, 'session').mockResolvedValue({ id: 'child', profile: 'work', title: 'Internal delegate', source, delegated: true })
     Object.defineProperties(HTMLDialogElement.prototype, {
       showModal: { configurable: true, value() { this.open = true } },
       close: { configurable: true, value() { this.open = false; this.dispatchEvent(new Event('close')) } },
@@ -46,7 +46,7 @@ describe('chat interface', () => {
     cleanup = () => { unmount(); Reflect.deleteProperty(HTMLDialogElement.prototype, 'showModal'); Reflect.deleteProperty(HTMLDialogElement.prototype, 'close') }
     const rows = [
       { id: 'parent', profile: 'work', title: 'Human chat', source: 'desktop' },
-      { id: 'child', profile: 'work', title: 'Internal delegate', source: 'subagent', parent_session_id: 'parent' },
+      { id: 'child', profile: 'work', title: 'Internal delegate', source, delegated: true, parent_session_id: 'parent' },
       { id: 'branch', profile: 'work', title: 'Human branch', source: 'desktop', parent_session_id: 'parent' },
       { id: 'legacy', profile: 'work', title: 'Older human chat' },
     ]
@@ -929,6 +929,7 @@ describe('chat interface', () => {
       else if (path === '/api/status') result = { auth_required: true }
       else if (path === '/api/auth/me') result = { display_name: 'Synthetic operator' }
       else if (path.startsWith('/api/sessions?')) result = { sessions: [{ id: 'stored', title: 'Synthetic conversation' }], total: 1 }
+      else if (path.startsWith('/api/sessions/stored?')) result = { id: 'stored', source: 'desktop', model_config: null }
       else throw new Error(`Unexpected API request: ${path}`)
       return Promise.resolve(new Response(JSON.stringify(result)))
     }))

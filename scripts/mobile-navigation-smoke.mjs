@@ -34,6 +34,11 @@ try {
     else if (path === '/api/auth/me') result = { display_name: 'Fictional operator' }
     else if (path === '/api/agora/push') result = { configured: false }
     else if (path === '/api/sessions') result = { sessions, total: 1 }
+    else if (path === '/api/sessions/search') result = { results: [...sessions, { id: 'worker', title: 'Subagent: Fictional helmet research', profile: 'default', source: 'desktop' }, { id: 'branch', title: 'Fictional human branch', profile: 'default', source: 'desktop', parent_session_id: 'notes' }] }
+    else if (/^\/api\/sessions\/[^/]+$/.test(path)) {
+      const id = path.split('/')[3]
+      result = { id, profile: 'default', source: 'desktop', model_config: JSON.stringify(id === 'worker' ? { _delegate_from: 'notes' } : id === 'branch' ? { _branched_from: 'notes' } : {}) }
+    }
     else if (path === '/api/cron/jobs') result = jobs
     else if (/^\/api\/cron\/jobs\/[^/]+\/runs$/.test(path)) { const id = path.split('/')[4]; result = { runs: [{ id: `run-${id}`, title: jobs.find(job => job.id === id).name, started_at: now - 3600, ended_at: now - 3500 }], limit: Number(url.searchParams.get('limit')) } }
     else if (/^\/api\/sessions\/[^/]+\/messages$/.test(path)) {
@@ -118,6 +123,11 @@ try {
   assert.equal(await sheet.locator('.notification-control, .provider-quota, .sidebar-footer').count(), 0)
   assert.equal(await sheet.getByRole('button', { name: 'Switch chat', exact: true }).isVisible(), false)
   await capture('mobile-conversation-picker', 'Chat / clean conversation picker')
+  await sheet.getByRole('searchbox', { name: 'Search chats' }).fill('helmet')
+  await sheet.getByText('Fictional human branch', { exact: true }).waitFor()
+  assert.equal(await sheet.getByText('Subagent: Fictional helmet research', { exact: true }).count(), 0)
+  await capture('mobile-filtered-search', 'Search / inherited-source delegate excluded, genuine branch retained')
+  await sheet.getByRole('searchbox', { name: 'Search chats' }).fill('')
   await page.keyboard.press('Tab')
   assert.equal(await page.evaluate(() => document.activeElement.closest('.navigation-sheet') !== null), true)
   await page.keyboard.press('Escape')

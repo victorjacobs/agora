@@ -3,6 +3,7 @@ import type { SessionModelInfo } from './settings'
 export interface SessionRow {
   id: string
   source?: string | null
+  delegated?: boolean
   title?: string | null
   preview?: string | null
   last_active?: number
