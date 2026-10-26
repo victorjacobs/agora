@@ -34,6 +34,39 @@ function mountApp(connection: 'ready' | 'connecting' = 'ready') {
 }
 
 describe('chat interface', () => {
+  it('hides subagent chats from the sidebar and switcher without dropping branches or pagination rows', async () => {
+    localStorage.setItem('agora.pinned-conversations', JSON.stringify({ [window.location.origin]: [{ id: 'child', profile: 'work' }] }))
+    vi.spyOn(HermesApi.prototype, 'session').mockResolvedValue({ id: 'child', profile: 'work', title: 'Internal delegate', source: 'subagent' })
+    Object.defineProperties(HTMLDialogElement.prototype, {
+      showModal: { configurable: true, value() { this.open = true } },
+      close: { configurable: true, value() { this.open = false; this.dispatchEvent(new Event('close')) } },
+    })
+    const { host, client } = mountApp()
+    const unmount = cleanup
+    cleanup = () => { unmount(); Reflect.deleteProperty(HTMLDialogElement.prototype, 'showModal'); Reflect.deleteProperty(HTMLDialogElement.prototype, 'close') }
+    const rows = [
+      { id: 'parent', profile: 'work', title: 'Human chat', source: 'desktop' },
+      { id: 'child', profile: 'work', title: 'Internal delegate', source: 'subagent', parent_session_id: 'parent' },
+      { id: 'branch', profile: 'work', title: 'Human branch', source: 'desktop', parent_session_id: 'parent' },
+      { id: 'legacy', profile: 'work', title: 'Older human chat' },
+    ]
+    client.state.sessions = rows
+    client.state.total = 23
+    await nextTick()
+    expect([...host.querySelectorAll('.session-title')].map(el => el.textContent)).toEqual(['Human chat', 'Human branch', 'Older human chat'])
+    expect(client.state.sessions).toHaveLength(4)
+    expect(client.state.total).toBe(23)
+    host.querySelector<HTMLButtonElement>('[aria-label="Switch chat"]')!.click()
+    await nextTick()
+    const switcher = host.querySelector('.conversation-switcher')!
+    expect([...switcher.querySelectorAll('.switcher-title')].map(el => el.textContent)).toEqual(['Human chat', 'Human branch', 'Older human chat'])
+    client.state.searchQuery = 'shared query'
+    client.state.searchResults = rows
+    await nextTick()
+    expect([...host.querySelectorAll('.session-title')].map(el => el.textContent)).toEqual(['Human chat', 'Human branch', 'Older human chat'])
+    expect([...switcher.querySelectorAll('.switcher-title')].map(el => el.textContent)).toEqual(['Human chat', 'Human branch', 'Older human chat'])
+  })
+
   it('finger-follows the mobile conversation drawer, restores cancellation and removes the edge on other views', async () => {
     vi.stubGlobal('matchMedia', vi.fn(query => ({ matches: query === '(max-width: 760px)', addEventListener() {}, removeEventListener() {} })))
     Object.defineProperties(HTMLDialogElement.prototype, {

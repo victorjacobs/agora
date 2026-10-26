@@ -90,7 +90,7 @@ let dateTimer: ReturnType<typeof setInterval> | undefined
 const searching = computed(() => Boolean(state.searchQuery.trim()))
 const pins = usePinnedConversations(computed(() => state.endpoint || window.location.origin), computed(() => state.connection === 'ready'), computed(() => state.sessions))
 const currentSession = computed(() => ({ id: state.selected, profile: state.profile || import.meta.env.VITE_HERMES_PROFILE || 'default' }))
-const visibleSessions = computed(() => pins.ordered(chat.visibleSessions(), state.searchQuery))
+const visibleSessions = computed(() => pins.ordered(chat.visibleSessions(), state.searchQuery).filter(session => session.source !== 'subagent'))
 const sessionGroups = computed(() => {
   const pinned = visibleSessions.value.filter(pins.isPinned)
   const groups = groupSessions(visibleSessions.value.filter(session => !pins.isPinned(session)), currentDate.value)

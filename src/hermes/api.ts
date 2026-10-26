@@ -36,13 +36,13 @@ export class HermesApi {
 
   sessions(profile: string | undefined, offset = 0) {
     return this.request<{ sessions: SessionRow[]; total: number; storage?: Record<string, string> }>(
-      `/api/sessions?${this.query({ profile, offset, limit: 20, order: 'recent', exclude_sources: 'cron' })}`,
+      `/api/sessions?${this.query({ profile, offset, limit: 20, order: 'recent', exclude_sources: 'cron,subagent' })}`,
     )
   }
 
   searchSessions(query: string, profile?: string) {
     return this.request<{ results: SessionRow[] }>(`/api/sessions/search?${this.query({
-      q: query, profile, limit: 100, exclude_sources: 'cron',
+      q: query, profile, limit: 100, exclude_sources: 'cron,subagent',
     })}`)
   }
 
