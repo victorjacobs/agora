@@ -143,9 +143,9 @@ onBeforeUnmount(() => { generation++; clearInterval(timer) })
         <div v-if="result.run.source === 'cron_output' || result.run.id.startsWith('cron_output:')" class="result-preview"><p class="muted">Output preview · Full output unavailable through the Hermes API</p><p>{{ result.run.preview || 'No output preview returned by Hermes.' }}</p></div>
         <div v-else-if="result.error" role="alert"><p>{{ result.error }}</p><button :disabled="!connected || !active" @click="loadOutput(result)">Retry output</button></div>
         <MarkdownMessage v-else-if="result.output" :text="result.output" :profile="result.run.profile || profile" />
-        <p v-else class="muted">{{ result.output === undefined ? 'Loading output…' : 'No assistant output in the latest history page. Open the conversation to inspect older messages.' }}</p>
+        <p v-else class="muted">{{ result.output === undefined ? 'Loading output…' : 'No assistant output in the latest history page. Open the chat to inspect older messages.' }}</p>
         </div>
-        <footer><button v-if="result.run.source !== 'cron_output' && !result.run.id.startsWith('cron_output:')" :disabled="!connected" @click="readDetails(result)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Z" /><path d="M14 3v6h6M8 13h8M8 17h5" /></svg>View conversation</button><button :disabled="!connected" @click="$emit('manage', result.job.id)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="m9 3-.5 3-2 1-2.5-1-2 3L4 11v2l-2 2 2 3 2.5-1 2 1 .5 3h6l.5-3 2-1 2.5 1 2-3-2-2v-2l2-2-2-3-2.5 1-2-1-.5-3Z" /><circle cx="12" cy="12" r="3" /></svg>Manage job</button></footer>
+        <footer><button v-if="result.run.source !== 'cron_output' && !result.run.id.startsWith('cron_output:')" :disabled="!connected" @click="readDetails(result)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Z" /><path d="M14 3v6h6M8 13h8M8 17h5" /></svg>View chat</button><button :disabled="!connected" @click="$emit('manage', result.job.id)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="m9 3-.5 3-2 1-2.5-1-2 3L4 11v2l-2 2 2 3 2.5-1 2 1 .5 3h6l.5-3 2-1 2.5 1 2-3-2-2v-2l2-2-2-3-2.5 1-2-1-.5-3Z" /><circle cx="12" cy="12" r="3" /></svg>Manage job</button></footer>
       </article>
       </section>
       <button v-if="filtered.length > count" :disabled="loading || !connected" @click="count += 10">Load more results</button>
@@ -153,7 +153,7 @@ onBeforeUnmount(() => { generation++; clearInterval(timer) })
       <p v-if="!loading && !error && !visible.length" class="muted">No matching results.</p>
     </div>
     <CronRunDialog v-if="selectedResult" :title="selectedResult.job.name || selectedResult.job.id" :date="date(selectedResult.run.started_at)" :refreshing="historyLoading" :connected="connected" @close="closeDetails" @refresh="readDetails(selectedResult)">
-      <p v-if="historyLoading" role="status">Loading conversation…</p>
+      <p v-if="historyLoading" role="status">Loading chat…</p>
       <p v-if="historyError" role="alert">{{ historyError }}</p>
       <button v-if="older" :disabled="historyLoading || !connected" @click="readDetails(selectedResult, true)">Load older messages</button>
       <p v-if="!historyLoading && !historyError && !messages.length" class="muted">No messages returned by Hermes.</p>

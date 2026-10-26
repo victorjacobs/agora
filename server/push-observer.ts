@@ -114,7 +114,7 @@ export class PushObserver {
           if (!identity.ok) throw new Error('Authentication unavailable.')
           const titleResponse = await this.native.request(`/api/sessions/${encodeURIComponent(watch.stored)}?${new URLSearchParams({ profile: watch.profile })}`)
           if (titleResponse.status === 401) throw new BridgeError(401, 'Login expired.')
-          if (!titleResponse.ok) throw new Error('Conversation unavailable.')
+          if (!titleResponse.ok) throw new Error('Chat unavailable.')
           const detail = await titleResponse.json()
           const title = detail.title
           // Reserve before delivery: a crash may lose a notification, never persist its content or send it twice after restart.

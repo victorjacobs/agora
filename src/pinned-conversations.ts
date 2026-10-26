@@ -96,7 +96,7 @@ export function usePinnedConversations(endpoint: Ref<string>, connected: Ref<boo
     const pinned: SessionRow[] = []
     for (const pin of pins.value) {
       const key = conversationKey(pin)
-      const session = rows.get(key) || loaded.get(key) || details.value[key] || { ...pin, title: 'Pinned conversation' }
+      const session = rows.get(key) || loaded.get(key) || details.value[key] || { ...pin, title: 'Pinned chat' }
       if (matching && !rows.has(key) && !(session.title || '').toLocaleLowerCase().includes(matching) && !session.id.toLocaleLowerCase().includes(matching)) continue
       pinned.push(session)
       rows.delete(key)

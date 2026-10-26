@@ -11,9 +11,9 @@ onBeforeUnmount(() => { if (dialog.value?.open) dialog.value.close() })
 
 <template>
   <Teleport to="body">
-    <dialog ref="dialog" class="cron-run-dialog" aria-label="Run conversation" @cancel.prevent="close" @click="$event.target === dialog && close()">
+    <dialog ref="dialog" class="cron-run-dialog" aria-label="Run chat" @cancel.prevent="close" @click="$event.target === dialog && close()">
       <header>
-        <div class="run-heading"><h2>{{ title }}</h2><p>{{ date }} · Read-only conversation</p></div>
+        <div class="run-heading"><h2>{{ title }}</h2><p>{{ date }} · Read-only chat</p></div>
         <div class="run-actions"><button :disabled="refreshing || !connected" @click="$emit('refresh')">Refresh run</button><button autofocus @click="close">Close</button></div>
       </header>
       <div class="run-messages" tabindex="0" aria-label="Run messages"><slot /></div>

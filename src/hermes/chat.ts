@@ -53,7 +53,7 @@ export function initialState() {
     settingsError: '',
     settingsNotice: '',
     modelConfirmation: undefined as (ModelChoice & { message: string }) | undefined,
-    title: 'New conversation',
+    title: 'New chat',
     messages: [] as Message[],
     historyOffset: 0,
     hasOlder: false,
@@ -295,7 +295,7 @@ export class ChatClient {
   }
 
   async pendingMemory(runtime: string, profile?: string) {
-    if (this.stopped || this.state.connection !== 'ready' || !runtime || runtime !== this.state.runtime || profile !== this.state.profile) throw new Error('Open a connected conversation to review memory.')
+    if (this.stopped || this.state.connection !== 'ready' || !runtime || runtime !== this.state.runtime || profile !== this.state.profile) throw new Error('Open a connected chat to review memory.')
     return pendingMemory(this.gateway, runtime, profile)
   }
 
@@ -752,7 +752,7 @@ export class ChatClient {
     this.state.activity = ''
     this.state.approvals = []
     this.state.requests = []
-    this.state.title = this.state.sessions.find(row => row.id === id)?.title || 'Conversation'
+    this.state.title = this.state.sessions.find(row => row.id === id)?.title || 'Chat'
     if (id !== previousId) { this.state.messages = []; this.state.hasOlder = false }
     this.location.select(id)
     this.state.connection = 'recovering'
@@ -900,7 +900,7 @@ export class ChatClient {
       this.taskRequest = undefined
       this.state.approvals = []
       this.state.requests = []
-      this.state.title = 'New conversation'
+      this.state.title = 'New chat'
       this.state.draft = ''
       this.state.images = []
       this.state.running = false
@@ -946,7 +946,7 @@ export class ChatClient {
       const output = result.type === 'exec' || result.type === 'plugin' ? result.output : 'notice' in result ? result.notice : ''
       if ('message' in result && result.type !== 'prefill') {
         if (!result.message.trim()) throw new Error('Hermes returned an empty command prompt.')
-        if (this.state.running) throw new Error('The conversation is now busy. The command prompt was not sent.')
+        if (this.state.running) throw new Error('The chat is now busy. The command prompt was not sent.')
         if (output) this.commandOutput(text, output)
         this.clearCompression()
         await this.submitPrompt(result.message, result.display || text, text)
@@ -979,7 +979,7 @@ export class ChatClient {
       if (generation !== this.selectionGeneration) return
       this.state.uncertain = this.uncertain.has(selected)
       this.clearCompression()
-      this.state.error = error instanceof ConnectionLost ? 'Command outcome is unknown. Check the conversation before running it again.' : errorMessage(error)
+      this.state.error = error instanceof ConnectionLost ? 'Command outcome is unknown. Check the chat before running it again.' : errorMessage(error)
       if (error instanceof ConnectionLost) this.scheduleReconnect()
     } finally {
       if (generation === this.selectionGeneration) this.state.sending = false
@@ -1030,12 +1030,12 @@ export class ChatClient {
         }, 60_000)
         if (result.attached !== true || typeof result.path !== 'string' || !result.path) {
           this.uncertain.add(selected)
-          throw new Error('Hermes did not confirm the image upload. Check the conversation before trying again.')
+          throw new Error('Hermes did not confirm the image upload. Check the chat before trying again.')
         }
         paths.push(result.path)
-        if (generation !== this.selectionGeneration) throw new Error('Conversation changed before the images were sent.')
+        if (generation !== this.selectionGeneration) throw new Error('Chat changed before the images were sent.')
       }
-      if (generation !== this.selectionGeneration) throw new Error('Conversation changed before the message was sent.')
+      if (generation !== this.selectionGeneration) throw new Error('Chat changed before the message was sent.')
       this.state.running = true
       this.state.messages.push({ key: `submitted-${crypto.randomUUID()}`, role: 'user', text: display, ...(images.length ? { images: images.map(image => image.dataUrl) } : {}) })
       submitted = true
@@ -1229,7 +1229,7 @@ export class ChatClient {
     const id = this.state.selected
     try {
       const result = await this.api.rename(id, title, this.state.profile)
-      if (this.state.selected === id) this.state.title = result.title || 'Conversation'
+      if (this.state.selected === id) this.state.title = result.title || 'Chat'
       await this.refreshSessions()
     } catch (error) { if (!this.handleAuth(error)) this.state.error = errorMessage(error) }
   }
@@ -1256,7 +1256,7 @@ export class ChatClient {
         this.uncertain.delete(id)
         this.markReplyRead()
         Object.assign(this.state, {
-          selected: '', runtime: '', title: 'New conversation', messages: [], tasks: [], taskError: '',
+          selected: '', runtime: '', title: 'New chat', messages: [], tasks: [], taskError: '',
           processes: [], processError: '',
           approvals: [], requests: [], draft: '', running: false, uncertain: false,
           activity: '', compressing: false, compressionDetail: '', hasOlder: false,

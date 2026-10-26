@@ -4,7 +4,7 @@ defineEmits<{ toggle: [] }>()
 </script>
 
 <template>
-  <button class="conversation-pin text-button" :class="{ pinned }" :disabled="disabled" :aria-label="pinned ? 'Unpin conversation' : 'Pin conversation'" :title="pinned ? 'Unpin conversation' : 'Pin conversation'" :aria-pressed="pinned" @click="$emit('toggle')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m16 3 5 5-3 1-4 4-1 4-6-6 4-1 4-4 1-3ZM9 15l-6 6" /></svg></button>
+  <button class="conversation-pin text-button" :class="{ pinned }" :disabled="disabled" :aria-label="pinned ? 'Unpin chat' : 'Pin chat'" :title="pinned ? 'Unpin chat' : 'Pin chat'" :aria-pressed="pinned" @click="$emit('toggle')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m16 3 5 5-3 1-4 4-1 4-6-6 4-1 4-4 1-3ZM9 15l-6 6" /></svg></button>
 </template>
 
 <style scoped>

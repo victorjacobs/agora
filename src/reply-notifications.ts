@@ -49,7 +49,7 @@ export class ReplyNotifications {
     const endpoint = this.endpoint()
     const tag = JSON.stringify([endpoint, session.profile, session.id])
     try {
-      const notification = new Notification('Hermes response ready', { body: 'Click to open the conversation.', icon: '/favicon-192.png', tag: `agora-response:${tag}` })
+      const notification = new Notification('Hermes response ready', { body: 'Click to open the chat.', icon: '/favicon-192.png', tag: `agora-response:${tag}` })
       const previous = this.shown.get(tag)
       previous?.close()
       this.shown.set(tag, notification)

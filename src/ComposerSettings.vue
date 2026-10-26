@@ -10,7 +10,7 @@ const key = (provider: string, model: string) => JSON.stringify([provider, model
 const current = computed(() => key(props.state.provider, props.state.model))
 const currentListed = computed(() => props.state.modelProviders.some(provider => provider.slug === props.state.provider && provider.models.includes(props.state.model)))
 const capability = computed(() => props.state.modelProviders.find(provider => provider.slug === props.state.provider)?.capabilities?.[props.state.model])
-const reasoningTitle = computed(() => props.state.reasoningWire && props.state.reasoningWire !== props.state.reasoning ? `Hermes sends ${props.state.reasoningWire} for this model and provider.` : 'Reasoning effort for this conversation')
+const reasoningTitle = computed(() => props.state.reasoningWire && props.state.reasoningWire !== props.state.reasoning ? `Hermes sends ${props.state.reasoningWire} for this model and provider.` : 'Reasoning effort for this chat')
 const labels: Record<string, string> = { none: 'None', minimal: 'Minimal', low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Max', ultra: 'Ultra' }
 
 function chooseModel(event: Event) {
@@ -28,7 +28,7 @@ function chooseReasoning(event: Event) {
 
 <template>
   <div class="composer-settings">
-    <label class="setting-control" title="Model for this conversation">
+    <label class="setting-control" title="Model for this chat">
       <svg class="setting-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="3"/><rect x="9" y="9" width="6" height="6" rx="1"/><path d="M9 2v3m6-3v3M9 19v3m6-3v3M2 9h3m-3 6h3m14-6h3m-3 6h3"/></svg>
       <select aria-label="Model" :value="current" :disabled="disabled || state.settingsLoading || !state.modelProviders.length" @change="chooseModel">
       <option v-if="!currentListed" :value="current" disabled>{{ state.model || (state.settingsLoading ? 'Loading…' : 'Default') }}</option>

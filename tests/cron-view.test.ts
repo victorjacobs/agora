@@ -34,7 +34,7 @@ describe('cron workspace', () => {
     click('Run job')
     await vi.waitFor(() => expect(api.action).toHaveBeenCalledExactlyOnceWith('work', 'job', 'trigger'))
     await vi.waitFor(() => expect(host.textContent).toContain('Run requested'))
-    click('View conversation')
+    click('View chat')
     await vi.waitFor(() => expect(document.querySelector('dialog[open]')?.textContent).toContain('Run result'))
     expect(api.history).toHaveBeenCalledExactlyOnceWith('work', 'run', 0)
     document.querySelector('dialog')!.dispatchEvent(new Event('cancel', { cancelable: true }))
@@ -97,7 +97,7 @@ describe('cron workspace', () => {
     await vi.waitFor(() => expect(host.textContent).toContain('Briefing result'))
     let finish!: (value: unknown) => void
     api.history.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
-    click('View conversation'); await nextTick()
+    click('View chat'); await nextTick()
     props.profile = 'personal'
     await vi.waitFor(() => expect(host.textContent).toContain('Profile: personal'))
     finish({ messages: [{ id: 1, role: 'assistant', content: 'Stale secret' }], pagination: { offset: 0, returned: 1, limit: 50 } })

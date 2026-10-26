@@ -36,7 +36,7 @@ describe('request controls', () => {
     expect(host.querySelector('img')).toBeNull()
     expect(host.querySelector('details')?.textContent).toContain('Remember approval for matching commands')
     expect(answers).toEqual([])
-    const session = [...host.querySelectorAll('details button')].find(button => button.textContent === 'Allow for this conversation') as HTMLButtonElement
+    const session = [...host.querySelectorAll('details button')].find(button => button.textContent === 'Allow for this chat') as HTMLButtonElement
     session.click()
     await nextTick()
     expect(answers).toEqual([{ choice: 'session' }])

@@ -11,7 +11,7 @@ const processLabel = computed(() => props.processCount === 1 ? 'Background proce
     <span v-if="status === 'waiting'" class="session-indicator waiting" role="img" aria-label="Waiting for input" title="Waiting for input"></span>
     <svg v-else-if="status === 'working'" class="session-indicator" viewBox="0 0 24 24" role="img" aria-label="Running"><title>Running</title><path class="stationary-running" d="m7 4 13 8-13 8Z" /></svg>
     <svg v-if="processCount" class="session-process-indicator" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" role="img" :aria-label="processLabel"><title>{{ processLabel }}</title><rect x="3" y="5" width="18" height="14" rx="2" /><path d="m7 9 3 3-3 3m6 0h4" /></svg>
-    <svg v-if="pinned" class="session-pin-indicator" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" role="img" aria-label="Pinned conversation"><title>Pinned conversation</title><path d="m16 3 5 5-3 1-4 4-1 4-6-6 4-1 4-4 1-3ZM9 15l-6 6" /></svg>
+    <svg v-if="pinned" class="session-pin-indicator" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" role="img" aria-label="Pinned chat"><title>Pinned chat</title><path d="m16 3 5 5-3 1-4 4-1 4-6-6 4-1 4-4 1-3ZM9 15l-6 6" /></svg>
   </span>
 </template>
 

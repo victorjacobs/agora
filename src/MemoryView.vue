@@ -35,7 +35,7 @@ onBeforeUnmount(() => { generation++ })
     <div class="memory-width">
       <div class="memory-intro"><div><h2>Pending updates</h2><p>Review changes before Hermes remembers them.</p></div><button :disabled="loading || !runtime || !connected" @click="refresh">{{ loading ? 'Loading…' : 'Refresh' }}</button></div>
       <p v-if="!connected" class="memory-notice" role="status">Connect to Hermes to review memory.</p>
-      <p v-else-if="!runtime" class="memory-notice">Open a conversation to review memory for its profile.</p>
+      <p v-else-if="!runtime" class="memory-notice">Open a chat to review memory for its profile.</p>
       <MemoryApprovalCard v-for="approval in approvals" :key="approval.key" :approval="approval" :disabled="disabled" @decide="$emit('decide', approval, $event)" />
       <p v-if="loading" class="memory-notice" role="status">Checking pending changes…</p>
       <p v-if="error" class="memory-notice" role="alert">{{ error }}</p>
