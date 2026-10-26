@@ -46,6 +46,12 @@ sign-in. Agora provides the chat interface.
   Search loaded titles and stored message text; cron-job and subagent chats are excluded.
   Genuine branched chats remain visible. Subagent results stay hidden even when
   Hermes is configured to include them in its own session lists.
+  Compact list/search responses omit delegation metadata, so Agora checks the
+  existing session-detail API with up to four concurrent reads per list/search request and
+  caches only classification booleans for one minute (up to 256 entries, in memory).
+  Cold discovery can therefore take longer. Metadata failures show the existing
+  retryable list/search error rather than displaying unverified results. Filtering
+  does not expand Hermes's 100-candidate message-search limit.
 - Local conversation pins: use the pin icon on a chat row or in its header.
   Pinned chats stay above the date groups, including older chats. Pins are scoped
   to the Hermes endpoint and profile, and stay in this browser; they do not sync.
