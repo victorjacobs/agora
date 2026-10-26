@@ -2,6 +2,7 @@ import type { SessionModelInfo } from './settings'
 
 export interface SessionRow {
   id: string
+  source?: string | null
   title?: string | null
   preview?: string | null
   last_active?: number

@@ -4,14 +4,23 @@ import { HermesApi } from '../src/hermes/api'
 afterEach(() => vi.unstubAllGlobals())
 
 describe('browser HTTP transport', () => {
-  it('searches stored conversations through Hermes with the profile and cron exclusion', async () => {
+  it('searches stored chats with the profile and excludes cron and subagent sessions', async () => {
     const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify({ results: [] })))
     const api = new HermesApi(fetcher)
     await api.searchSessions('a phrase & more', 'work')
     const url = new URL(fetcher.mock.calls[0]![0], 'https://agora.test')
     expect(url.pathname).toBe('/api/sessions/search')
-    expect(Object.fromEntries(url.searchParams)).toEqual({ q: 'a phrase & more', profile: 'work', limit: '100', exclude_sources: 'cron' })
+    expect(Object.fromEntries(url.searchParams)).toEqual({ q: 'a phrase & more', profile: 'work', limit: '100', exclude_sources: 'cron,subagent' })
     expect(fetcher.mock.calls[0]![1]).toMatchObject({ credentials: 'same-origin' })
+  })
+
+  it('excludes cron and subagent sessions from paginated recent chats', async () => {
+    const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify({ sessions: [], total: 0 })))
+    const api = new HermesApi(fetcher)
+    await api.sessions('work', 20)
+    const url = new URL(fetcher.mock.calls[0]![0], 'https://agora.test')
+    expect(url.pathname).toBe('/api/sessions')
+    expect(Object.fromEntries(url.searchParams)).toEqual({ profile: 'work', offset: '20', limit: '20', order: 'recent', exclude_sources: 'cron,subagent' })
   })
 
   it('preserves the browser global receiver and sends the local session cookie', async () => {

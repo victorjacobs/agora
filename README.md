@@ -43,7 +43,9 @@ sign-in. Agora provides the chat interface.
   from the foreground spinner; both can appear together. Waiting for input keeps
   its existing indicator. Unknown, unavailable, or disconnected process status
   does not show as running. Delegated-task indicators are unchanged.
-  Search loaded titles and stored message text; cron-job conversations are excluded.
+  Search loaded titles and stored message text; cron-job and subagent chats are excluded.
+  Genuine branched chats remain visible. Subagent results stay hidden even when
+  Hermes is configured to include them in its own session lists.
 - Local conversation pins: use the pin icon on a chat row or in its header.
   Pinned chats stay above the date groups, including older chats. Pins are scoped
   to the Hermes endpoint and profile, and stay in this browser; they do not sync.
