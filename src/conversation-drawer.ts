@@ -44,7 +44,8 @@ export function createDrawerGesture(options: DrawerGestureOptions) {
     window.addEventListener('touchstart', clearClick, true)
     clickTimer = setTimeout(clearClick, 350)
     options.move(cancelled ? (current.opening ? 0 : 1) : current.progress, false)
-    options.settle(cancelled ? !current.opening : current.progress >= 0.5)
+    const open = current.opening ? current.progress > 0 : current.progress >= 0.5
+    options.settle(cancelled ? !current.opening : open)
   }
   function cancel() { finish(true) }
   function end() { finish(false) }
