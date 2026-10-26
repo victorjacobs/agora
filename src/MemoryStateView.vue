@@ -49,7 +49,7 @@ const fileSize = (value?: number) => value === undefined ? 'Unavailable' : `${va
       <p v-if="notice && active" class="notice" role="status">{{ notice }}</p>
       <template v-if="state">
         <template v-if="state.entries">
-          <p class="notice">{{ section === 'profile' ? 'Preferences and details Hermes remembers about you (USER.md).' : 'Persistent notes Hermes keeps between conversations (MEMORY.md).' }} Open an entry to read its full text.</p>
+          <p class="notice">{{ section === 'profile' ? 'Preferences and details Hermes remembers about you (USER.md).' : 'Persistent notes Hermes keeps between chats (MEMORY.md).' }} Open an entry to read its full text.</p>
           <MemoryEntry v-for="entry in state.entries" :key="entry.id" :entry="entry" :profile="state.profile" :load="read" :mutate="mutate" :disabled="busy || !connected" @busy="busy = $event" @changed="changed" />
           <p v-if="!state.entries.length" class="notice">Hermes returned no saved entries.</p>
         </template>

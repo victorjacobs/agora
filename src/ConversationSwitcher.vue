@@ -64,26 +64,26 @@ defineExpose({ open, close })
 </script>
 
 <template>
-  <dialog ref="dialog" class="conversation-switcher" aria-label="Switch conversation" @close="closed" @click="($event.target === dialog) && close()">
+  <dialog ref="dialog" class="conversation-switcher" aria-label="Switch chat" @close="closed" @click="($event.target === dialog) && close()">
     <div class="switcher-search">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="10" cy="10" r="6"/><path d="m15 15 5 5"/></svg>
-      <input ref="input" type="text" role="combobox" aria-label="Find a conversation" aria-autocomplete="list" aria-expanded="true" aria-controls="switcher-results" :aria-activedescendant="sessions.length ? `switcher-option-${active}` : undefined" :value="query" placeholder="Find a conversation…" autocomplete="off" @input="$emit('search', ($event.target as HTMLInputElement).value)" @keydown="move" />
-      <button type="button" class="text-button switcher-close" aria-label="Close conversation switcher" @click="close">Esc</button>
+      <input ref="input" type="text" role="combobox" aria-label="Find a chat" aria-autocomplete="list" aria-expanded="true" aria-controls="switcher-results" :aria-activedescendant="sessions.length ? `switcher-option-${active}` : undefined" :value="query" placeholder="Find a chat…" autocomplete="off" @input="$emit('search', ($event.target as HTMLInputElement).value)" @keydown="move" />
+      <button type="button" class="text-button switcher-close" aria-label="Close chat switcher" @click="close">Esc</button>
     </div>
     <div class="switcher-scroll">
       <p v-if="loading" class="switcher-notice" role="status">Searching…</p>
       <p v-if="error" class="switcher-notice" role="alert">{{ error }} <button type="button" class="text-button" @click="$emit('retry')">Try again</button></p>
-      <p v-else-if="!loading && !sessions.length" class="switcher-notice" role="status">{{ query.trim() ? 'No matching chats.' : 'No conversations yet.' }}</p>
-      <div id="switcher-results" role="listbox" aria-label="Conversations">
+      <p v-else-if="!loading && !sessions.length" class="switcher-notice" role="status">{{ query.trim() ? 'No matching chats.' : 'No chats yet.' }}</p>
+      <div id="switcher-results" role="listbox" aria-label="Chats">
         <div v-for="(session, index) in sessions" :id="`switcher-option-${index}`" :key="`${session.profile}:${session.id}`" role="option" :aria-selected="index === active" class="switcher-option" :class="{ active: index === active }" @mouseenter="active = index" @mousedown.prevent @click="choose(session)">
-          <span class="switcher-title">{{ session.title || 'Untitled conversation' }}</span>
+          <span class="switcher-title">{{ session.title || 'Untitled chat' }}</span>
           <ConversationIndicators :status="sessionStatus(session)" :process-count="processCount(session)" :unread="hasUnread(session)" :pinned="isPinned(session)" />
           <span v-if="session.id === selected" class="switcher-current">Current</span>
           <span v-if="index === active" class="switcher-enter" aria-hidden="true">↵</span>
         </div>
       </div>
       <p v-if="limited" class="switcher-notice">Showing the first 100 message matches. Refine your search for more.</p>
-      <button v-if="hasMore" type="button" class="switcher-more text-button" :disabled="moreLoading" @click="$emit('more')">{{ moreLoading ? 'Loading…' : 'Load more conversations' }}</button>
+      <button v-if="hasMore" type="button" class="switcher-more text-button" :disabled="moreLoading" @click="$emit('more')">{{ moreLoading ? 'Loading…' : 'Load more chats' }}</button>
     </div>
     <footer class="switcher-footer"><span>↑ ↓ to navigate</span><span>↵ to open</span></footer>
   </dialog>

@@ -23,7 +23,7 @@ export async function executeCommand(gateway: Gateway, text: string, runtime: st
   const visited = new Set<string>()
   let invocation = text
   for (let depth = 0; depth < 8; depth++) {
-    if (!current()) throw new Error('The selected conversation changed.')
+    if (!current()) throw new Error('The selected chat changed.')
     const command = slashCommand(invocation)
     if (!command?.name) throw new Error('Choose a slash command first.')
     if (visited.has(invocation)) throw new Error('Hermes returned a circular command alias.')
@@ -34,7 +34,7 @@ export async function executeCommand(gateway: Gateway, text: string, runtime: st
     } catch (error) {
       // Only a routing refusal guarantees the first call did not execute the command.
       if (!(error instanceof RpcError) || error.code !== 4018 || !error.message.includes('command.dispatch')) throw error
-      if (!current()) throw new Error('The selected conversation changed.')
+      if (!current()) throw new Error('The selected chat changed.')
       raw = await gateway.request('command.dispatch', { session_id: runtime, profile, ...command }, 300_000)
     }
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('Hermes returned an invalid command response.')

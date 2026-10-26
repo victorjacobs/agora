@@ -185,14 +185,14 @@ defineExpose({ select, newJob, selected, busy, ready })
         <p v-if="job.last_error" class="cron-error">{{ job.last_error }}</p>
         <details v-if="job.prompt || job.script" class="cron-prompt"><summary>Task</summary><p v-if="job.prompt">{{ job.prompt }}</p><p v-if="job.script">Script: {{ job.script }}</p></details>
         <h3>Runs</h3><p v-if="!runs.length" class="muted">{{ loading ? 'Loading runs…' : 'No runs returned by Hermes.' }}</p>
-        <div class="cron-runs"><article v-for="run in runs" :key="run.id" class="cron-run"><div><strong>{{ date(run.started_at) }}</strong><span v-if="run.is_active" class="cron-running" role="status"><span class="pulse" />Running</span><span v-else class="muted">{{ run.ended_at ? 'Finished' : 'No active run reported' }}</span><p>{{ run.title || run.preview || run.id }}</p><small v-if="run.message_count">{{ run.message_count }} messages · {{ (run.input_tokens || 0) + (run.output_tokens || 0) }} tokens</small></div><button v-if="run.source !== 'cron_output'" :disabled="busy || !connected" @click="readRun(run)">View conversation</button><details v-else-if="run.preview"><summary>Output preview</summary><p class="cron-output">{{ run.preview }}</p></details></article></div>
+        <div class="cron-runs"><article v-for="run in runs" :key="run.id" class="cron-run"><div><strong>{{ date(run.started_at) }}</strong><span v-if="run.is_active" class="cron-running" role="status"><span class="pulse" />Running</span><span v-else class="muted">{{ run.ended_at ? 'Finished' : 'No active run reported' }}</span><p>{{ run.title || run.preview || run.id }}</p><small v-if="run.message_count">{{ run.message_count }} messages · {{ (run.input_tokens || 0) + (run.output_tokens || 0) }} tokens</small></div><button v-if="run.source !== 'cron_output'" :disabled="busy || !connected" @click="readRun(run)">View chat</button><details v-else-if="run.preview"><summary>Output preview</summary><p class="cron-output">{{ run.preview }}</p></details></article></div>
         <button v-if="runs.length >= limit && limit < 100" :disabled="busy || loading" @click="limit = 100; loadRuns()">Show up to 100 runs</button>
 
       </template>
       <div v-else-if="!loading && connected && !error" class="cron-empty"><h2>No cron jobs</h2><button :disabled="busy || !profile" @click="newJob">New job</button></div>
     </div>
-    <CronRunDialog v-if="selectedRun" :title="selectedRun.title || job?.name || 'Run conversation'" :date="date(selectedRun.started_at)" :refreshing="historyLoading" :connected="connected" @close="clearHistory" @refresh="readRun(selectedRun)">
-      <p v-if="historyLoading" role="status">Loading conversation…</p>
+    <CronRunDialog v-if="selectedRun" :title="selectedRun.title || job?.name || 'Run chat'" :date="date(selectedRun.started_at)" :refreshing="historyLoading" :connected="connected" @close="clearHistory" @refresh="readRun(selectedRun)">
+      <p v-if="historyLoading" role="status">Loading chat…</p>
       <p v-if="historyError" class="cron-error" role="alert">{{ historyError }}</p>
       <p v-if="!historyLoading && !historyError && !messages.length" class="muted">No messages returned by Hermes.</p>
       <button v-if="older" :disabled="historyLoading || !connected" @click="readRun(selectedRun, true)">Load older messages</button>

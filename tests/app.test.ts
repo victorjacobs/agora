@@ -60,7 +60,7 @@ describe('chat interface', () => {
     expect(Number(sheet.style.getPropertyValue('--drawer-progress'))).toBeGreaterThan(0)
     expect(Number(sheet.style.getPropertyValue('--drawer-progress'))).toBeLessThan(1)
     expect(host.querySelector('main')?.hasAttribute('inert')).toBe(true)
-    await vi.waitFor(() => expect(document.activeElement?.getAttribute('aria-label')).toBe('Close conversations'))
+    await vi.waitFor(() => expect(document.activeElement?.getAttribute('aria-label')).toBe('Close chats'))
     window.dispatchEvent(new Event('touchcancel'))
     await nextTick()
     expect(sheet.open).toBe(false)
@@ -258,7 +258,7 @@ describe('chat interface', () => {
     expect(row.querySelector('.session-process-indicator')?.getAttribute('aria-label')).toBe(label)
     expect(row.querySelector('.session-indicator')).toBeNull()
     expect(row.querySelector('.unread-reply')).not.toBeNull()
-    expect(row.querySelector('[aria-label="Pin conversation"]')).not.toBeNull()
+    expect(row.querySelector('[aria-label="Pin chat"]')).not.toBeNull()
     client.state.running = true
     await nextTick()
     expect(row.querySelector('.session-indicator')?.getAttribute('aria-label')).toBe('Running')
@@ -296,12 +296,12 @@ describe('chat interface', () => {
     client.state.processes = [{ id: 'process', command: 'sleep', status: 'running', uptime: 1, output: '' }]
     vi.spyOn(client, 'searchConversations').mockImplementation(query => { client.state.searchQuery = query })
     await nextTick()
-    host.querySelector<HTMLButtonElement>('[aria-label="Open conversations"]')!.click()
+    host.querySelector<HTMLButtonElement>('[aria-label="Open chats"]')!.click()
     await nextTick()
     const sheet = host.querySelector<HTMLDialogElement>('.navigation-sheet')!
     expect(sheet.open).toBe(true)
-    sheet.querySelector<HTMLButtonElement>('[aria-label="Pin conversation"]')!.click()
-    sheet.querySelector<HTMLButtonElement>('[aria-label="Switch conversation"]')!.click()
+    sheet.querySelector<HTMLButtonElement>('[aria-label="Pin chat"]')!.click()
+    sheet.querySelector<HTMLButtonElement>('[aria-label="Switch chat"]')!.click()
     await nextTick()
     const option = host.querySelector('.conversation-switcher [role="option"]')!
     const row = sheet.querySelector('.session-row')!
@@ -310,7 +310,7 @@ describe('chat interface', () => {
       expect(target.querySelector('[aria-label="Background process running"]')).not.toBeNull()
       expect(target.querySelector('[aria-label="Unread response"]')).not.toBeNull()
     }
-    expect(option.querySelector('[aria-label="Pinned conversation"]')).not.toBeNull()
+    expect(option.querySelector('[aria-label="Pinned chat"]')).not.toBeNull()
     expect(option.querySelector('button')).toBeNull()
     client.state.requests = [{ id: 'question', method: 'clarification', params: {} }]
     await nextTick()
@@ -487,7 +487,7 @@ describe('chat interface', () => {
     client.state.sessions = [{ id: 'stored', title: 'Synthetic conversation', profile: 'work' }, { id: 'another', title: 'Another chat', profile: 'work' }]
     await nextTick()
     const row = [...host.querySelectorAll<HTMLElement>('.session-row')].find(row => row.textContent?.includes('Another chat'))!
-    row.querySelector<HTMLButtonElement>('[aria-label="Pin conversation"]')!.click()
+    row.querySelector<HTMLButtonElement>('[aria-label="Pin chat"]')!.click()
     await nextTick()
     expect(open).not.toHaveBeenCalled()
     const groups = host.querySelectorAll('.session-group')
@@ -495,7 +495,7 @@ describe('chat interface', () => {
     expect(groups[0]?.textContent).toContain('Another chat')
     expect(groups[1]?.textContent).not.toContain('Another chat')
     expect(JSON.parse(localStorage.getItem('agora.pinned-conversations')!)[window.location.origin]).toEqual([{ id: 'another', profile: 'work' }])
-    groups[0]!.querySelector<HTMLButtonElement>('[aria-label="Unpin conversation"]')!.click()
+    groups[0]!.querySelector<HTMLButtonElement>('[aria-label="Unpin chat"]')!.click()
     await nextTick()
     expect(host.querySelector('[aria-label="Pinned"]')).toBeNull()
   })

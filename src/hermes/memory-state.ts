@@ -35,7 +35,7 @@ const message = (error: unknown) => error instanceof Error ? error.message : 'Un
 async function resolveProfile(api: HermesApi, profile?: string) {
   if (profile) return profile
   const result = await api.request<{ current?: string }>('/api/profiles/active')
-  if (!result.current || result.current === 'custom') throw new Error('Hermes cannot identify its current profile. Open a conversation with a named profile first.')
+  if (!result.current || result.current === 'custom') throw new Error('Hermes cannot identify its current profile. Open a chat with a named profile first.')
   return result.current
 }
 

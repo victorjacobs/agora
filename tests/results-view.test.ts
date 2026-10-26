@@ -57,7 +57,7 @@ describe('Results feed', () => {
     await vi.waitFor(() => expect(host.textContent).toContain('Newest answer'))
     expect(document.querySelector('dialog')).toBeNull()
     api.history.mockResolvedValueOnce(history('Latest detail answer', 0, 50))
-    click('View conversation')
+    click('View chat')
     await vi.waitFor(() => expect(document.querySelector('dialog')?.textContent).toContain('Latest detail answer'))
     expect(document.querySelector('dialog .message.assistant strong')).toBeNull()
     api.history.mockResolvedValueOnce(history('Older detail answer', 50, 1))
@@ -76,7 +76,7 @@ describe('Results feed', () => {
     await vi.waitFor(() => expect(host.textContent).toContain('Newest answer'))
     let resolve!: (value: ReturnType<typeof history>) => void
     api.history.mockImplementationOnce(() => new Promise(finish => { resolve = finish }))
-    click('View conversation'); await nextTick(); await nextTick()
+    click('View chat'); await nextTick(); await nextTick()
     props.profile = 'personal'; await nextTick()
     resolve(history('Stale detail'))
     await nextTick(); await nextTick()

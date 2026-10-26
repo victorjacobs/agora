@@ -386,7 +386,7 @@ onBeforeUnmount(() => { modalObserver?.disconnect(); drawer.dispose(); if (moreS
   <SignInPage v-else-if="showSignIn" :login-url="loginUrl" :connection="state.connection" :error="state.error" @retry="chat.connect()" />
   <div v-else class="shell" :class="{ 'keyboard-open': view === 'chat' && composerFocused && keyboardVisible }">
     <div v-if="drawerEnabled && edgeSupported && (!sidebarOpen || drawerDragging)" class="conversation-edge" aria-hidden="true" @touchstart.passive="startDrawer($event, true)"></div>
-    <dialog ref="navigationSheet" class="navigation-sheet" :class="{ 'conversation-drawer': mobile && view === 'chat', 'drawer-dragging': drawerDragging }" :style="mobile && view === 'chat' ? { '--drawer-progress': drawerProgress } : undefined" @touchstart.passive="view === 'chat' && startDrawer($event, false)" :aria-label="view === 'chat' ? 'Choose a conversation' : view === 'memory' ? 'Choose a memory section' : view === 'results' ? 'Choose result jobs' : 'Choose a job'" @cancel.prevent="closeSidebar" @close="closeSidebar" @click="($event.target === navigationSheet) && closeSidebar()"><div id="mobile-navigation-content"></div></dialog>
+    <dialog ref="navigationSheet" class="navigation-sheet" :class="{ 'conversation-drawer': mobile && view === 'chat', 'drawer-dragging': drawerDragging }" :style="mobile && view === 'chat' ? { '--drawer-progress': drawerProgress } : undefined" @touchstart.passive="view === 'chat' && startDrawer($event, false)" :aria-label="view === 'chat' ? 'Choose a chat' : view === 'memory' ? 'Choose a memory section' : view === 'results' ? 'Choose result jobs' : 'Choose a job'" @cancel.prevent="closeSidebar" @close="closeSidebar" @click="($event.target === navigationSheet) && closeSidebar()"><div id="mobile-navigation-content"></div></dialog>
     <dialog ref="moreSheet" class="navigation-sheet more-sheet" aria-label="More" @cancel.prevent="closeMore" @close="closeMore" @click="($event.target === moreSheet) && closeMore()">
       <div class="more-content">
         <div class="more-heading"><h2>More</h2><button ref="moreCloseButton" class="text-button" aria-label="Close More" @click="closeMore">×</button></div>
@@ -406,18 +406,18 @@ onBeforeUnmount(() => { modalObserver?.disconnect(); drawer.dispose(); if (moreS
       <button v-else :class="{ active: secondaryView || moreOpen }" :aria-current="secondaryView ? 'page' : undefined" aria-label="More" :aria-describedby="memoryRequests.length ? 'pending-memory-count' : undefined" title="More" aria-haspopup="dialog" :aria-expanded="moreOpen" @click="openMore"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="4" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="20" cy="12" r="2"/></svg><span v-if="memoryRequests.length" id="pending-memory-count" class="rail-badge" :aria-label="`${memoryRequests.length} pending memory updates`">{{ memoryRequests.length }}</span><span class="rail-label">More</span></button>
     </nav>
     <Teleport defer to="#mobile-navigation-content" :disabled="!mobile">
-    <aside v-show="view !== 'settings'" class="sidebar" :class="{ open: sidebarOpen }" :aria-label="view === 'chat' ? 'Conversations' : view === 'memory' ? 'Memory navigation' : view === 'results' ? 'Results navigation' : 'Cron navigation'">
+    <aside v-show="view !== 'settings'" class="sidebar" :class="{ open: sidebarOpen }" :aria-label="view === 'chat' ? 'Chats' : view === 'memory' ? 'Memory navigation' : view === 'results' ? 'Results navigation' : 'Cron navigation'">
       <div class="sidebar-heading">
-        <h2>{{ mobile ? (view === 'chat' ? 'Conversations' : view === 'memory' ? 'Choose a section' : view === 'results' ? 'Choose result jobs' : 'Choose a job') : (view === 'chat' ? 'Chats' : view === 'memory' ? 'Memory' : view === 'results' ? 'Results' : 'Cron') }}</h2>
-        <button ref="closeMenuButton" class="mobile-close text-button" :aria-label="view === 'chat' ? 'Close conversations' : view === 'memory' ? 'Close memory navigation' : view === 'results' ? 'Close results navigation' : 'Close cron navigation'" @click="closeSidebar()">×</button>
+        <h2>{{ mobile ? (view === 'chat' ? 'Chats' : view === 'memory' ? 'Choose a section' : view === 'results' ? 'Choose result jobs' : 'Choose a job') : (view === 'chat' ? 'Chats' : view === 'memory' ? 'Memory' : view === 'results' ? 'Results' : 'Cron') }}</h2>
+        <button ref="closeMenuButton" class="mobile-close text-button" :aria-label="view === 'chat' ? 'Close chats' : view === 'memory' ? 'Close memory navigation' : view === 'results' ? 'Close results navigation' : 'Close cron navigation'" @click="closeSidebar()">×</button>
         <button v-if="view === 'chat' && !mobile" class="new-chat text-button" :disabled="actionsDisabled" aria-label="New chat" title="New chat" @click="view = 'chat'; sidebarOpen = false; following = true; chat.newChat()"><span aria-hidden="true">{{ mobile ? '+' : '＋' }}</span></button>
         <button v-if="view === 'cron' && !mobile" class="new-chat text-button" :disabled="!cronView?.ready || cronView?.busy" aria-label="New cron job" title="New cron job" @click="cronView?.newJob(); sidebarOpen = false"><span aria-hidden="true">＋</span></button>
       </div>
-      <button v-if="mobile && view === 'chat'" class="drawer-new-chat" :disabled="actionsDisabled" @click="closeSidebar(); following = true; chat.newChat()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M12 4v16M4 12h16" /></svg>New conversation</button>
+      <button v-if="mobile && view === 'chat'" class="drawer-new-chat" :disabled="actionsDisabled" @click="closeSidebar(); following = true; chat.newChat()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M12 4v16M4 12h16" /></svg>New chat</button>
       <div v-if="view === 'chat'" class="chat-search">
         <input type="search" aria-label="Search chats" placeholder="Search chats" :value="state.searchQuery" @input="chat.searchConversations(($event.target as HTMLInputElement).value)" @keydown.esc.stop="chat.searchConversations('')" />
         <button v-if="state.searchQuery" class="text-button" aria-label="Clear search" @click="chat.searchConversations('')">×</button>
-        <button v-else class="text-button switcher-shortcut" aria-label="Switch conversation" aria-keyshortcuts="Meta+K Control+K" @click="openSwitcher">{{ switcherShortcut }}</button>
+        <button v-else class="text-button switcher-shortcut" aria-label="Switch chat" aria-keyshortcuts="Meta+K Control+K" @click="openSwitcher">{{ switcherShortcut }}</button>
       </div>
       <nav v-if="view === 'chat'" class="session-list" aria-label="Session history">
         <template v-if="searching">
@@ -426,21 +426,21 @@ onBeforeUnmount(() => { modalObserver?.disconnect(); drawer.dispose(); if (moreS
           <p v-else-if="!visibleSessions.length" class="muted" role="status">No matching chats.</p>
         </template>
         <template v-else>
-          <p v-if="state.listLoading && !state.sessions.length" class="muted">Loading conversations…</p>
+          <p v-if="state.listLoading && !state.sessions.length" class="muted">Loading chats…</p>
           <div v-if="state.listError" class="list-error" role="alert"><p>{{ state.listError }}</p><button @click="chat.refreshSessions()">Try again</button></div>
-          <p v-else-if="!state.listLoading && !visibleSessions.length" class="muted">Your conversations will appear here.</p>
+          <p v-else-if="!state.listLoading && !visibleSessions.length" class="muted">Your chats will appear here.</p>
         </template>
         <p v-if="pins.error.value" class="muted" role="alert">{{ pins.error.value }}</p>
         <section v-for="group in sessionGroups" :key="group.label" class="session-group" :aria-label="group.label">
           <h2 class="session-group-heading">{{ group.label }}</h2>
           <div v-for="session in group.sessions" :key="conversationKey(session)" class="session-row"><button class="session" :class="{ selected: conversationKey(session) === conversationKey(currentSession) }" :aria-current="conversationKey(session) === conversationKey(currentSession) ? 'page' : undefined" :disabled="['connecting', 'reconnecting', 'expired', 'closed'].includes(state.connection)" @click="selectSession(session)">
             <span class="session-heading">
-              <span class="session-title">{{ session.title || 'Untitled conversation' }}</span>
+              <span class="session-title">{{ session.title || 'Untitled chat' }}</span>
               <ConversationIndicators :status="chat.sessionStatus(session)" :process-count="chat.sessionProcessCount(session)" :unread="chat.hasUnreadReply(session)" />
             </span>
           </button><ConversationPin :pinned="pins.isPinned(session)" :disabled="state.connection !== 'ready'" @toggle="pins.toggle(session)" /></div>
         </section>
-        <button v-if="!searching && state.sessions.length < state.total" class="load-more" :disabled="state.listLoading" @click="chat.refreshSessions(true)">{{ state.listLoading ? 'Loading…' : 'Load more conversations' }}</button>
+        <button v-if="!searching && state.sessions.length < state.total" class="load-more" :disabled="state.listLoading" @click="chat.refreshSessions(true)">{{ state.listLoading ? 'Loading…' : 'Load more chats' }}</button>
         <p v-if="searching && state.searchResults.length === 100" class="search-limit">Showing up to 100 matches. Refine your search for more.</p>
       </nav>
       <nav v-else-if="view === 'memory'" class="session-list" aria-label="Memory sections">
@@ -454,7 +454,7 @@ onBeforeUnmount(() => { modalObserver?.disconnect(); drawer.dispose(); if (moreS
 
     <main :inert="sidebarOpen || moreOpen">
       <header class="conversation-header">
-        <button v-if="view === 'chat'" ref="menuButton" class="mobile-menu" aria-label="Open conversations" aria-haspopup="dialog" :aria-expanded="sidebarOpen" @click="openSidebar()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5" /></svg></button>
+        <button v-if="view === 'chat'" ref="menuButton" class="mobile-menu" aria-label="Open chats" aria-haspopup="dialog" :aria-expanded="sidebarOpen" @click="openSidebar()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5" /></svg></button>
         <button v-if="mobile && secondaryView" class="more-back text-button" @click="openMore"><span aria-hidden="true">‹</span> More</button>
         <div class="conversation-heading"><h1>{{ view === 'settings' ? 'Settings' : view === 'memory' ? (mobile ? 'Memory' : memoryTitle) : view === 'cron' ? (mobile ? 'Jobs' : 'Cron jobs') : view === 'results' ? 'Results' : state.title }}</h1></div>
         <div v-if="state.selected && view === 'chat'" class="header-actions">
@@ -466,7 +466,7 @@ onBeforeUnmount(() => { modalObserver?.disconnect(); drawer.dispose(); if (moreS
       <div v-if="view !== 'chat' && view !== 'settings'" class="mobile-selector-row"><button class="mobile-selector" aria-haspopup="dialog" :aria-expanded="sidebarOpen" :disabled="view === 'cron' && cronView?.busy" @click="openSidebar()"><span>{{ mobileSelectorTitle }}</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg></button></div>
 
       <div v-if="state.error" class="banner warning" role="alert"><span>{{ state.error }}</span><button v-if="state.connection === 'failed'" @click="chat.connect()">Retry connection</button><button v-else class="text-button" aria-label="Dismiss error" @click="state.error = ''">×</button></div>
-      <div v-if="state.uncertain" class="banner warning" role="alert"><div>The last send may have reached Hermes. Check the recovered conversation before sending again. Your draft is retained.</div><button :disabled="state.connection !== 'ready'" @click="chat.acknowledgeUncertain()">I’ve checked; keep editing</button></div>
+      <div v-if="state.uncertain" class="banner warning" role="alert"><div>The last send may have reached Hermes. Check the recovered chat before sending again. Your draft is retained.</div><button :disabled="state.connection !== 'ready'" @click="chat.acknowledgeUncertain()">I’ve checked; keep editing</button></div>
 
       <section v-if="view === 'settings'" class="settings-view" aria-label="App settings">
         <div class="settings-content">
@@ -483,12 +483,12 @@ onBeforeUnmount(() => { modalObserver?.disconnect(); drawer.dispose(); if (moreS
       <ResultsView v-show="view === 'results'" :active="view === 'results'" :connected="state.connection === 'ready'" :profile="state.profile" :job-id="resultJob" @jobs="resultJobs = $event; if (resultJob && !$event.some(job => job.id === resultJob)) resultJob = ''" @manage="manageResult" />
       <MemoryView v-show="view === 'memory' && memorySection === 'pending'" :active="view === 'memory' && memorySection === 'pending'" :runtime="state.runtime" :profile="state.profile" :connected="state.connection === 'ready'" :approvals="memoryRequests" :disabled="actionsDisabled" :load="(runtime, profile) => chat.pendingMemory(runtime, profile)" @decide="decideMemory" />
       <MemoryStateView v-if="memorySection !== 'pending'" v-show="view === 'memory'" :active="view === 'memory'" :section="memorySection" :runtime="state.runtime" :profile="state.profile" :connected="state.connection === 'ready'" :load="(section, profile) => chat.inspectMemory(section, profile)" :read="(id, profile) => chat.readMemoryEntry(id, profile)" :mutate="(id, profile, content) => chat.mutateMemoryEntry(id, profile, content)" />
-      <div v-show="view === 'chat'" ref="transcript" class="transcript" tabindex="0" aria-label="Conversation messages" @scroll="trackScroll">
+      <div v-show="view === 'chat'" ref="transcript" class="transcript" tabindex="0" aria-label="Chat messages" @scroll="trackScroll">
         <div class="conversation-width">
           <button v-if="state.hasOlder" class="older-button" :disabled="state.olderLoading || state.connection !== 'ready'" @click="loadOlder">{{ state.olderLoading ? 'Loading…' : '↑ Load older messages' }}</button>
           <div v-if="!state.messages.length && !state.running" class="empty-conversation">
-            <h2>Start a conversation.</h2>
-            <p>Send a message to start.</p>
+            <h2>What are we getting into?</h2>
+            <p>Bring a wild idea, a stubborn bug, or that thing you’ve been putting off.</p>
           </div>
           <template v-for="item in displayedItems" :key="item.key">
             <ConversationTurn v-if="item.kind === 'turn'" :turn="item.turn" :profile="state.profile" :thinking="showingThinking" @image-load="scrollToLatest(false)" />
@@ -532,10 +532,10 @@ onBeforeUnmount(() => { modalObserver?.disconnect(); drawer.dispose(); if (moreS
     <ConversationSwitcher ref="switcher" :sessions="visibleSessions" :session-status="session => chat.sessionStatus(session)" :process-count="session => chat.sessionProcessCount(session)" :has-unread="session => chat.hasUnreadReply(session)" :is-pinned="pins.isPinned" :query="state.searchQuery" :loading="searching ? state.searchLoading : state.listLoading" :error="state.searchError || state.listError" :selected="state.selected" :limited="searching && state.searchResults.length >= 100" :has-more="state.sessions.length < state.total" :more-loading="state.listLoading" @search="chat.searchConversations($event)" @select="selectSession" @close="closeSwitcher" @retry="searching ? chat.searchConversations(state.searchQuery) : chat.refreshSessions()" @more="chat.refreshSessions(true)" />
     <dialog ref="dialog" @cancel="mutationPending && $event.preventDefault()">
       <form @submit.prevent="mutate">
-        <h2>{{ dialogKind === 'rename' ? 'Rename conversation' : 'Delete conversation?' }}</h2>
+        <h2>{{ dialogKind === 'rename' ? 'Rename chat' : 'Delete chat?' }}</h2>
         <label v-if="dialogKind === 'rename'">Title<input v-model="newTitle" autofocus required :disabled="mutationPending" /></label>
         <p v-else>“{{ state.title }}” will be deleted from Hermes. This cannot be undone.</p>
-        <div class="button-row"><button type="button" :disabled="mutationPending" @click="dialog?.close()">Cancel</button><button :class="dialogKind === 'delete' ? 'danger' : 'primary'" :disabled="mutationPending" type="submit">{{ mutationPending ? 'Saving…' : dialogKind === 'rename' ? 'Save title' : 'Delete conversation' }}</button></div>
+        <div class="button-row"><button type="button" :disabled="mutationPending" @click="dialog?.close()">Cancel</button><button :class="dialogKind === 'delete' ? 'danger' : 'primary'" :disabled="mutationPending" type="submit">{{ mutationPending ? 'Saving…' : dialogKind === 'rename' ? 'Save title' : 'Delete chat' }}</button></div>
       </form>
     </dialog>
   </div>

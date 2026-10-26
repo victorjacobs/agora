@@ -1,7 +1,7 @@
 import type { Approval } from './types'
 
 export const approvalLabels: Record<string, string> = {
-  once: 'Allow once', session: 'Allow for this conversation', always: 'Always allow', deny: 'Reject',
+  once: 'Allow once', session: 'Allow for this chat', always: 'Always allow', deny: 'Reject',
 }
 
 export function approvalChoices(approval: Approval): string[] {
