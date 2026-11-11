@@ -3,6 +3,47 @@ import DOMPurify from 'dompurify'
 import { fileReference, imageSource } from './hermes/media'
 
 const markdown = new MarkdownIt({ html: false, linkify: false, breaks: true })
+const previewMarkdown = new MarkdownIt({ html: false })
+export function previewPath(path: string): boolean {
+  return /^(?:\/(?!\/)|~\/).+\.html?$/i.test(path)
+    && !/[\u0000-\u001f\u007f-\u009f<>"'\\%?#]/.test(path)
+    && !path.split('/').some(part => part === '.' || part === '..')
+}
+previewMarkdown.inline.ruler.before('text', 'preview', (state, silent) => {
+  if (silent || state.level || state.pos > 0 && state.src[state.pos - 1] !== '\n') return false
+  const end = state.src.indexOf('\n', state.pos)
+  const line = state.src.slice(state.pos, end === -1 ? state.posMax : end)
+  const path = /^::preview\{file="([^"\n]+)"\}$/.exec(line)?.[1]
+  if (!path || !previewPath(path)) return false
+  const token = state.push('preview', '', 0)
+  token.content = path
+  token.meta = { line: state.src.slice(0, state.pos).split('\n').length - 1 }
+  state.pos += line.length
+  return true
+})
+
+type PreviewPart = { kind: 'markdown'; text: string; key: string } | { kind: 'preview'; path: string; key: string }
+export function previewParts(text: string): PreviewPart[] {
+  const lines = text.split('\n')
+  const parts: PreviewPart[] = []
+  let start = 0
+  let count = 0
+  const tokens = previewMarkdown.parse(text, {})
+  const directives = tokens.flatMap((block, index) => {
+    if (block.type !== 'inline' || !block.map || tokens[index - 1]?.type !== 'paragraph_open' || tokens[index - 1]?.level !== 0) return []
+    return (block.children || []).filter(token => token.type === 'preview').map(token => ({ path: token.content, line: block.map![0] + token.meta.line }))
+  })
+  for (const directive of directives) {
+    const { line, path } = directive
+    if (lines[line]?.replace(/\r$/, '') !== `::preview{file="${path}"}`) continue
+    if (count++ === 4) break
+    if (line > start) parts.push({ kind: 'markdown', text: lines.slice(start, line).join('\n') + '\n', key: `text-${start}` })
+    parts.push({ kind: 'preview', path, key: `preview-${line}` })
+    start = line + 1
+  }
+  if (start < lines.length) parts.push({ kind: 'markdown', text: lines.slice(start).join('\n'), key: `text-${start}` })
+  return parts
+}
 markdown.renderer.rules.link_open = (tokens, index, options, _env, renderer) => {
   const token = tokens[index]!
   token.attrSet('target', '_blank')
