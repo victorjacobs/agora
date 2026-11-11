@@ -22,6 +22,12 @@ sign-in. Agora provides the chat interface.
   download links, including in saved chat history. Local files download through
   Hermes's authenticated file API in the selected profile; no raw server paths
   need to be copied. Inline PDF viewing is not implemented.
+- Assistant replies can show self-contained HTML with a standalone
+  `::preview{file="~/charts/example.html"}` line. Previews have light/dark theme
+  variables, inline scripts, bounded auto-height, **Expand**, **Download**, and
+  a missing-file retry state. They run in opaque sandboxed frames, not the chat
+  page; external dependencies, navigation, and chat/approval actions are blocked.
+  See [HTML preview syntax, isolation and limits](docs/inline-previews.md).
 - Attach images with the paperclip, paste from your clipboard, or drop files onto
   the composer. Review/remove previews before sending; image-only messages work.
   Supports PNG, JPEG, WebP, and GIF, up to 8 images of 10 MB each.
