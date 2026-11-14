@@ -96,7 +96,8 @@ async function fixture(publicOrigin?: string, options: { sessionDb?: string; ses
     if (url.pathname === '/api/sessions/test' && request.method === 'PATCH') {
       patches++
       if (rejectMutation) return send({ detail: 'Unauthorized' }, 401)
-      return send({ title: (await body()).title })
+      const value = await body()
+      return send(typeof value.pinned === 'boolean' ? { ok: true, pinned: value.pinned, value } : { title: value.title })
     }
     if (url.pathname === '/api/sessions') {
       if (refreshedExpiry) { refreshedExpiry = false; token = 'access-2'; return send({}, 401) }
@@ -322,6 +323,13 @@ describe('local remote-Hermes connection', () => {
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({ id: 'test', title: 'Pinned chat', profile: 'work' })
     expect(test.records.at(-1)?.authorization).toBe('Bearer access-1')
+    const body = { pinned: true, profile: 'work' }
+    const update = await fetch(`${test.origin}/api/sessions/test`, { method: 'PATCH', headers: { Cookie: cookie, Origin: test.origin, 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    expect(await update.json()).toEqual({ ok: true, pinned: true, value: body })
+    const before = test.records.length
+    const foreign = await fetch(`${test.origin}/api/sessions/test`, { method: 'PATCH', headers: { Cookie: cookie, Origin: 'https://foreign.test', 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    expect(foreign.ok).toBe(false)
+    expect(test.records).toHaveLength(before)
   })
 
   it('forwards authenticated cron operations and blocks foreign origins and unrelated cron routes', async () => {

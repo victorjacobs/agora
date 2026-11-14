@@ -16,8 +16,10 @@ desktop packaging is deferred.
 - Session list ordered by recent activity, with loading, empty, and error states
   and a way to load more. New chat, open/resume, rename, and confirmed delete.
   Show a running indicator and distinguish sessions waiting for input.
-  Local pins keep selected conversations above date groups; store only session
-  IDs and profiles, scoped to the Hermes endpoint, without changing Hermes.
+  Native Hermes pins keep chats above date groups and sync across clients of the
+  same endpoint/profile (not per-login isolation). Existing local references migrate
+  additively with per-entry confirmation and visible pending/retry state; see
+  [migration and archive semantics](server-pins.md).
 - Conversation view with user/assistant messages, readable Markdown and code
   blocks, and compact tool activity. Load older history without fetching every
   conversation in advance.

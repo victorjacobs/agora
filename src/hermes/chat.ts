@@ -39,6 +39,7 @@ export function initialState() {
     processErrorsBySession: new Map<string, string>(),
     processStops: new Set<string>(),
     total: 0,
+    sessionsOffset: 0,
     listLoading: false,
     selected: '',
     runtime: '',
@@ -161,11 +162,6 @@ export class ChatClient {
     this.configuredProfile = profile || undefined
     this.state.profile = this.configuredProfile
     this.state.selected = this.location.selected()
-    try {
-      const configuration = await this.api.request<{ mode?: string; endpoint?: string }>('/api/agora/connection')
-      this.state.bridgeMode = configuration.mode === 'local' || configuration.mode === 'hosted'
-      this.state.endpoint = configuration.endpoint || ''
-    } catch { /* Same-origin Hermes installations do not have a local connection service. */ }
     if (!this.stopped) await this.connect()
   }
 
@@ -195,6 +191,18 @@ export class ChatClient {
     this.state.error = ''
 
     try {
+      if (!this.state.endpoint) {
+        try {
+          const configuration = await this.api.request<{ mode?: string; endpoint?: string }>('/api/agora/connection')
+          if (connectionGeneration !== this.connectionGeneration || this.stopped) return
+          this.state.bridgeMode = configuration.mode === 'local' || configuration.mode === 'hosted'
+          this.state.endpoint = configuration.endpoint || (this.state.bridgeMode ? '' : this.location.origin)
+        } catch (error) {
+          if (connectionGeneration !== this.connectionGeneration || this.stopped) return
+          // Only a missing bridge route confirms a direct same-origin installation.
+          if (error instanceof HttpError && error.status === 404) this.state.endpoint = this.location.origin
+        }
+      }
       const status = await this.api.request<{ auth_required: boolean }>('/api/status')
       if (connectionGeneration !== this.connectionGeneration) return
       this.state.authRequired = status.auth_required
@@ -259,10 +267,11 @@ export class ChatClient {
     this.state.listLoading = true
     this.state.listError = ''
     try {
-      const page = await this.api.sessions(this.configuredProfile, more ? this.state.sessions.length : 0)
+      const page = await this.api.sessions(this.configuredProfile, more ? this.state.sessionsOffset : 0)
       if (this.stopped || connectionGeneration !== this.connectionGeneration) return
       if (Object.values(page.storage || {}).includes('corrupt')) throw new Error('Hermes session storage is unavailable.')
       this.state.sessions = more ? [...this.state.sessions, ...page.sessions.filter(row => !this.state.sessions.some(existing => existing.id === row.id))] : page.sessions
+      this.state.sessionsOffset = (page.offset ?? (more ? this.state.sessionsOffset : 0)) + (page.limit ?? 20)
       this.state.total = page.total
       void this.refreshActiveSessions()
     } catch (error) {

@@ -35,7 +35,7 @@ export class HermesApi {
   }
 
   sessions(profile: string | undefined, offset = 0) {
-    return this.request<{ sessions: SessionRow[]; total: number; storage?: Record<string, string> }>(
+    return this.request<{ sessions: SessionRow[]; total: number; offset?: number; limit?: number; storage?: Record<string, string> }>(
       `/api/sessions?${this.query({ profile, offset, limit: 20, order: 'recent', exclude_sources: 'cron,subagent' })}`,
     )
   }
@@ -60,6 +60,13 @@ export class HermesApi {
     return this.request<{ title: string }>(`/api/sessions/${encodeURIComponent(id)}`, {
       method: 'PATCH', body: JSON.stringify({ title, profile }),
     })
+  }
+
+  async setPinned(id: string, pinned: boolean, profile: string) {
+    const result = await this.request<{ ok?: boolean; pinned?: boolean }>(`/api/sessions/${encodeURIComponent(id)}`, {
+      method: 'PATCH', body: JSON.stringify({ pinned, profile }),
+    })
+    if (result.ok !== true || result.pinned !== pinned) throw new Error('Hermes did not confirm the pin update.')
   }
 
   delete(id: string, profile?: string) {

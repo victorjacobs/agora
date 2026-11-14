@@ -3,6 +3,8 @@ import type { SessionModelInfo } from './settings'
 export interface SessionRow {
   id: string
   source?: string | null
+  pinned?: boolean | 0 | 1
+  _lineage_ids?: string[]
   title?: string | null
   preview?: string | null
   last_active?: number

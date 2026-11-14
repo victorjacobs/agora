@@ -52,10 +52,11 @@ sign-in. Agora provides the chat interface.
   Search loaded titles and stored message text; cron-job and subagent chats are excluded.
   Genuine branched chats remain visible. Subagent results stay hidden even when
   Hermes is configured to include them in its own session lists.
-- Local conversation pins: use the pin icon on a chat row or in its header.
-  Pinned chats stay above the date groups, including older chats. Pins are scoped
-  to the Hermes endpoint and profile, and stay in this browser; they do not sync.
-  Only IDs are stored locally, not titles or messages.
+- Synced chat pins: use the pin icon on a chat row or in its header. Older pinned
+  chats stay above the date groups. Pins are shared by clients of the same Hermes
+  endpoint/profile and exempt chats from automatic archiving. Existing browser
+  pins import automatically after connection; failed imports keep their references
+  visible with a retry action. See [pin migration and limits](docs/server-pins.md).
 - A conversation switcher on **⌘K / Ctrl+K**. Type to search, use ↑/↓ to choose,
   Enter to open, and Escape to close.
 - Expandable tool activity and background-task progress, results, and errors.

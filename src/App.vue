@@ -47,6 +47,7 @@ async function signOut() {
   try {
     const response = await fetch('/auth/logout', { method: 'POST', credentials: 'same-origin', redirect: 'manual' })
     if (!response.ok && response.type !== 'opaqueredirect' && response.status !== 303) throw new Error()
+    state.connection = 'closed'
     chat.dispose(); notifications.clear()
     await pushNotifications.clearDevice()
     window.location.assign('/')
@@ -88,8 +89,11 @@ const mutationPending = ref(false)
 const currentDate = ref(new Date())
 let dateTimer: ReturnType<typeof setInterval> | undefined
 const searching = computed(() => Boolean(state.searchQuery.trim()))
-const pins = usePinnedConversations(computed(() => state.endpoint || window.location.origin), computed(() => state.connection === 'ready'), computed(() => state.sessions))
-const currentSession = computed(() => ({ id: state.selected, profile: state.profile || import.meta.env.VITE_HERMES_PROFILE || 'default' }))
+const currentSession = computed(() => ({ id: state.selected, profile: state.profile || import.meta.env.VITE_HERMES_PROFILE || undefined }))
+const pins = usePinnedConversations(computed(() => state.endpoint), computed(() => state.connection === 'ready'), computed(() => state.sessions), undefined, computed(() => state.profile || import.meta.env.VITE_HERMES_PROFILE || undefined), currentSession)
+function confirmLegacyPinImport() {
+  if (window.confirm('Import pending old pins again? This will pin those chats in Hermes, including any unpinned on another device.')) void pins.reimport()
+}
 const visibleSessions = computed(() => pins.ordered(chat.visibleSessions(), state.searchQuery).filter(session => session.source !== 'subagent'))
 const sessionGroups = computed(() => {
   const pinned = visibleSessions.value.filter(pins.isPinned)
@@ -430,7 +434,9 @@ onBeforeUnmount(() => { modalObserver?.disconnect(); drawer.dispose(); if (moreS
           <div v-if="state.listError" class="list-error" role="alert"><p>{{ state.listError }}</p><button @click="chat.refreshSessions()">Try again</button></div>
           <p v-else-if="!state.listLoading && !visibleSessions.length" class="muted">Your chats will appear here.</p>
         </template>
-        <p v-if="pins.error.value" class="muted" role="alert">{{ pins.error.value }}</p>
+        <p v-if="pins.pendingCount.value && !pins.error.value" class="muted" role="status">{{ pins.pendingCount.value }} old {{ pins.pendingCount.value === 1 ? 'pin' : 'pins' }} waiting to sync. <button v-if="!pins.pins.value.some(pins.isBusy)" class="text-button" :disabled="state.connection !== 'ready'" @click="pins.retry()">Retry pins</button></p>
+        <p v-if="pins.error.value" class="muted" role="alert">{{ pins.error.value }} <button class="text-button" :disabled="state.connection !== 'ready'" @click="pins.retry()">Retry pins</button></p>
+        <button v-if="pins.uncertainCount.value" class="text-button" :disabled="state.connection !== 'ready' || pins.pins.value.some(pins.isBusy)" @click="confirmLegacyPinImport">Import old pins</button>
         <section v-for="group in sessionGroups" :key="group.label" class="session-group" :aria-label="group.label">
           <h2 class="session-group-heading">{{ group.label }}</h2>
           <div v-for="session in group.sessions" :key="conversationKey(session)" class="session-row"><button class="session" :class="{ selected: conversationKey(session) === conversationKey(currentSession) }" :aria-current="conversationKey(session) === conversationKey(currentSession) ? 'page' : undefined" :disabled="['connecting', 'reconnecting', 'expired', 'closed'].includes(state.connection)" @click="selectSession(session)">
@@ -438,9 +444,9 @@ onBeforeUnmount(() => { modalObserver?.disconnect(); drawer.dispose(); if (moreS
               <span class="session-title">{{ session.title || 'Untitled chat' }}</span>
               <ConversationIndicators :status="chat.sessionStatus(session)" :process-count="chat.sessionProcessCount(session)" :unread="chat.hasUnreadReply(session)" />
             </span>
-          </button><ConversationPin :pinned="pins.isPinned(session)" :disabled="state.connection !== 'ready'" @toggle="pins.toggle(session)" /></div>
+          </button><ConversationPin :pinned="pins.isPinned(session)" :disabled="state.connection !== 'ready' || pins.isBusy(session)" :pending="pins.isBusy(session)" @toggle="pins.toggle(session)" /></div>
         </section>
-        <button v-if="!searching && state.sessions.length < state.total" class="load-more" :disabled="state.listLoading" @click="chat.refreshSessions(true)">{{ state.listLoading ? 'Loading…' : 'Load more chats' }}</button>
+        <button v-if="!searching && state.sessionsOffset < state.total" class="load-more" :disabled="state.listLoading" @click="chat.refreshSessions(true)">{{ state.listLoading ? 'Loading…' : 'Load more chats' }}</button>
         <p v-if="searching && state.searchResults.length === 100" class="search-limit">Showing up to 100 matches. Refine your search for more.</p>
       </nav>
       <nav v-else-if="view === 'memory'" class="session-list" aria-label="Memory sections">
@@ -458,7 +464,7 @@ onBeforeUnmount(() => { modalObserver?.disconnect(); drawer.dispose(); if (moreS
         <button v-if="mobile && secondaryView" class="more-back text-button" @click="openMore"><span aria-hidden="true">‹</span> More</button>
         <div class="conversation-heading"><h1>{{ view === 'settings' ? 'Settings' : view === 'memory' ? (mobile ? 'Memory' : memoryTitle) : view === 'cron' ? (mobile ? 'Jobs' : 'Cron jobs') : view === 'results' ? 'Results' : state.title }}</h1></div>
         <div v-if="state.selected && view === 'chat'" class="header-actions">
-          <ConversationPin :pinned="pins.isPinned(currentSession)" :disabled="state.connection !== 'ready'" @toggle="pins.toggle(currentSession)" />
+          <ConversationPin :pinned="pins.isPinned(currentSession)" :disabled="state.connection !== 'ready' || pins.isBusy(currentSession)" :pending="pins.isBusy(currentSession)" @toggle="pins.toggle(currentSession)" />
           <button :disabled="actionsDisabled" @click="showDialog('rename')">Rename</button>
           <button :disabled="actionsDisabled || state.running || state.sending" @click="showDialog('delete')">Delete</button>
         </div>
@@ -529,7 +535,7 @@ onBeforeUnmount(() => { modalObserver?.disconnect(); drawer.dispose(); if (moreS
       </footer>
     </main>
 
-    <ConversationSwitcher ref="switcher" :sessions="visibleSessions" :session-status="session => chat.sessionStatus(session)" :process-count="session => chat.sessionProcessCount(session)" :has-unread="session => chat.hasUnreadReply(session)" :is-pinned="pins.isPinned" :query="state.searchQuery" :loading="searching ? state.searchLoading : state.listLoading" :error="state.searchError || state.listError" :selected="state.selected" :limited="searching && state.searchResults.length >= 100" :has-more="state.sessions.length < state.total" :more-loading="state.listLoading" @search="chat.searchConversations($event)" @select="selectSession" @close="closeSwitcher" @retry="searching ? chat.searchConversations(state.searchQuery) : chat.refreshSessions()" @more="chat.refreshSessions(true)" />
+    <ConversationSwitcher ref="switcher" :sessions="visibleSessions" :session-status="session => chat.sessionStatus(session)" :process-count="session => chat.sessionProcessCount(session)" :has-unread="session => chat.hasUnreadReply(session)" :is-pinned="pins.isPinned" :query="state.searchQuery" :loading="searching ? state.searchLoading : state.listLoading" :error="state.searchError || state.listError" :selected="state.selected" :limited="searching && state.searchResults.length >= 100" :has-more="state.sessionsOffset < state.total" :more-loading="state.listLoading" @search="chat.searchConversations($event)" @select="selectSession" @close="closeSwitcher" @retry="searching ? chat.searchConversations(state.searchQuery) : chat.refreshSessions()" @more="chat.refreshSessions(true)" />
     <dialog ref="dialog" @cancel="mutationPending && $event.preventDefault()">
       <form @submit.prevent="mutate">
         <h2>{{ dialogKind === 'rename' ? 'Rename chat' : 'Delete chat?' }}</h2>

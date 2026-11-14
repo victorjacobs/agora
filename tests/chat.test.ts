@@ -48,6 +48,37 @@ function setup(selected = '') {
 afterEach(() => vi.useRealTimers())
 
 describe('chat recovery and session ownership', () => {
+  it('does not guess a same-origin pin scope when bridge discovery fails transiently', async () => {
+    const { chat, api, state } = setup()
+    vi.mocked(api.request).mockImplementation(async path => {
+      if (path === '/api/agora/connection') throw new HttpError(503, 'Bridge unavailable')
+      return { auth_required: false }
+    })
+    await chat.start('work')
+    expect(state.endpoint).toBe('')
+    vi.mocked(api.request).mockImplementation(async path => {
+      if (path === '/api/agora/connection') return { mode: 'local', endpoint: 'https://actual.test' }
+      return { auth_required: false }
+    })
+    await chat.connect()
+    expect(state.endpoint).toBe('https://actual.test')
+    chat.dispose()
+  })
+  it('advances the server window rather than counting native pin backfill', async () => {
+    const { chat, api, state } = setup()
+    const recent = Array.from({ length: 20 }, (_, i) => ({ id: `recent-${i}`, profile: 'work' }))
+    const pinned = { id: 'archived-pin', profile: 'work', pinned: true }
+    vi.mocked(api.sessions).mockResolvedValueOnce({ sessions: [...recent, pinned], total: 21, offset: 0, limit: 20 })
+    await chat.refreshSessions()
+    expect(state.sessions).toHaveLength(21)
+    expect(state.sessionsOffset < state.total).toBe(true)
+    vi.mocked(api.sessions).mockResolvedValueOnce({ sessions: [recent[0]!, pinned], total: 61, offset: 20, limit: 20 })
+    await chat.refreshSessions(true)
+    expect(api.sessions).toHaveBeenLastCalledWith(undefined, 20)
+    await chat.refreshSessions(true)
+    expect(api.sessions).toHaveBeenLastCalledWith(undefined, 40)
+    chat.dispose()
+  })
   it('inserts another client’s prompt before live output without replacing the stream', async () => {
     const { chat, state, api, gateway } = setup('a')
     await chat.start('work')
