@@ -59,7 +59,9 @@ try {
     if (url.pathname === '/api/agora/connection') json = { mode: 'local', endpoint: 'https://fixture.invalid' }
     else if (url.pathname === '/api/agora/push') json = { configured: false }
     else if (url.pathname === '/api/status') json = { auth_required: false }
-    else if (url.pathname === '/api/sessions') json = { sessions: [{ id: 'preview', title: 'Fictional project momentum', profile: 'work' }], total: 1 }
+    else if (url.pathname === '/api/profiles/active') json = { current: 'work' }
+    else if (url.pathname === '/api/sessions/preview') json = { id: 'preview', title: 'Fictional project momentum', profile: 'work', pinned: false }
+    else if (url.pathname === '/api/sessions') json = { sessions: [{ id: 'preview', title: 'Fictional project momentum', profile: 'work', pinned: false }], total: 1, offset: Number(url.searchParams.get('offset')), limit: 20 }
     else if (url.pathname === '/api/sessions/preview/messages') json = { session_id: 'preview', profile: 'work', messages, pagination: { returned: 2, offset: 0, limit: 50 } }
     else { unexpected.push(url.href); return route.abort() }
     return route.fulfill({ json })

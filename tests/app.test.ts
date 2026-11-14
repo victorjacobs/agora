@@ -20,12 +20,12 @@ function renderApp() {
   return host
 }
 
-function mountApp(connection: 'ready' | 'connecting' = 'ready') {
+function mountApp(connection: 'ready' | 'connecting' = 'ready', endpoint = '') {
   let client!: ChatClient
   vi.spyOn(ChatClient.prototype, 'start').mockImplementation(async function (this: ChatClient) {
     client = this
     Object.assign(this.state, {
-      connection, selected: 'stored', runtime: 'runtime',
+      connection, endpoint, selected: 'stored', runtime: 'runtime',
       title: 'Synthetic conversation', profile: 'work',
     })
   })
@@ -34,6 +34,12 @@ function mountApp(connection: 'ready' | 'connecting' = 'ready') {
 }
 
 describe('chat interface', () => {
+  it('resolves a selected header pin even when the selected chat is not in the loaded list', async () => {
+    vi.spyOn(HermesApi.prototype, 'sessions').mockResolvedValue({ sessions: [], total: 0 })
+    vi.spyOn(HermesApi.prototype, 'session').mockResolvedValue({ id: 'stored', profile: 'work', pinned: 1 })
+    const { host } = mountApp('ready', window.location.origin)
+    await vi.waitFor(() => expect(host.querySelector('.header-actions [aria-label="Unpin chat"]')).not.toBeNull())
+  })
   it('hides subagent chats from the sidebar and switcher without dropping branches or pagination rows', async () => {
     localStorage.setItem('agora.pinned-conversations', JSON.stringify({ [window.location.origin]: [{ id: 'child', profile: 'work' }] }))
     vi.spyOn(HermesApi.prototype, 'session').mockResolvedValue({ id: 'child', profile: 'work', title: 'Internal delegate', source: 'subagent' })
@@ -311,12 +317,15 @@ describe('chat interface', () => {
   })
 
   it('shares live activity and unread marks between the mobile picker and search switcher', async () => {
+    vi.spyOn(HermesApi.prototype, 'sessions').mockResolvedValue({ sessions: [], total: 0 })
+    vi.spyOn(HermesApi.prototype, 'setPinned').mockResolvedValue()
+    vi.spyOn(HermesApi.prototype, 'session').mockResolvedValue({ id: 'stored', profile: 'work', pinned: true })
     vi.stubGlobal('matchMedia', vi.fn(query => ({ matches: query === '(max-width: 760px)', addEventListener() {}, removeEventListener() {} })))
     Object.defineProperties(HTMLDialogElement.prototype, {
       showModal: { configurable: true, value() { this.open = true } },
       close: { configurable: true, value() { this.open = false; this.dispatchEvent(new Event('close')) } },
     })
-    const { host, client } = mountApp()
+    const { host, client } = mountApp('ready', window.location.origin)
     const unmount = cleanup
     cleanup = () => {
       unmount()
@@ -333,7 +342,7 @@ describe('chat interface', () => {
     await nextTick()
     const sheet = host.querySelector<HTMLDialogElement>('.navigation-sheet')!
     expect(sheet.open).toBe(true)
-    sheet.querySelector<HTMLButtonElement>('[aria-label="Pin chat"]')!.click()
+    await vi.waitFor(() => expect(sheet.querySelector('[aria-label="Unpin chat"]')).not.toBeNull())
     sheet.querySelector<HTMLButtonElement>('[aria-label="Switch chat"]')!.click()
     await nextTick()
     const option = host.querySelector('.conversation-switcher [role="option"]')!
@@ -514,9 +523,13 @@ describe('chat interface', () => {
     expect(host.querySelector('.keyboard-open')).not.toBeNull()
   })
 
-  it('pins a chat locally without opening it and displays a separate pinned group', async () => {
+  it('pins a chat on Hermes without opening it and displays a separate pinned group', async () => {
+    let pinned = false
+    vi.spyOn(HermesApi.prototype, 'sessions').mockResolvedValue({ sessions: [], total: 0 })
+    const update = vi.spyOn(HermesApi.prototype, 'setPinned').mockImplementation(async (_id, value) => { pinned = value })
+    vi.spyOn(HermesApi.prototype, 'session').mockImplementation(async (id, profile) => ({ id, profile, pinned: id === 'another' && pinned }))
     const open = vi.spyOn(ChatClient.prototype, 'open').mockResolvedValue()
-    const { host, client } = mountApp()
+    const { host, client } = mountApp('ready', window.location.origin)
     client.state.sessions = [{ id: 'stored', title: 'Synthetic conversation', profile: 'work' }, { id: 'another', title: 'Another chat', profile: 'work' }]
     await nextTick()
     const row = [...host.querySelectorAll<HTMLElement>('.session-row')].find(row => row.textContent?.includes('Another chat'))!
@@ -527,7 +540,9 @@ describe('chat interface', () => {
     expect(groups[0]?.getAttribute('aria-label')).toBe('Pinned')
     expect(groups[0]?.textContent).toContain('Another chat')
     expect(groups[1]?.textContent).not.toContain('Another chat')
-    expect(JSON.parse(localStorage.getItem('agora.pinned-conversations')!)[window.location.origin]).toEqual([{ id: 'another', profile: 'work' }])
+    await vi.waitFor(() => expect(groups[0]!.querySelector<HTMLButtonElement>('[aria-label="Unpin chat"]')?.disabled).toBe(false))
+    expect(update).toHaveBeenCalledWith('another', true, 'work')
+    expect(localStorage.getItem('agora.pinned-conversations')).toBeNull()
     groups[0]!.querySelector<HTMLButtonElement>('[aria-label="Unpin chat"]')!.click()
     await nextTick()
     expect(host.querySelector('[aria-label="Pinned"]')).toBeNull()

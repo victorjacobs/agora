@@ -1,5 +1,12 @@
 # Implementation handoff
 
+## Native chat pins
+
+See [server-pins.md](server-pins.md) for the inspected native flag/PATCH contract,
+loss-preserving per-entry browser migration, profile/lineage identity, pin-backfill
+pagination and browser-fixture acceptance limits. No Hermes or bridge API change
+is required.
+
 ## Background Web Push
 
 See [push.md](push.md) for the implemented, owner-approved scope, public passive

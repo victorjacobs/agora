@@ -11,7 +11,7 @@ const executablePath = process.env.AGORA_BROWSER_PATH
 if (!executablePath) throw new Error('Set AGORA_BROWSER_PATH to an installed Chromium browser.')
 const output = resolve(process.env.AGORA_EVIDENCE_DIR || resolve(tmpdir(), 'agora-mobile-navigation-evidence'))
 const now = Date.now() / 1000
-const sessions = [{ id: 'notes', title: 'Deployment notes', profile: 'default', last_active: now }]
+const sessions = [{ id: 'notes', title: 'Deployment notes', profile: 'default', pinned: false, last_active: now }]
 const jobs = ['Daily brief', 'Backup check', 'Weather summary'].map((name, index) => ({ id: `job-${index}`, name, prompt: `Prepare the fictional ${name.toLowerCase()}.`, enabled: true, state: 'scheduled', schedule: { kind: 'cron', expr: `0 ${8 + index} * * *` }, schedule_display: `Every day at ${8 + index}:00`, next_run_at: new Date(Date.now() + 86400000).toISOString(), deliver: 'local' }))
 const answers = ['Three priorities are ready for your review. No urgent follow-ups today.', 'All systems are healthy. The fictional backup completed without issues.', 'Mild conditions today with light cloud. A pleasant afternoon ahead.']
 const approvals = ['Keep replies concise', 'Use European date formats'].map((text, index) => ({ request_id: `memory-${index}`, description: 'Save to memory: add to user profile', command: text, choices: ['once', 'deny'] }))
@@ -33,7 +33,9 @@ try {
     else if (path === '/api/status') result = { auth_required: true }
     else if (path === '/api/auth/me') result = { display_name: 'Fictional operator' }
     else if (path === '/api/agora/push') result = { configured: false }
-    else if (path === '/api/sessions') result = { sessions, total: 1 }
+    else if (path === '/api/profiles/active') result = { current: 'default' }
+    else if (path === '/api/sessions/notes') result = sessions[0]
+    else if (path === '/api/sessions') result = { sessions, total: 1, offset: Number(url.searchParams.get('offset')), limit: 20 }
     else if (path === '/api/cron/jobs') result = jobs
     else if (/^\/api\/cron\/jobs\/[^/]+\/runs$/.test(path)) { const id = path.split('/')[4]; result = { runs: [{ id: `run-${id}`, title: jobs.find(job => job.id === id).name, started_at: now - 3600, ended_at: now - 3500 }], limit: Number(url.searchParams.get('limit')) } }
     else if (/^\/api\/sessions\/[^/]+\/messages$/.test(path)) {

@@ -4,6 +4,14 @@ import { HermesApi } from '../src/hermes/api'
 afterEach(() => vi.unstubAllGlobals())
 
 describe('browser HTTP transport', () => {
+  it('sends only native pin metadata and rejects unacknowledged writes', async () => {
+    const fetcher = vi.fn().mockResolvedValueOnce(Response.json({ ok: true, pinned: true }))
+      .mockResolvedValueOnce(Response.json({ ok: true }))
+    const api = new HermesApi(fetcher)
+    await api.setPinned('id/escaped', true, 'work')
+    expect(fetcher).toHaveBeenCalledWith('/api/sessions/id%2Fescaped', expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ pinned: true, profile: 'work' }), credentials: 'same-origin' }))
+    await expect(api.setPinned('id/escaped', false, 'work')).rejects.toThrow('did not confirm')
+  })
   it('searches stored chats with the profile and excludes cron and subagent sessions', async () => {
     const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify({ results: [] })))
     const api = new HermesApi(fetcher)
