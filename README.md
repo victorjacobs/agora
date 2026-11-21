@@ -86,6 +86,8 @@ sign-in. Agora provides the chat interface.
   Inputs clear on submission, cancellation, or disconnection. Requires Hermes's
   vault server-request hooks; this does not embed or control a browser in Agora.
 - New chats, history, rename, delete, and stop controls.
+- Reopen the last chat on launch or reload after sign-in. Explicit chat links and
+  a newer selection take priority; New chat and sign out clear the remembered chat.
 - **Steer** a running turn with text from the composer, or press Enter on desktop. Hermes
   accepts the guidance without interrupting the turn and applies it when safe;
   a compression race can queue it for a later turn. Images and approval prompts
@@ -238,6 +240,7 @@ After `direnv allow` and `npm ci`:
 | `npm test` | Run the Vitest suite. |
 | `npm run build` | Build the UI into `dist/`. |
 | `node tests/session-runtime.mjs [package-path]` | Real Node-process session smoke test with a synthetic PKCE upstream; verifies restart persistence, rotated refresh tokens, and durable logout. Optionally tests a built package path. |
+| `AGORA_BROWSER_PATH=/path/to/chromium node scripts/last-chat-smoke.mjs` | Fictional full-app fixtures: bare-URL reload restoration, deep links, delayed selection, missing/temporarily unavailable targets, New chat and sign out. No live Hermes access. |
 | `AGORA_BROWSER_PATH=/path/to/chromium node scripts/sudo-request-smoke.mjs` | Fictional HTTP/WebSocket fixtures: exact sudo submission, cancellation, withdrawal, replay, disconnect/recovery, no chat/storage leakage, and desktop/mobile/landscape controls. No real sudo execution or live Hermes access. |
 | `AGORA_BROWSER_PATH=/path/to/chromium node scripts/composer-enter-smoke.mjs` | Fictional HTTP/WebSocket fixtures: native Enter newlines on a wide touch tablet, exact multiline Send payloads, and unchanged shortcuts in a narrow non-touch desktop window. No live Hermes access. |
 | `AGORA_BROWSER_PATH=/path/to/chromium node scripts/mobile-navigation-smoke.mjs` | Actual full-app navigation with fictional HTTP/WebSocket fixtures at 390×844 and 1280×900. Checks selectors, modal closing/focus, draft preservation, and simulated keyboard layout; captures dark screenshots and a provenance manifest. Set `AGORA_EVIDENCE_DIR` to choose the output directory. No live Hermes access or physical-device keyboard claim. |
@@ -438,6 +441,12 @@ Sign-in stays in Agora's existing flow; image previews and downloads are unchang
 Agora keeps access/refresh tokens in the bridge's server-side session cache. Drafts,
 transcripts, and unread markers are not persisted in browser storage. Hermes
 retains saved conversation history.
+Only the last-opened chat's stored ID and profile are remembered locally, scoped
+to the resolved Hermes endpoint, launch profile, and authenticated principal IDs
+(or the ungated dashboard). No titles, messages or tokens are saved. If scope or
+principal metadata is unavailable, local restoration is skipped; explicit chat
+links still work. A missing chat clears the reference; temporary failures retain
+it for a later reload or reconnect without blocking the chat list.
 
 Losing a connection does not stop an agent. Agora recovers history and runtime
 state before enabling actions. If a send's outcome is uncertain, it retains the

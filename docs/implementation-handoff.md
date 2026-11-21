@@ -1,5 +1,21 @@
 # Implementation handoff
 
+## Last-opened chat
+
+`ChatClient` restores only after authentication and endpoint/launch-profile
+discovery; unresolved scope never falls back to the bridge's browser origin.
+The existing `/api/auth/me` contract at the research revision below exposes
+`provider`, `user_id` and `org_id`; use these IDs, never display names or email,
+to partition local references. Authenticated installations without stable
+principal metadata skip browser-local recovery. This is not upstream tenancy.
+References contain only stored chat IDs and profiles. Existing history/resume
+logic remains authoritative for runtime IDs and compression descendants.
+Explicit `?session=` URLs and newer user selections take priority. New chat and
+logout clear the reference; missing metadata targets are discarded, while
+temporary lookup/history failures keep the reference and leave startup usable.
+`tests/last-chat.test.ts` and `scripts/last-chat-smoke.mjs` exercise fictional
+lifecycle fixtures, not live OIDC or production Hermes.
+
 ## Native chat pins
 
 See [server-pins.md](server-pins.md) for the inspected native flag/PATCH contract,

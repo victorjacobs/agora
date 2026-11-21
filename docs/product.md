@@ -52,8 +52,12 @@ desktop packaging is deferred.
   Clear the field on submission, cancellation, withdrawal, replacement, and
   disconnect. Hermes controls expiry; app-level installer sudo and generic secret
   capture are outside this feature.
-- Login/logout and a clear expired-session state. Preserve the selected
-  conversation across login and reload using a stable URL where practical.
+- Login/logout and a clear expired-session state. Preserve the selected chat
+  across login and reload using its URL, or a browser-local stored-ID/profile
+  reference scoped to the resolved endpoint, launch profile and available
+  authenticated principal IDs. Explicit links and newer user choices win over
+  automatic restoration. New chat, selected-chat deletion and explicit logout
+  clear the remembered selection; temporary connection failures do not.
   Completed bridge logins survive process restarts through a disposable
   server-side SQLite cache with a rolling 30-day idle limit by default.
   Tokens never enter browser storage; Hermes still controls grant expiry and
