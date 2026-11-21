@@ -47,6 +47,7 @@ async function signOut() {
   try {
     const response = await fetch('/auth/logout', { method: 'POST', credentials: 'same-origin', redirect: 'manual' })
     if (!response.ok && response.type !== 'opaqueredirect' && response.status !== 303) throw new Error()
+    chat.forgetLastChat()
     state.connection = 'closed'
     chat.dispose(); notifications.clear()
     await pushNotifications.clearDevice()

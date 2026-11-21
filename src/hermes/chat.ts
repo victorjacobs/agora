@@ -1,4 +1,5 @@
 import type { ImageAttachment } from './attachments'
+import { LastChat } from './last-chat'
 import { reconcileProcesses, processOutputLimit, type ChatProcess } from './processes'
 import { appendReasoning, excludeReplyFromReasoning, finishReasoning, restoreReasoning } from './reasoning'
 import { compressionStatus } from './compression'
@@ -83,6 +84,8 @@ export interface ChatLocation {
 }
 
 export class ChatClient {
+  private lastChat = new LastChat()
+  private restorePending = true
   private settingsMutation = false
   private settingsRevision = 0
   onReply: (session: SessionRow) => void = () => {}
@@ -165,6 +168,12 @@ export class ChatClient {
     if (!this.stopped) await this.connect()
   }
 
+  forgetLastChat() {
+    this.restorePending = false
+    this.selectionGeneration++
+    this.lastChat.forget()
+  }
+
   dispose() {
     this.clearCompression()
     this.stopped = true
@@ -189,6 +198,7 @@ export class ChatClient {
     this.recovering = false
     this.state.connection = this.attempts ? 'reconnecting' : 'connecting'
     this.state.error = ''
+    const selection = this.selectionGeneration
 
     try {
       if (!this.state.endpoint) {
@@ -207,12 +217,28 @@ export class ChatClient {
       if (connectionGeneration !== this.connectionGeneration) return
       this.state.authRequired = status.auth_required
       let ticket: string | undefined
+      let principal = 'dashboard'
       if (status.auth_required) {
-        const identity = await this.api.request<{ display_name?: string; email?: string }>('/api/auth/me')
+        const identity = await this.api.request<{ display_name?: string; email?: string; user_id?: string; provider?: string; org_id?: string }>('/api/auth/me')
+        if (connectionGeneration !== this.connectionGeneration || this.stopped) return
+        principal = typeof identity.user_id === 'string' && identity.user_id && typeof identity.provider === 'string' && identity.provider
+          ? JSON.stringify([identity.provider, identity.user_id, typeof identity.org_id === 'string' ? identity.org_id : '']) : ''
         this.state.identity = identity.display_name || identity.email || 'Signed in'
         if (!this.state.bridgeMode) ticket = (await this.api.request<{ ticket: string }>('/api/auth/ws-ticket', { method: 'POST' })).ticket
       } else this.state.identity = 'Hermes dashboard'
       if (connectionGeneration !== this.connectionGeneration) return
+      let launchProfile = this.configuredProfile || ''
+      this.lastChat.scope(this.state.endpoint, launchProfile, principal)
+      if (!launchProfile && this.state.endpoint && principal) {
+        try {
+          const active = await this.api.request<{ current?: string }>('/api/profiles/active')
+          if (typeof active.current === 'string') launchProfile = active.current
+        } catch (error) {
+          if (error instanceof HttpError && error.status === 401) throw error
+        }
+      }
+      if (connectionGeneration !== this.connectionGeneration || this.stopped) return
+      this.lastChat.scope(this.state.endpoint, launchProfile, principal)
 
       const url = new URL('/api/ws', this.location.origin)
       url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
@@ -224,8 +250,15 @@ export class ChatClient {
       this.state.connection = 'recovering'
       await this.refreshSessions()
       if (connectionGeneration !== this.connectionGeneration) return
+      if (selection !== this.selectionGeneration) return
       if (this.state.selected) await this.open(this.state.selected, this.state.profile)
-      else { this.state.connection = 'ready'; this.state.activity = ''; void this.refreshSettings() }
+      else {
+        if (this.restorePending) await this.restoreLastChat(selection, connectionGeneration)
+        if (connectionGeneration !== this.connectionGeneration) return
+        if (selection === this.selectionGeneration) {
+          this.state.connection = 'ready'; this.state.activity = ''; void this.refreshSettings()
+        }
+      }
       if (connectionGeneration !== this.connectionGeneration || this.state.connection !== 'ready') return
       this.activeTimer = setInterval(() => { void this.refreshActiveSessions(); void this.refreshTasks(); void this.refreshProcesses() }, 5000)
       this.attempts = 0
@@ -237,6 +270,32 @@ export class ChatClient {
         this.state.connection = 'failed'
         this.state.error = errorMessage(error)
       } else this.scheduleReconnect(error)
+    }
+  }
+
+  private async restoreLastChat(selection: number, connection: number) {
+    const saved = this.lastChat.read()
+    if (!saved) return
+    this.state.connection = 'ready'
+    try {
+      await this.api.session(saved.id, saved.profile)
+      if (this.stopped || selection !== this.selectionGeneration || connection !== this.connectionGeneration) return
+      selection++
+      await this.open(saved.id, saved.profile, true)
+    } catch (error) {
+      if (this.stopped || selection !== this.selectionGeneration || connection !== this.connectionGeneration) return
+      if (this.handleAuth(error)) return
+      Object.assign(this.state, {
+        selected: '', runtime: '', title: 'New chat', messages: [], tasks: [], taskError: '',
+        processes: [], processError: '', approvals: [], requests: [], running: false,
+        activity: '', hasOlder: false, profile: this.configuredProfile, connection: 'ready',
+      })
+      this.location.select('')
+      this.restorePending = true
+      if (error instanceof HttpError && error.status === 404) {
+        this.restorePending = false
+        this.lastChat.write()
+      } else this.state.error = 'Could not reopen the last chat. Select a chat or reconnect to retry.'
     }
   }
 
@@ -733,8 +792,9 @@ export class ChatClient {
     }
   }
 
-  async open(id: string, profile = this.configuredProfile) {
+  async open(id: string, profile = this.configuredProfile, restoring = false) {
     if (['expired', 'reconnecting', 'connecting', 'closed'].includes(this.state.connection)) return
+    this.restorePending = false
     this.taskCache.set(this.taskScope(), this.state.tasks)
     this.rememberActiveSession()
     this.rememberReasoning()
@@ -847,6 +907,7 @@ export class ChatClient {
         this.state.sessions = this.state.sessions.map(row => row.id === id ? { ...row, id: stored } : row)
       }
       this.location.select(stored)
+      if (this.state.profile) this.lastChat.write({ id: stored, profile: this.state.profile })
       for (const event of this.buffered.slice(0, eventBoundary)) {
         if (event.session_id === snapshot.session_id) this.applyTaskEvent(event)
       }
@@ -873,6 +934,7 @@ export class ChatClient {
     } catch (error) {
       if (generation !== this.selectionGeneration) return
       this.recovering = false
+      if (restoring) throw error
       if (this.handleAuth(error)) return
       if (error instanceof ConnectionLost) this.scheduleReconnect()
       else { this.state.connection = 'failed'; this.state.error = errorMessage(error) }
@@ -881,6 +943,9 @@ export class ChatClient {
 
   async newChat() {
     if (this.state.connection !== 'ready' || this.state.sending || this.state.actionPending) return
+    this.restorePending = false
+    this.lastChat.write()
+    this.location.select('')
     this.taskCache.set(this.taskScope(), this.state.tasks)
     this.rememberActiveSession()
     this.rememberReasoning()
@@ -1054,6 +1119,7 @@ export class ChatClient {
       if (this.state.selected === selected && this.state.profile === profile) this.state.images = this.state.images.filter(image => !images.some(sent => sent.id === image.id))
       if (this.state.selected === selected && this.state.draft.trim() === draft) this.state.draft = ''
       if (generation !== this.selectionGeneration) return
+      if (this.state.profile) this.lastChat.write({ id: selected, profile: this.state.profile })
       if (result.status && result.status !== 'streaming') this.state.activity = `Hermes accepted the prompt (${result.status}).`
     } catch (error) {
       if (!(error instanceof ConnectionLost)) {
@@ -1260,6 +1326,8 @@ export class ChatClient {
         if (session.id === id && session.profile === profile) this.runtimeSessions.delete(runtime)
       }
       if (this.state.selected === id && this.state.profile === profile) {
+        this.restorePending = false
+        this.lastChat.write()
         this.selectionGeneration++
         this.drafts.delete(id)
         this.uncertain.delete(id)

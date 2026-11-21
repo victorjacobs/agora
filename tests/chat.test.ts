@@ -45,7 +45,7 @@ function setup(selected = '') {
   return { state, api, gateway, chat, navigations }
 }
 
-afterEach(() => vi.useRealTimers())
+afterEach(() => { vi.useRealTimers(); localStorage.clear() })
 
 describe('chat recovery and session ownership', () => {
   it('does not guess a same-origin pin scope when bridge discovery fails transiently', async () => {
