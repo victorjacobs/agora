@@ -73,7 +73,7 @@ describe('chat interface', () => {
     expect([...switcher.querySelectorAll('.switcher-title')].map(el => el.textContent)).toEqual(['Human chat', 'Human branch', 'Older human chat'])
   })
 
-  it('finger-follows the mobile conversation drawer, restores cancellation and removes the edge on other views', async () => {
+  it('finger-follows the shared mobile drawer and retains its edge on every workspace', async () => {
     vi.stubGlobal('matchMedia', vi.fn(query => ({ matches: query === '(max-width: 760px)', addEventListener() {}, removeEventListener() {} })))
     Object.defineProperties(HTMLDialogElement.prototype, {
       showModal: { configurable: true, value() { this.open = true } },
@@ -99,7 +99,7 @@ describe('chat interface', () => {
     expect(Number(sheet.style.getPropertyValue('--drawer-progress'))).toBeGreaterThan(0)
     expect(Number(sheet.style.getPropertyValue('--drawer-progress'))).toBeLessThan(1)
     expect(host.querySelector('main')?.hasAttribute('inert')).toBe(true)
-    await vi.waitFor(() => expect(document.activeElement?.getAttribute('aria-label')).toBe('Close chats'))
+    await vi.waitFor(() => expect(document.activeElement?.getAttribute('aria-label')).toBe('Close navigation'))
     window.dispatchEvent(new Event('touchcancel'))
     await nextTick()
     expect(sheet.open).toBe(false)
@@ -108,10 +108,12 @@ describe('chat interface', () => {
     expect([client.state.runtime, client.state.profile]).toEqual(['runtime', 'work'])
     // A real drag's compatibility click is intentionally swallowed.
     window.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
-    host.querySelector<HTMLButtonElement>('.app-rail [aria-label="Results"]')!.click()
+    host.querySelector<HTMLButtonElement>('.mobile-menu')!.click()
     await nextTick()
-    expect(host.querySelector('.conversation-edge')).toBeNull()
-    expect(sheet.classList.contains('conversation-drawer')).toBe(false)
+    host.querySelector<HTMLButtonElement>('.drawer-destinations [aria-label="Results"]')!.click()
+    await nextTick()
+    expect(host.querySelector('.conversation-edge')).not.toBeNull()
+    expect(sheet.classList.contains('conversation-drawer')).toBe(true)
   })
   it('does not intercept ordinary iOS Safari and removes an installed-PWA drag on auth or breakpoint changes', async () => {
     vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue('iPhone')
@@ -170,7 +172,7 @@ describe('chat interface', () => {
     expect(installedHost.querySelector('.conversation-edge')).toBeNull()
     expect(installedHost.querySelector('.sign-in-page')).not.toBeNull()
   })
-  it('uses a mobile modal selector and closes selection idempotently without losing the chat draft', async () => {
+  it('uses one mobile drawer for every workspace and closes selection idempotently without losing the chat draft', async () => {
     vi.stubGlobal('matchMedia', vi.fn(query => ({ matches: query === '(max-width: 760px)', addEventListener() {}, removeEventListener() {} })))
     Object.defineProperties(HTMLDialogElement.prototype, {
       showModal: { configurable: true, value() { this.open = true } },
@@ -180,24 +182,26 @@ describe('chat interface', () => {
     const { host, client } = mountApp()
     client.state.draft = 'Keep this draft'
     await nextTick()
-    expect([...host.querySelectorAll('.rail-label')].map(label => label.textContent)).toEqual(['Chat', 'Results', 'More'])
-    host.querySelector<HTMLButtonElement>('.app-rail [aria-label="More"]')!.click()
+    expect(host.querySelector('.app-rail, .more-sheet, .mobile-selector')).toBeNull()
+    host.querySelector<HTMLButtonElement>('.mobile-menu')!.click()
     await nextTick()
-    host.querySelector<HTMLButtonElement>('.more-sheet [aria-label="Memory"]')!.click()
+    host.querySelector<HTMLButtonElement>('.drawer-destinations [aria-label="Memory"]')!.click()
     await nextTick()
-    const selector = host.querySelector<HTMLButtonElement>('.mobile-selector')!
-    expect(selector.textContent).toContain('Pending updates')
+    const selector = host.querySelector<HTMLButtonElement>('.mobile-menu')!
+    expect(host.querySelector('.conversation-heading h1')?.textContent).toBe('Memory')
     selector.click()
     await nextTick()
     const sheet = host.querySelector<HTMLDialogElement>('.navigation-sheet')!
     expect(sheet.open).toBe(true)
     expect(sheet.querySelector('[aria-label="Memory sections"]')).not.toBeNull()
-    sheet.querySelector<HTMLButtonElement>('.session')!.click()
+    sheet.querySelector<HTMLButtonElement>('[aria-label="Memory sections"] .session')!.click()
     await nextTick()
     expect(sheet.open).toBe(false)
     sheet.dispatchEvent(new Event('close'))
     await nextTick()
     expect(sheet.open).toBe(false)
+    host.querySelector<HTMLButtonElement>('.mobile-menu')!.click()
+    await nextTick()
     host.querySelector<HTMLButtonElement>('[aria-label="Chat"]')!.click()
     await nextTick()
     expect(client.state.draft).toBe('Keep this draft')
@@ -206,7 +210,7 @@ describe('chat interface', () => {
     Reflect.deleteProperty(HTMLDialogElement.prototype, 'showModal')
     Reflect.deleteProperty(HTMLDialogElement.prototype, 'close')
   })
-  it('opens full Settings through More without eager quota or chat-state changes', async () => {
+  it('opens full Settings through the shared drawer without eager quota or chat-state changes', async () => {
     vi.stubGlobal('matchMedia', vi.fn(query => ({ matches: query === '(max-width: 760px)', addEventListener() {}, removeEventListener() {} })))
     Object.defineProperties(HTMLDialogElement.prototype, {
       showModal: { configurable: true, value() { this.open = true } },
@@ -220,15 +224,15 @@ describe('chat interface', () => {
     await nextTick()
     expect(host.querySelector('.sidebar .notification-control, .sidebar .provider-quota, .sidebar-footer')).toBeNull()
     expect(host.querySelector('.settings-view')).toBeNull()
-    host.querySelector<HTMLButtonElement>('.app-rail [aria-label="More"]')!.click()
+    host.querySelector<HTMLButtonElement>('.mobile-menu')!.click()
     await nextTick()
-    const sheet = host.querySelector<HTMLDialogElement>('.more-sheet')!
+    const sheet = host.querySelector<HTMLDialogElement>('.navigation-sheet')!
     await vi.waitFor(() => expect(sheet.open).toBe(true))
     sheet.querySelector<HTMLButtonElement>('[aria-label="Settings"]')!.click()
     await nextTick()
     expect(sheet.open).toBe(false)
     expect(host.querySelector('.conversation-heading h1')?.textContent).toBe('Settings')
-    expect(host.querySelector('.app-rail [aria-label="More"]')?.getAttribute('aria-current')).toBe('page')
+    expect(sheet.querySelector('[aria-label="Settings"]')?.getAttribute('aria-current')).toBe('page')
     expect(host.querySelector('.settings-view')?.textContent).toContain('Fictional operator')
     expect(host.querySelector('.settings-signout > svg')?.getAttribute('aria-hidden')).toBe('true')
     expect(host.querySelector('.settings-signout')?.textContent).not.toContain('↪')
@@ -236,12 +240,14 @@ describe('chat interface', () => {
     expect(quota).not.toHaveBeenCalled()
     host.querySelector<HTMLButtonElement>('.quota-toggle')!.click()
     await vi.waitFor(() => expect(quota).toHaveBeenCalledExactlyOnceWith('test', 'work'))
+    host.querySelector<HTMLButtonElement>('.mobile-menu')!.click()
+    await nextTick()
     host.querySelector<HTMLButtonElement>('[aria-label="Chat"]')!.click()
     await nextTick()
     expect(client.state.draft).toBe('Retain this')
     expect(client.state.images).toHaveLength(1)
     expect([client.state.selected, client.state.runtime, client.state.profile]).toEqual(['stored', 'runtime', 'work'])
-    host.querySelector<HTMLButtonElement>('.app-rail [aria-label="More"]')!.click()
+    host.querySelector<HTMLButtonElement>('.mobile-menu')!.click()
     await vi.waitFor(() => expect(sheet.open).toBe(true))
     client.state.connection = 'expired'; client.state.identity = ''
     await nextTick()
@@ -338,7 +344,7 @@ describe('chat interface', () => {
     client.state.processes = [{ id: 'process', command: 'sleep', status: 'running', uptime: 1, output: '' }]
     vi.spyOn(client, 'searchConversations').mockImplementation(query => { client.state.searchQuery = query })
     await nextTick()
-    host.querySelector<HTMLButtonElement>('[aria-label="Open chats"]')!.click()
+    host.querySelector<HTMLButtonElement>('[aria-label="Open navigation"]')!.click()
     await nextTick()
     const sheet = host.querySelector<HTMLDialogElement>('.navigation-sheet')!
     expect(sheet.open).toBe(true)
@@ -461,39 +467,6 @@ describe('chat interface', () => {
     expect(style.getPropertyValue('--app-top')).toBe('')
   })
 
-  it('hides mobile tabs only for a focused composer with a shrunken keyboard viewport', async () => {
-    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true, addEventListener() {}, removeEventListener() {} })))
-    vi.stubGlobal('innerHeight', 844)
-    const viewport = Object.assign(new EventTarget(), { height: 844, offsetTop: 0, scale: 1 })
-    vi.stubGlobal('visualViewport', viewport)
-    const { host, client } = mountApp()
-    client.state.draft = 'Keep this draft\nwith a newline'
-    await nextTick()
-    const input = host.querySelector<HTMLTextAreaElement>('#prompt')!
-    input.focus(); await nextTick()
-    expect(host.querySelector('.keyboard-open')).toBeNull()
-    // Safari can resize both viewports, leaving their difference at zero.
-    vi.stubGlobal('innerHeight', 500)
-    viewport.height = 500
-    window.dispatchEvent(new Event('resize'))
-    viewport.dispatchEvent(new Event('resize')); await nextTick()
-    expect(host.querySelector('.keyboard-open')).not.toBeNull()
-    viewport.dispatchEvent(new Event('scroll')); await nextTick()
-    expect(host.querySelector('.keyboard-open')).not.toBeNull()
-    input.blur(); await nextTick()
-    expect(host.querySelector('.keyboard-open')).toBeNull()
-    vi.stubGlobal('innerHeight', 844)
-    viewport.height = 844
-    viewport.dispatchEvent(new Event('resize'))
-    input.focus(); await nextTick()
-    expect(host.querySelector('.keyboard-open')).toBeNull()
-    viewport.height = 500
-    viewport.dispatchEvent(new Event('resize')); await nextTick()
-    expect(host.querySelector('.keyboard-open')).not.toBeNull()
-    input.blur(); await nextTick()
-    expect(client.state.draft).toBe('Keep this draft\nwith a newline')
-  })
-
   it('preserves the layout while pinch zoom pans a smaller visual viewport', async () => {
     vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true, addEventListener() {}, removeEventListener() {} })))
     vi.stubGlobal('innerHeight', 844)
@@ -509,18 +482,15 @@ describe('chat interface', () => {
     viewport.dispatchEvent(new Event('scroll'))
     expect(document.documentElement.style.getPropertyValue('--app-height')).toBe('844px')
     expect(document.documentElement.style.getPropertyValue('--app-top')).toBe('0px')
-    expect(host.querySelector('.keyboard-open')).toBeNull()
     // Rotation changes the unoccluded baseline even while an external keyboard is focused.
     vi.stubGlobal('innerWidth', 700)
     vi.stubGlobal('innerHeight', 390)
     Object.assign(viewport, { height: 390, offsetTop: 0, scale: 1 })
     window.dispatchEvent(new Event('resize')); await nextTick()
     expect(document.documentElement.style.getPropertyValue('--app-height')).toBe('390px')
-    expect(host.querySelector('.keyboard-open')).toBeNull()
     vi.stubGlobal('innerHeight', 200)
     viewport.height = 200
     viewport.dispatchEvent(new Event('resize')); await nextTick()
-    expect(host.querySelector('.keyboard-open')).not.toBeNull()
   })
 
   it('pins a chat on Hermes without opening it and displays a separate pinned group', async () => {
@@ -1023,7 +993,6 @@ describe('chat interface', () => {
     vi.stubGlobal('innerHeight', 500)
     viewport.height = 500
     viewport.dispatchEvent(new Event('resize')); await nextTick()
-    expect(host.querySelector('.keyboard-open')).not.toBeNull()
     expect(mouseDown(2).defaultPrevented).toBe(false)
     client.state.uncertain = true
     await nextTick()
@@ -1053,7 +1022,6 @@ describe('chat interface', () => {
     expect(document.activeElement).not.toBe(input)
     expect(client.state.draft).toBe('First line\nSecond line')
     await nextTick()
-    expect(host.querySelector('.keyboard-open')).toBeNull()
     expect(mouseDown().defaultPrevented).toBe(false)
   })
 

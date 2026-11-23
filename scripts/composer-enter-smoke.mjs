@@ -25,6 +25,9 @@ try {
       let result
       if (path === '/api/agora/connection') result = { mode: 'local', endpoint: 'https://fixture.invalid' }
       else if (path === '/api/status') result = { auth_required: false }
+      else if (path === '/api/profiles/active') result = { current: 'work' }
+      else if (path === '/api/agora/push') result = { configured: false }
+      else if (path === '/api/sessions/composer') result = { id: 'composer', title: 'Fictional composer chat', profile: 'work', pinned: false }
       else if (path === '/api/sessions') result = { sessions: [{ id: 'composer', title: 'Fictional composer chat', profile: 'work' }], total: 1 }
       else if (path === '/api/sessions/composer/messages') result = { session_id: 'composer', profile: 'work', messages: [], pagination: { returned: 0, offset: 0, limit: 50 } }
       else throw new Error(`Unexpected fixture API: ${path}`)

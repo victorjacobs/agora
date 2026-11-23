@@ -76,16 +76,19 @@ desktop packaging is deferred.
   See [push.md](push.md) for setup, privacy and best-effort limits.
 - Responsive layout, keyboard-accessible controls, visible focus, and sensible
   scrolling that does not drag a reader away from older messages.
-  On mobile, three labelled bottom tabs—Chat, Results, More—replace the rail.
-  More opens a modal sheet for Memory, Jobs and Settings; it stays selected for
-  these secondary views. Settings is a full workspace for per-device notifications
-  with expandable details, collapsed on-demand quota, existing Hermes identity
-  and sign out. Desktop Settings lives at the bottom of the rail gutter, separate
-  from the workspace buttons. Secondary selection
-  moves from the permanent desktop sidebar into full-width selectors and modal
-  bottom sheets; Results retains an explicit All results choice. The conversation
-  picker opens from the chat header and contains only search, conversation history,
-  pins and new-chat actions. Existing workspace actions remain unchanged.
+  On mobile, one native full-height left drawer replaces all bottom tabs and
+  More. A compact top-left menu opens it from every workspace. It contains New
+  chat, the existing search/history/pins and activity indicators, Chat, Results,
+  Memory and Jobs; Settings, the Hermes identity and sign out form its footer.
+  Workspace-specific result jobs (including All results), Memory sections and
+  scheduled jobs use the same drawer, not duplicate selectors in the main body.
+  Selection, Escape and backdrop close it idempotently and restore focus.
+  Settings remains the workspace for per-device notifications and collapsed,
+  on-demand quota. Desktop retains its permanent rail/sidebar and bottom Settings
+  cog. Chat drafts, attachments and runtime/profile state remain owned by the
+  existing controllers. The composer uses the available viewport and safe area,
+  with no tab reservation. The existing experimental swipe and button fallback
+  retain their physical-iOS acceptance boundary.
 
 Session deletion must use the upstream API and display upstream failures. Keep
 selection, history, and live events associated with the correct session when

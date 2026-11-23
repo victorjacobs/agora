@@ -102,18 +102,16 @@ sign-in. Agora provides the chat interface.
   [Web Push setup, privacy and delivery limits](docs/push.md). Desktop-only reply
   notifications remain the open-and-connected fallback, without duplicate push.
 - Automatic light/dark appearance and a layout that works on desktop and mobile.
-  Mobile uses labelled **Chat**, **Results**, and **More** bottom tabs.
-  **More** opens Memory, Jobs, and Settings.
-  Full-width selectors open bottom sheets for result jobs, memory sections, and
-  scheduled jobs; the chat-header conversation button opens a full-height left
-  drawer. An **experimental** exact-left-edge swipe also opens it (on iOS, only
-  in the installed PWA); physical iPhone testing is required before merge.
-  See the [trial boundaries and acceptance gate](docs/experimental-conversation-drawer.md).
-  Desktop keeps its rail and workspace sidebars, with Settings pinned at the bottom
-  of the gutter. Settings contains per-device notifications, on-demand provider
-  quota, the existing Hermes identity and sign out; the conversation picker is
-  only for finding, pinning, and opening chats. Tabs hide while the
-  focused composer has a shrunken virtual-keyboard viewport and return on blur.
+  Mobile uses one full-height left sidebar, opened by the top-left menu in every
+  workspace. New chat, chat search/history/pins and activity, Results, Memory,
+  Jobs, and Settings all live there; account and sign out sit in its footer.
+  Results jobs, Memory sections and scheduled jobs are selected in the same
+  sidebar, with no bottom tabs or More sheet. An **experimental** exact-left-edge
+  swipe also opens it (on iOS, only in the installed PWA); physical iPhone testing
+  remains required before merge. See the [trial boundaries and acceptance gate](docs/experimental-conversation-drawer.md).
+  Desktop keeps its rail and workspace sidebars, with Settings pinned at the
+  bottom of the gutter. Settings retains per-device notifications and on-demand
+  quota. The composer fits the keyboard viewport without reserving tab space.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/chat-dark.png">
@@ -456,7 +454,7 @@ Generated images load through Hermes's authenticated media routes. Remote-image
 previews depend on Hermes's CDN allowlist. Background-task visibility depends on
 the gateway's supported events and session-scoped roster.
 
-Provider quota is available in the sidebar footer. Choose a provider to see its
+Provider quota is available in Settings. Choose a provider to see its
 remaining limits, reset times, or credit balance. Agora queries Hermes’s read-only
 `hermes usage --provider … --json` command through the gateway; credentials stay
 on Hermes. Providers without a quota endpoint, or older Hermes versions without

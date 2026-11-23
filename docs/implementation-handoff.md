@@ -1,5 +1,28 @@
 # Implementation handoff
 
+## Mobile sidebar navigation
+
+At widths up to 760px, the existing `navigationSheet` native dialog and deferred
+Teleport now host one full-height sidebar on every workspace. Bottom tabs, More
+and body selectors are removed. The same reactive chat list/search/pins/activity
+and workspace catalogs remain in `App.vue`; Results, Memory, Cron and Settings
+retain their original controllers and notification lifetime. New chat, workspace
+and catalog selections close idempotently before asynchronous work; Escape,
+backdrop, auth/profile/endpoint and breakpoint changes reuse the existing cleanup.
+The top-left menu remains the button fallback. Short viewports scroll the full
+sidebar; normal phone viewports keep the account footer outside the catalog's
+scroll owner. Desktop rail/sidebar layout is unchanged.
+
+`#app` owns the bottom safe area; there is no tab-bar height or extra shell inset.
+The visualViewport sizing and touch-send focus guard are retained because they
+also protect the composer independently of tabs. Only the obsolete tab visibility
+class and its tab-only regression were removed. `scripts/mobile-navigation-smoke.mjs`
+uses fictional HTTP/WebSocket fixtures for the real Vue app, including CDP safe-area
+and keyboard simulations, drawer touch/focus/selection, short viewport scrolling,
+New chat/sign out and desktop. `composer-enter-smoke.mjs` and `last-chat-smoke.mjs`
+cover native input and durable selection separately. These do not establish
+physical iOS native-edge/keyboard behavior or live authenticated acceptance.
+
 ## Last-opened chat
 
 `ChatClient` restores only after authentication and endpoint/launch-profile
