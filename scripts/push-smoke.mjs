@@ -49,6 +49,8 @@ try {
       else value = { configured: true, publicKey: key, devices: subscribed ? [createHash('sha256').update(endpoint).digest('hex')] : [], observer: 'watching', watched: 1 }
     } else if (path === '/api/agora/connection') value = { mode: 'local', endpoint: 'https://fictional.invalid' }
     else if (path === '/api/status') value = { auth_required: false }
+    else if (path === '/api/profiles/active') value = { current: 'work' }
+    else if (path === '/api/sessions/fictional') value = { id: 'fictional', title: 'Fictional project', profile: 'work', pinned: false }
     else if (path === '/api/sessions') value = { sessions: [{ id: 'fictional', title: 'Fictional project', profile: 'work' }], total: 1 }
     else if (path === '/api/sessions/fictional/messages') { assert.equal(url.searchParams.get('profile'), 'work'); value = { session_id: 'fictional', profile: 'work', messages: [{ role: 'assistant', content: 'Your fictional report is ready.' }], pagination: { returned: 1, offset: 0, limit: 50 } } }
     else throw new Error(`Unexpected fixture API ${path}`)
@@ -72,8 +74,8 @@ try {
   })
   await page.goto(origin + '/?session=fictional&profile=work')
   await page.getByText('Your fictional report is ready.', { exact: true }).waitFor()
-  await page.getByRole('button', { name: 'More', exact: true }).click()
-  await page.locator('.more-sheet').getByRole('button', { name: 'Settings', exact: true }).click()
+  await page.getByRole('button', { name: 'Open navigation', exact: true }).click()
+  await page.locator('.navigation-sheet').getByRole('button', { name: 'Settings', exact: true }).click()
   const toggle = page.getByRole('button', { name: 'Enable response notifications', exact: true })
   await toggle.waitFor(); await toggle.click()
   await page.getByText('Background notifications on', { exact: true }).waitFor()
@@ -108,8 +110,8 @@ try {
   iosPage.on('pageerror', error => errors.push(error.message))
   await iosPage.addInitScript(() => { Object.defineProperty(navigator, 'userAgent', { get: () => 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)' }); Object.defineProperty(navigator, 'platform', { get: () => 'iPhone' }) })
   await iosPage.goto(origin + '/?session=fictional&profile=work')
-  await iosPage.getByRole('button', { name: 'More', exact: true }).click()
-  await iosPage.locator('.more-sheet').getByRole('button', { name: 'Settings', exact: true }).click()
+  await iosPage.getByRole('button', { name: 'Open navigation', exact: true }).click()
+  await iosPage.locator('.navigation-sheet').getByRole('button', { name: 'Settings', exact: true }).click()
   await iosPage.getByText(/On iPhone or iPad, use Share/).waitFor()
   assert.equal(await iosPage.getByRole('button', { name: 'Enable response notifications', exact: true }).isDisabled(), true)
   await iosPage.screenshot({ path: resolve(output, 'mobile-install-help.png') })
